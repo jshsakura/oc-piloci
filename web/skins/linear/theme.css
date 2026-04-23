@@ -1,0 +1,55 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --font-size: 16px;
+
+  /* === Engine Neon Tokens === */
+  --neon-purple: #7000FF;
+  --neon-cyan: #00F0FF;
+  --neon-pink: #FF007F;
+  --brand: var(--neon-purple);
+  --brand-mute: rgba(112, 0, 255, 0.05);
+  
+  /* === Backgrounds === */
+  --background: #ffffff;
+  --foreground: #020617;
+  --surface-page: #ffffff;
+  --surface-card: rgba(255, 255, 255, 0.8);
+  --surface-muted: #f1f5f9;
+  
+  /* === Borders === */
+  --border: #e2e8f0;
+  --border-mute: rgba(226, 232, 240, 0.5);
+  
+  --radius-pro: 24px;
+}
+
+.dark {
+  --background: #05050a;
+  --foreground: #ffffff;
+  --surface-page: #05050a;
+  --surface-card: rgba(10, 10, 20, 0.6);
+  --surface-muted: #080812;
+  
+  --brand: #cba6f7;
+  --brand-mute: rgba(203, 166, 247, 0.1);
+  
+  --border: #1a1a2e;
+  --border-mute: rgba(255, 255, 255, 0.05);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-brand: var(--brand);
+  --color-neon-purple: var(--neon-purple);
+  --color-neon-cyan: var(--neon-cyan);
+  --color-neon-pink: var(--neon-pink);
+  --color-surface-page: var(--surface-page);
+  --color-surface-card: var(--surface-card);
+  --color-surface-muted: var(--surface-muted);
+  --color-border: var(--border);
+  --color-border-mute: var(--border-mute);
+  
+  --radius-pro: var(--radius-pro);
+}

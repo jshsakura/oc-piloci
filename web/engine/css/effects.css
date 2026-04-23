@@ -1,0 +1,81 @@
+@layer utilities {
+  /* [Engine] Overclocked Aurora */
+  .aurora-engine {
+    position: absolute;
+    inset: -100%;
+    background: 
+      radial-gradient(circle at 20% 30%, var(--neon-purple) 0%, transparent 40%),
+      radial-gradient(circle at 80% 70%, var(--neon-cyan) 0%, transparent 40%),
+      radial-gradient(circle at 50% 50%, var(--neon-pink) 0%, transparent 50%);
+    filter: blur(120px);
+    animation: engine-swirl 20s linear infinite;
+    z-index: -1;
+    opacity: 0.6;
+  }
+
+  @keyframes engine-swirl {
+    0% { transform: rotate(0deg) scale(1); }
+    50% { transform: rotate(180deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(1); }
+  }
+
+  /* [Engine] Fluid Gradient Box */
+  .animate-engine-gradient-box {
+    background-size: 200% 200%;
+    animation: engine-gradient-wave 4s ease infinite;
+    background-image: linear-gradient(
+      45deg,
+      var(--neon-purple),
+      var(--neon-cyan),
+      var(--neon-pink),
+      var(--neon-purple)
+    );
+  }
+
+  @keyframes engine-gradient-wave {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  /* [Engine] Vibrant Text Flow */
+  .animate-engine-text-vibrant {
+    background-size: 300% auto;
+    animation: engine-text-vibrant 3s linear infinite;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    background-image: linear-gradient(
+      to right,
+      var(--neon-purple),
+      var(--neon-cyan),
+      var(--neon-pink),
+      var(--neon-purple)
+    );
+  }
+
+  @keyframes engine-text-vibrant {
+    0% { background-position: 0% 50%; }
+    100% { background-position: 100% 50%; }
+  }
+
+  /* [Engine] High-End Reveal */
+  .reveal-engine {
+    animation: engine-reveal 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(20px);
+  }
+
+  @keyframes engine-reveal {
+    to {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0);
+    }
+  }
+
+  .delay-1 { animation-delay: 0.1s; }
+  .delay-2 { animation-delay: 0.3s; }
+  .delay-3 { animation-delay: 0.5s; }
+}

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#020617" />
+      <stop offset="100%" stop-color="#0F172A" />
+    </linearGradient>
+    <linearGradient id="pi-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00F0FF" />
+      <stop offset="50%" stop-color="#7000FF" />
+      <stop offset="100%" stop-color="#FF007F" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <rect width="256" height="256" rx="64" fill="url(#bg)" />
+
+  <g filter="url(#glow)">
+    <path d="M 60 80 Q 60 70 75 70 H 181 Q 196 70 196 85 V 95 Q 196 105 186 105 H 70 Q 60 105 60 95 Z" fill="url(#pi-grad)" />
+    <path d="M 90 105 V 170 Q 90 190 70 190 Q 60 190 60 180 V 175 Q 60 165 70 165 Q 80 165 80 175 V 105 Z" fill="url(#pi-grad)" opacity="0.9" />
+    <path d="M 150 105 V 175 Q 150 190 165 190 Q 185 190 195 175 Q 200 165 190 155 Q 180 145 170 155 Q 165 160 165 170 V 105 Z" fill="url(#pi-grad)" />
+  </g>
+
+  <circle cx="128" cy="87" r="4" fill="#FFFFFF" opacity="0.8">
+    <animate attributeName="opacity" values="0.4;1;0.4" dur="3s" repeatCount="indefinite" />
+  </circle>
+</svg>
