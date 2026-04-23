@@ -1,0 +1,60 @@
+services:
+  # ── Dev proxy (single external port) ─────────────────────────
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "28314:80"
+    volumes:
+      - ./deploy/nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # reach native pnpm dev on host
+    depends_on:
+      - piloci
+    networks: [piloci_net]
+    restart: "no"
+
+  # ── Backend ───────────────────────────────────────────────────
+  piloci:
+    build:
+      context: .
+      target: dev
+    ports:
+      - "8314:8314"
+    volumes:
+      - ./src:/app/src:ro
+      - ~/app/piloci/data:/data
+    environment:
+      - PORT=8314
+      - QDRANT_URL=http://host.docker.internal:6333
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite+aiosqlite:////data/piloci.db
+      - LOG_LEVEL=DEBUG
+      - LOG_FORMAT=text
+      - RELOAD=true
+      - DEBUG=true
+    env_file:
+      - .env
+    depends_on:
+      redis: { condition: service_healthy }
+    networks: [piloci_net]
+    restart: "no"
+
+  # ── Deps ──────────────────────────────────────────────────────
+  # Qdrant runs natively on the host (Pi 5 16KB page issue with Docker jemalloc)
+  # Start with: ~/app/piloci/bin/qdrant --storage-path ~/app/piloci/qdrant
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 60 1 --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - ~/app/piloci/redis:/data
+    networks: [piloci_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+networks:
+  piloci_net:
+    driver: bridge

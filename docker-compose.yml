@@ -1,0 +1,92 @@
+# ──────────────────────────────────────────────────────────────
+# piLoci — Production Docker Compose
+#
+# Quick start:
+#   1. ./deploy/setup.sh          # generate secrets, .env
+#   2. docker compose pull
+#   3. docker compose up -d
+#
+# Architecture:
+#   cloudflared → piloci:8314 ← redis:6379
+#                  └── SQLite + LanceDB on /data volume
+#
+# Customization:
+#   - Copy .env.example → .env and edit
+#   - Remove cloudflared service if not using Cloudflare Tunnel
+#   - Adjust Redis memory limit as needed
+# ──────────────────────────────────────────────────────────────
+services:
+  piloci:
+    image: ${PILOCI_IMAGE:-ghcr.io/your-org-or-user/piloci:latest}
+    restart: unless-stopped
+    read_only: true
+    user: "1000:1000"
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite+aiosqlite:////data/piloci.db
+      - LANCEDB_PATH=/data/lancedb
+      - LOG_LEVEL=INFO
+      - LOG_FORMAT=json
+    env_file:
+      - .env
+    secrets: [jwt_secret, session_secret]
+    volumes:
+      - piloci_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks: [piloci_internal]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8314/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --save 60 1
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks: [piloci_internal]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN_FILE=/run/secrets/tunnel_token
+    secrets: [tunnel_token]
+    networks: [piloci_internal]
+    depends_on: [piloci]
+
+secrets:
+  jwt_secret:
+    file: ./secrets/jwt_secret
+  session_secret:
+    file: ./secrets/session_secret
+  tunnel_token:
+    file: ./secrets/tunnel_token
+
+volumes:
+  piloci_data:
+  redis_data:
+
+networks:
+  piloci_internal:
+    driver: bridge
