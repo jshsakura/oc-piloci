@@ -1,0 +1,194 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+
+import uvicorn
+from starlette.applications import Starlette
+from starlette.middleware import Middleware
+from starlette.routing import Mount, Route
+
+from piloci.api.ratelimit import setup_ratelimit
+from piloci.api.routes import get_routes
+from piloci.api.security import SecurityHeadersMiddleware
+from piloci.api.static import get_static_app
+from piloci.auth.middleware import AuthMiddleware
+from piloci.config import get_settings
+from piloci.db.session import init_db
+from piloci.mcp.server import create_mcp_server
+from piloci.mcp.sse import create_sse_app
+from piloci.storage.lancedb_store import MemoryStore
+from piloci.utils.logging import configure_logging
+
+logger = logging.getLogger(__name__)
+
+
+async def _run_stdio() -> None:
+    from mcp.server.stdio import stdio_server
+
+    settings = get_settings()
+    store = MemoryStore(settings)
+    await store.ensure_collection()
+    mcp_server = _build_mcp(settings, store)
+    logger.info("piLoci stdio MCP server starting")
+    async with stdio_server() as (read, write):
+        await mcp_server.run(read, write, mcp_server.create_initialization_options())
+
+
+def run_stdio() -> None:
+    configure_logging()
+    asyncio.run(_run_stdio())
+
+
+def _build_mcp(settings, store: MemoryStore):
+    """Build MCP server with v0.3 resources/prompts wired to DB + store."""
+    from piloci.curator.profile import get_profile as _get_profile
+    from sqlalchemy import select
+    from piloci.db.session import async_session
+    from piloci.db.models import Project
+
+    async def profile_fn(user_id: str, project_id: str) -> dict | None:
+        return await _get_profile(user_id, project_id)
+
+    async def projects_fn(user_id: str, refresh: bool) -> list[dict]:
+        async with async_session() as db:
+            rows = (
+                await db.execute(select(Project).where(Project.user_id == user_id))
+            ).scalars().all()
+        return [
+            {"id": p.id, "slug": p.slug, "name": p.name, "memory_count": p.memory_count}
+            for p in rows
+        ]
+
+    async def recent_fn(user_id: str, project_id: str, limit: int) -> list[dict]:
+        rows = await store.list(
+            user_id=user_id, project_id=project_id, limit=limit, offset=0
+        )
+        rows.sort(key=lambda m: m.get("updated_at", 0), reverse=True)
+        return rows
+
+    return create_mcp_server(
+        settings,
+        store,
+        profile_fn=profile_fn,
+        projects_fn=projects_fn,
+        recent_fn=recent_fn,
+    )
+
+
+def create_app():
+    settings = get_settings()
+    configure_logging(level=settings.log_level, fmt=settings.log_format)
+
+    store = MemoryStore(settings)
+    mcp_server = _build_mcp(settings, store)
+
+    sse_app = create_sse_app(mcp_server, debug=settings.debug)
+
+    from starlette.routing import Route as SRoute, Mount as SMount
+    from mcp.server.sse import SseServerTransport as _SSE
+    sse_transport = _SSE("/messages/")
+
+    async def _handle_sse(request):
+        from piloci.mcp.sse import mcp_auth_ctx
+        from piloci.auth.jwt_utils import verify_token
+        auth_payload = None
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                auth_payload = verify_token(auth_header[7:], settings)
+            except ValueError:
+                from starlette.responses import Response
+                return Response("Unauthorized", status_code=401)
+        token_ctx = mcp_auth_ctx.set(auth_payload)
+        try:
+            async with sse_transport.connect_sse(request.scope, request.receive, request._send) as (r, w):  # noqa: SLF001
+                await mcp_server.run(r, w, mcp_server.create_initialization_options())
+        finally:
+            mcp_auth_ctx.reset(token_ctx)
+
+    routes = [
+        *get_routes(),
+        SRoute("/sse", endpoint=_handle_sse),
+        SMount("/messages/", app=sse_transport.handle_post_message),
+    ]
+
+    static = get_static_app()
+    if static:
+        routes.append(Mount("/", app=static))
+
+    # State held across lifespan
+    stop_event = asyncio.Event()
+    bg_tasks: list[asyncio.Task] = []
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(app_inner):
+        await _startup(app_inner, store, stop_event, bg_tasks)
+        try:
+            yield
+        finally:
+            await _shutdown(store, stop_event, bg_tasks)
+
+    app = Starlette(
+        debug=settings.debug,
+        routes=routes,
+        middleware=[
+            Middleware(SecurityHeadersMiddleware),
+            Middleware(AuthMiddleware, settings=settings),
+        ],
+        lifespan=lifespan,
+    )
+    app.state.store = store
+    setup_ratelimit(app)
+    return app
+
+
+async def _startup(app, store, stop_event, bg_tasks) -> None:
+    settings = get_settings()
+    await init_db()
+    logger.info("Database initialized")
+    await store.ensure_collection()
+    logger.info("LanceDB collection ready")
+
+    if settings.curator_enabled:
+        from piloci.curator.worker import process_unfinished, run_worker
+        from piloci.curator.profile import run_profile_worker
+
+        requeued = await process_unfinished(settings, store)
+        logger.info("Re-queued %d unprocessed sessions", requeued)
+
+        bg_tasks.append(asyncio.create_task(run_worker(settings, store, stop_event)))
+        bg_tasks.append(
+            asyncio.create_task(run_profile_worker(settings, store, stop_event))
+        )
+        logger.info("Curator + profile workers started")
+
+
+async def _shutdown(store, stop_event, bg_tasks) -> None:
+    stop_event.set()
+    for task in bg_tasks:
+        try:
+            await asyncio.wait_for(task, timeout=10.0)
+        except asyncio.TimeoutError:
+            task.cancel()
+        except Exception:
+            pass
+    await store.close()
+    logger.info("LanceDB connection closed")
+
+
+def run_sse() -> None:
+    settings = get_settings()
+    configure_logging(level=settings.log_level, fmt=settings.log_format)
+    app_target = "piloci.main:create_app" if settings.reload else create_app()
+    uvicorn.run(
+        app_target,
+        host=settings.host,
+        port=settings.port,
+        reload=settings.reload,
+        workers=1 if settings.reload else settings.workers,
+        log_level=settings.log_level.lower(),
+        factory=settings.reload,
+    )
