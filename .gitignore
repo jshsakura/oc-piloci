@@ -1,0 +1,105 @@
+# ── Environment & Secrets ──────────────────────────
+.env
+.env.*
+!.env.example
+.envrc
+secrets/
+
+# ── Python ────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+sdist/
+wheels/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+.venv/
+venv/
+env/
+.tox/
+.nox/
+.hypothesis/
+
+# uv
+.uv/
+# uv.lock is intentionally committed for reproducible installs
+
+# ── Type Checking & Linting ───────────────────────
+.mypy_cache/
+.dmypy.json
+.ruff_cache/
+.pyre/
+.pytype/
+
+# ── Testing & Coverage ────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+coverage/
+htmlcov/
+
+# ── IDEs & Editors ────────────────────────────────
+.vscode/
+.idea/
+.claude/
+opencode.json
+*.swp
+*.swo
+*~
+
+# ── OS ────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Jupyter ───────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Docker Data Volumes (local dev) ───────────────
+data/
+qdrant_data/
+redis_data/
+
+# ── Database Files (local dev) ────────────────────
+*.sqlite3
+*.db
+*.db-journal
+
+# ── Next.js / Node ────────────────────────────────
+node_modules/
+web/.next/
+web/out/
+web/tsconfig.tsbuildinfo
+.pnpm-store/
+.npm/
+# web/pnpm-lock.yaml is intentionally committed for reproducible installs
+
+# ── Static Build Output (generated) ───────────────
+src/piloci/static/
+
+# ── Logs ──────────────────────────────────────────
+*.log
+logs/
+
+# ── Embedding & Vector DB Caches ──────────────────
+.fastembed_cache/
+.lance/
+
+# ── Process & Temp Files ──────────────────────────
+*.pid
+*.bak
+*.tmp
+.tmp*/
+
+# ── External Tool Artifacts ───────────────────────
+.playwright-mcp/
+.sisyphus/
