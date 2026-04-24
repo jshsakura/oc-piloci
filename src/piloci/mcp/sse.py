@@ -21,8 +21,15 @@ mcp_auth_ctx: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
 )
 
 
-def create_sse_app(mcp_server: Server, *, debug: bool = False) -> Starlette:
-    sse = SseServerTransport("/messages/")
+def create_sse_app(mcp_server: Server, *, debug: bool = False, prefix: str = "") -> Starlette:
+    """Create SSE sub-app for MCP.
+
+    Args:
+        prefix: Mount prefix (e.g. "/mcp"). Used to build the correct
+                message-post path for SseServerTransport.
+    """
+    msg_path = f"{prefix}/messages/" if prefix else "/messages/"
+    sse = SseServerTransport(msg_path)
 
     async def handle_sse(request: Request) -> None:
         # Extract and verify JWT from Authorization header

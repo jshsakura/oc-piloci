@@ -83,34 +83,13 @@ def create_app():
     store = MemoryStore(settings)
     mcp_server = _build_mcp(settings, store)
 
-    sse_app = create_sse_app(mcp_server, debug=settings.debug)
+    sse_app = create_sse_app(mcp_server, debug=settings.debug, prefix="/mcp")
 
-    from starlette.routing import Route as SRoute, Mount as SMount
-    from mcp.server.sse import SseServerTransport as _SSE
-    sse_transport = _SSE("/messages/")
-
-    async def _handle_sse(request):
-        from piloci.mcp.sse import mcp_auth_ctx
-        from piloci.auth.jwt_utils import verify_token
-        auth_payload = None
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                auth_payload = verify_token(auth_header[7:], settings)
-            except ValueError:
-                from starlette.responses import Response
-                return Response("Unauthorized", status_code=401)
-        token_ctx = mcp_auth_ctx.set(auth_payload)
-        try:
-            async with sse_transport.connect_sse(request.scope, request.receive, request._send) as (r, w):  # noqa: SLF001
-                await mcp_server.run(r, w, mcp_server.create_initialization_options())
-        finally:
-            mcp_auth_ctx.reset(token_ctx)
+    from starlette.routing import Mount as SMount
 
     routes = [
         *get_routes(),
-        SRoute("/sse", endpoint=_handle_sse),
-        SMount("/messages/", app=sse_transport.handle_post_message),
+        SMount("/mcp", app=sse_app),
     ]
 
     static = get_static_app()
