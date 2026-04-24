@@ -2,6 +2,9 @@
 
 ## 2026-04-25
 
+- Enforced patch-only release hygiene: `src/piloci/version.py` now derives `__version__` from package metadata with a pyproject fallback for source-tree runs, removing the duplicate hardcoded version that could drift from `[project].version`.
+- Added `tests/test_version.py` to assert the imported package version matches `pyproject.toml`, and documented the `+0.0.1` default bump policy in `README.md`, `README.ko.md`, and `CLAUDE.md`.
+
 - Replaced stdlib `json` with `orjson` on the LanceDB metadata hot path in `src/piloci/storage/lancedb_store.py`, covering save, update/merge, vector upsert, and row parsing while keeping the stored `metadata` column as a JSON string for schema compatibility.
 - Added LanceDB storage regressions for byte metadata parsing and metadata-update merge semantics in `tests/test_storage_lancedb.py`; revalidated the storage slice with `uv run pytest tests/test_storage_lancedb.py -v --no-cov` (`25 passed`).
 

@@ -39,6 +39,7 @@
 ## Version Bumps & Release
 
 - 버전은 `pyproject.toml`의 `[project].version` 단일 소스 기준으로 관리
+- 버전 업데이트는 기본적으로 `+0.0.1` patch 단위만 허용 (major/minor bump는 명시 승인 필요)
 - 릴리스는 **태그 푸시 기반**: `git tag v{version} && git push origin main v{version}`
 - 태그는 반드시 `pyproject.toml` 버전과 일치해야 함 (`v0.2.0` ↔ `0.2.0`)
 - 릴리스 전 최소 확인:

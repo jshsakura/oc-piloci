@@ -285,7 +285,7 @@ pnpm build
 ## 릴리스 프로세스
 
 ```bash
-# 1. pyproject.toml 버전 업데이트
+# 1. pyproject.toml 버전 업데이트 (+0.0.1 단위, 명시 승인 없이는 major/minor bump 금지)
 # 2. 검증
 pytest tests/ -v
 uv build
@@ -296,6 +296,8 @@ git push origin main v0.1.0
 ```
 
 `.github/workflows/publish.yml`이 버전 태그에서 실행되어: 태그/버전 일치 확인 → 테스트 → 웹앱 빌드 → multi-arch Docker 이미지 게시 → GitHub Release 생성 → PyPI에 `oc-piloci` 게시.
+
+`piloci.__version__`은 패키지 메타데이터/`pyproject.toml`에서 파생됩니다. 별도 하드코딩 버전을 수정하지 마세요.
 
 ## 개발 재개
 

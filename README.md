@@ -358,7 +358,7 @@ piLoci uses a tag-driven release flow.
 
 ### Release checklist
 
-1. Bump `pyproject.toml` version.
+1. Bump `pyproject.toml` version by exactly `+0.0.1` unless a larger release is explicitly approved.
 2. Run local verification.
 
 ```bash
@@ -375,7 +375,7 @@ pnpm install --frozen-lockfile
 pnpm build
 ```
 
-3. Create the release commit.
+3. Create the release commit. `piloci.__version__` is derived from package metadata/`pyproject.toml`; do not edit a second hardcoded version.
 4. Tag and push the matching version.
 
 ```bash
