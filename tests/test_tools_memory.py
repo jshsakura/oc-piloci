@@ -1,4 +1,6 @@
 """Tests for v0.3 MCP tools: memory, recall, listProjects, whoAmI."""
+from pathlib import Path
+
 import pytest
 
 from piloci.tools.memory_tools import (
@@ -55,17 +57,97 @@ async def test_memory_forget_with_id(mock_store):
 
 
 # ---------------------------------------------------------------------------
-# recall
+# recall — preview mode (default)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_recall_without_profile(mock_store):
-    mock_store.search.return_value = [{"id": "m1", "content": "hi"}]
+async def test_recall_preview_mode(mock_store):
+    mock_store.search.return_value = [
+        {
+            "memory_id": "m1",
+            "content": "hello world this is a fairly long content string",
+            "score": 0.92,
+            "tags": ["test"],
+            "created_at": 1700000000,
+        },
+    ]
     args = RecallInput(query="hello", include_profile=False)
     result = await handle_recall(args, USER, PROJECT, mock_store, embed)
-    assert result["memories"][0]["id"] == "m1"
+    assert result["mode"] == "preview"
+    assert result["total"] == 1
+    mem = result["memories"][0]
+    assert mem["id"] == "m1"
+    assert mem["score"] == 0.92
+    assert mem["tags"] == ["test"]
+    assert "excerpt" in mem
+    assert mem["length"] == len("hello world this is a fairly long content string")
     assert "profile" not in result
+
+
+@pytest.mark.asyncio
+async def test_recall_preview_truncates_long_content(mock_store):
+    mock_store.search.return_value = [
+        {"memory_id": "m2", "content": "x" * 200, "score": 0.8, "tags": [], "created_at": 0},
+    ]
+    args = RecallInput(query="test", include_profile=False)
+    result = await handle_recall(args, USER, PROJECT, mock_store, embed)
+    mem = result["memories"][0]
+    assert len(mem["excerpt"]) <= 83  # 80 chars + "..."
+    assert mem["length"] == 200
+
+
+# ---------------------------------------------------------------------------
+# recall — fetch_ids mode (full content)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_recall_fetch_ids(mock_store):
+    mock_store.get.return_value = {
+        "memory_id": "abc",
+        "content": "full content here",
+        "tags": ["x"],
+    }
+    args = RecallInput(query=None, fetch_ids=["abc"])
+    result = await handle_recall(args, USER, PROJECT, mock_store, embed)
+    assert result["mode"] == "full"
+    assert result["fetched"] == 1
+    assert result["memories"][0]["content"] == "full content here"
+
+
+@pytest.mark.asyncio
+async def test_recall_fetch_ids_skips_missing(mock_store):
+    mock_store.get.return_value = None
+    args = RecallInput(query=None, fetch_ids=["nonexistent"])
+    result = await handle_recall(args, USER, PROJECT, mock_store, embed)
+    assert result["fetched"] == 0
+    assert result["memories"] == []
+
+
+# ---------------------------------------------------------------------------
+# recall — to_file mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_recall_to_file(mock_store, tmp_path):
+    mock_store.search.return_value = [
+        {"memory_id": "m1", "content": "x" * 200, "score": 0.95, "tags": ["a"], "created_at": 0},
+    ]
+    args = RecallInput(query="test", to_file=True, include_profile=False)
+    result = await handle_recall(args, USER, PROJECT, mock_store, embed, export_dir=tmp_path)
+    assert result["mode"] == "file"
+    assert "file" in result
+    assert result["count"] == 1
+    assert Path(result["file"]).exists()
+    content = Path(result["file"]).read_text()
+    assert "x" * 200 in content
+
+
+# ---------------------------------------------------------------------------
+# recall — profile
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
@@ -89,8 +171,16 @@ async def test_recall_handles_profile_error(mock_store):
 
     args = RecallInput(query="hi", include_profile=True)
     result = await handle_recall(args, USER, PROJECT, mock_store, embed, profile_fn=bad_profile)
-    assert "profile" not in result  # silently dropped
+    assert "profile" not in result
     assert result["memories"] == []
+
+
+@pytest.mark.asyncio
+async def test_recall_no_query_no_fetch_ids_returns_error(mock_store):
+    args = RecallInput(query=None, fetch_ids=None)
+    result = await handle_recall(args, USER, PROJECT, mock_store, embed)
+    assert "error" in result
+    assert result["total"] == 0
 
 
 # ---------------------------------------------------------------------------
