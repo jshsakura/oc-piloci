@@ -1751,13 +1751,48 @@ Phase 1-8은 원본 계획 유지. 다음 Phase 추가:
 - [ ] Batch embedding API
 - [ ] EmbeddingCache O(1) 갱신
 - [ ] Gemma 세마포어 분리 (ingest / profile)
-- [ ] listProjects 캐시 구현
+- [x] listProjects 캐시 구현
 - [ ] LanceDB bulk save
-- [ ] `container_tag` 스키마 정리
+- [x] `container_tag` 스키마 정리
+
+**Phase 12 진행 메모 (2026-04-25)**
+- MCP `listProjects`는 실제 5분 사용자별 인메모리 캐시로 구현됨 (`src/piloci/main.py::_ProjectsCache`)
+- `refresh=true`면 캐시를 우회하고 DB에서 다시 읽음
+- 죽은 MCP 스키마 필드였던 `container_tag`는 `MemoryInput`/`RecallInput`에서 제거되어 툴 스키마 토큰을 줄임
+- 관련 회귀 검증: `uv run pytest tests/test_tools_memory.py tests/test_main_projects_cache.py tests/test_notify_telegram.py -v --no-cov` → `24 passed`
 
 **Phase 13: 레거시 정리**
 - [ ] `src/piloci/tools/project_tools.py` 제거 (사용되지 않음)
 - [ ] 사용하지 않는 import/참조 정리
+
+#### 7. MCP 세션 Telegram 요약 알림 (구현됨)
+
+**구현 완료**:
+- `src/piloci/mcp/session_state.py` 추가: MCP 세션 단위 카운터/태그 집계용 `McpSessionTracker`, `mcp_auth_ctx`, `mcp_session_ctx`
+- `src/piloci/mcp/server.py` `_call_tool()`에서 성공한 툴 호출만 집계
+- `src/piloci/mcp/sse.py` `finally`에서 세션 종료 시점 알림 전송 시도
+- `src/piloci/notify/telegram.py` 추가: Telegram Bot API `sendMessage` 직접 호출, plain-text, timeout, 429 retry, 4096자 truncation
+- `src/piloci/config.py`에 Telegram 설정 추가:
+  - `telegram_bot_token`
+  - `telegram_chat_id`
+  - `telegram_min_duration_sec`
+  - `telegram_min_memory_ops`
+  - `telegram_timeout_sec`
+
+**알림 조건**:
+- 봇 토큰/채팅 ID가 모두 설정되어 있어야 함
+- 세션에서 실제 MCP tool call이 1회 이상 있어야 함
+- 아래 둘 중 하나 충족 시만 전송:
+  - 세션 지속시간 ≥ `telegram_min_duration_sec`
+  - memory save/forget 합계 ≥ `telegram_min_memory_ops`
+
+**의도**:
+- LLM 추가 호출 없이 세션 메타데이터만으로 “작업이 있었던 세션”만 저비용 요약 알림
+- 시시한 짧은 세션/조회 거의 없는 세션은 자동 무시
+
+**현재 범위**:
+- Telegram 알림은 구현 완료
+- RawSession 메타데이터 영구 저장은 아직 미구현 (설계 항목으로만 유지)
 
 ---
 

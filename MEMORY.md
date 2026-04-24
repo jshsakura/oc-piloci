@@ -1,6 +1,20 @@
 # MEMORY
 
+## 2026-04-25
+
+- Replaced stdlib `json` with `orjson` on the LanceDB metadata hot path in `src/piloci/storage/lancedb_store.py`, covering save, update/merge, vector upsert, and row parsing while keeping the stored `metadata` column as a JSON string for schema compatibility.
+- Added LanceDB storage regressions for byte metadata parsing and metadata-update merge semantics in `tests/test_storage_lancedb.py`; revalidated the storage slice with `uv run pytest tests/test_storage_lancedb.py -v --no-cov` (`25 passed`).
+
 ## 2026-04-24
+
+- Implemented the next low-token MCP cleanup slice: `src/piloci/main.py` now has a real per-user 5-minute `listProjects` cache with `refresh=true` bypass, eliminating the old mismatch where the tool description promised caching but every call still hit SQLite.
+- Removed dead MCP schema noise from `src/piloci/tools/memory_tools.py` by deleting the unused `container_tag` field from both `MemoryInput` and `RecallInput`, reducing tool-schema token overhead and removing a misleading parameter the handlers never consumed.
+- Added `tests/test_main_projects_cache.py` to lock cache hit/copy semantics, expiry/invalidate behavior, and absence of `container_tag` in the generated MCP schemas; revalidated the combined backend slice with targeted regressions (`24 passed`).
+
+- Added token-free MCP session Telegram notifications: `src/piloci/mcp/session_state.py` now tracks per-session tool-call counts/tags, `src/piloci/mcp/server.py` records successful tool usage, and `src/piloci/mcp/sse.py` sends a summary from the session `finally` block without affecting MCP flow on notifier failure.
+- Added `src/piloci/notify/telegram.py` with direct Telegram Bot API `sendMessage` integration using plain text, explicit timeout, 429 retry with `retry_after`, disabled push noise, and 4096-char truncation; exposed the related runtime knobs in `src/piloci/config.py` (`telegram_bot_token`, `telegram_chat_id`, duration/memory-op thresholds, timeout).
+- Reworked MCP recall into a token-saving 3-mode flow in `src/piloci/tools/memory_tools.py`: default preview responses now return excerpt/length/score/tags only, `fetch_ids` loads full content only for selected memories, and `to_file=true` writes large recall results to markdown under `export_dir` so the LLM can stay out of the full payload path.
+- Updated `src/piloci/mcp/server.py` to pass `export_dir` into recall handling and expanded targeted regression coverage in `tests/test_tools_memory.py` plus new `tests/test_notify_telegram.py`; revalidated the slice with `uv run pytest tests/test_tools_memory.py tests/test_notify_telegram.py -v --no-cov` (`19 passed`).
 
 - Reframed `README.md` around the actual Obsidian-adjacent functionality already in the repo: transcript ingest via `piloci-ingest`, the `/api/projects/slug/{slug}/workspace` vault workspace API, markdown/frontmatter note generation, graph data, and the current boundary that full on-disk Obsidian sync is not implemented yet.
 - Tightened `src/piloci/storage/lancedb_store.py` again so `get()` now pushes `(user_id, project_id, memory_id)` isolation directly into the LanceDB query instead of materializing a row first and rejecting it in Python.

@@ -8,7 +8,7 @@ piLoci combines a Python MCP server, web dashboard, SQLite auth data, LanceDB ve
 
 > **Current status**: alpha, package version `0.1.0`
 >
-> Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, Google OAuth option, 2FA option, audit logs, transcript ingest pipeline, and vault workspace MVP are implemented.
+> Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, Google OAuth option, 2FA option, audit logs, transcript ingest pipeline, vault workspace MVP, low-token recall flow, and thresholded Telegram session alerts are implemented.
 
 ## Overview
 
@@ -125,6 +125,9 @@ Clone the repo, run the setup, then deploy with Docker Compose as described in t
 - Transcript ingest endpoint + `piloci-ingest` CLI for client session capture
 - Vault workspace API that turns memories into markdown notes, tags, links, and graph data
 - In-browser project workspace viewer for generated notes and relationships
+- Low-token recall flow: preview by default, full fetch by ID, large-result markdown export
+- Thresholded Telegram session summaries with zero extra LLM cost
+- Real 5-minute MCP `listProjects` cache to avoid repeated SQLite hits
 
 ### What is still open
 
@@ -137,10 +140,20 @@ Clone the repo, run the setup, then deploy with Docker Compose as described in t
 
 - **Project-scoped memory isolation**: every memory operation is scoped by user and project so different projects do not leak context into each other.
 - **MCP-native memory surface**: piLoci exposes `memory`, `recall`, `listProjects`, and `whoAmI` so compatible clients can save and retrieve long-term context directly.
+- **Low-token recall by default**: `recall` now returns previews first, supports `fetch_ids` for selective full loads, and can export large results to markdown files instead of dumping long payloads back into the model context.
+- **Zero-token session alerts**: MCP session summaries can be pushed to Telegram from backend-only metadata when a session is long enough or memory activity is meaningful.
+- **Cheap project discovery**: MCP `listProjects` now uses a real 5-minute per-user cache, with `refresh=true` available when the caller explicitly wants a fresh DB read.
 - **Transcript ingest pipeline**: `piloci-ingest` can collect session transcripts from Claude Code, OpenCode, and Codex-style histories and send them to `/api/ingest` for queued processing.
 - **Obsidian-style workspace generation**: piLoci can derive markdown notes with YAML frontmatter, tags, wikilinks, and graph relationships from stored memories.
 - **Workspace API + browser UI**: `GET /api/projects/slug/{slug}/workspace` returns notes and graph data, and the web app already lets you browse the generated workspace without a separate export step.
 - **Local-first deployment model**: SQLite, LanceDB, and Redis stay under your control, with no required hosted memory backend.
+
+## Recent optimization wins
+
+- **Recall no longer dumps full search payloads by default** — preview-first responses keep model context small, and large recall results can be written to markdown under `export_dir`.
+- **Dead MCP schema noise removed** — the unused `container_tag` parameter was removed from memory/recall schemas to cut misleading tokens.
+- **Meaningful sessions only** — Telegram notifications are gated by duration or memory activity thresholds, so trivial sessions stay silent.
+- **Project listing is finally as cheap as documented** — `listProjects` now really is cached for 5 minutes unless the caller opts into refresh.
 
 ## Phase Roadmap
 
@@ -218,6 +231,8 @@ Optional features:
 - `SMTP_*` — email verification and password reset
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — Google OAuth login
 - `WORKERS`, `LOG_LEVEL`, `LOG_FORMAT` — runtime tuning
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — optional MCP session summary alerts
+- `TELEGRAM_MIN_DURATION_SEC`, `TELEGRAM_MIN_MEMORY_OPS`, `TELEGRAM_TIMEOUT_SEC` — alert thresholds and timeout
 
 Retention / low-spec ops knobs:
 
