@@ -10,7 +10,7 @@ from sqlalchemy import select, update
 
 from piloci.config import Settings
 from piloci.curator.gemma import chat_json
-from piloci.curator.queue import IngestJob, get_ingest_queue
+from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
 from piloci.db.models import RawSession
 from piloci.db.session import async_session
 from piloci.storage.embed import embed_one
@@ -43,7 +43,7 @@ Extract memories. Output schema:
 Output ONLY the JSON object, no prose."""
 
 
-def _shorten_transcript(transcript: list[dict], max_chars: int = 8000) -> str:
+def _shorten_transcript(transcript: list[dict[str, object]], max_chars: int = 8000) -> str:
     """Render transcript for Gemma, truncating long content if needed."""
     lines = []
     for msg in transcript:
@@ -68,8 +68,11 @@ def _shorten_transcript(transcript: list[dict], max_chars: int = 8000) -> str:
     return head + marker + tail
 
 
-async def _extract_memories(transcript: list[dict], settings: Settings) -> list[dict]:
-    text = _shorten_transcript(transcript)
+async def _extract_memories(
+    transcript: list[dict[str, object]], settings: Settings
+) -> list[dict[str, object]]:
+    max_chars = getattr(settings, "curator_transcript_max_chars", 8000)
+    text = _shorten_transcript(transcript, max_chars=max_chars)
     messages = [
         {"role": "system", "content": _EXTRACT_SYSTEM},
         {"role": "user", "content": _EXTRACT_USER_TEMPLATE.format(transcript=text)},
@@ -126,15 +129,15 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
 
     saved_count = 0
     for mem in memories:
-        content = (mem.get("content") or "").strip()
+        raw_content = mem.get("content")
+        content = raw_content.strip() if isinstance(raw_content, str) else ""
         if not content:
             continue
-        tags = mem.get("tags") or []
-        if not isinstance(tags, list):
-            tags = []
+        raw_tags = mem.get("tags")
+        tags = [str(tag) for tag in raw_tags] if isinstance(raw_tags, list) else []
         category = mem.get("category")
         if category:
-            tags = list(dict.fromkeys([*tags, category]))
+            tags = list(dict.fromkeys([*tags, str(category)]))
 
         try:
             vector = await embed_one(
@@ -142,6 +145,8 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
                 model=settings.embed_model,
                 cache_dir=settings.embed_cache_dir,
                 lru_size=settings.embed_lru_size,
+                executor_workers=settings.embed_executor_workers,
+                max_concurrency=settings.embed_max_concurrency,
             )
             if await _is_duplicate(store, job.user_id, job.project_id, vector):
                 logger.debug("Skipping duplicate memory: %s", content[:60])
@@ -176,12 +181,12 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
 
 async def run_worker(settings: Settings, store: MemoryStore, stop_event: asyncio.Event) -> None:
     """Long-running worker: drain the queue until stop_event is set."""
-    queue = get_ingest_queue()
+    queue = get_ingest_queue(settings.ingest_queue_maxsize)
     logger.info("Curator worker started")
 
     while not stop_event.is_set():
         try:
-            job = await asyncio.wait_for(queue.get(), timeout=5.0)
+            job = await asyncio.wait_for(queue.get(), timeout=settings.curator_queue_poll_timeout_sec)
         except asyncio.TimeoutError:
             continue
         try:
@@ -206,15 +211,21 @@ async def process_unfinished(settings: Settings, store: MemoryStore) -> int:
             )
         ).scalars().all()
 
-    queue = get_ingest_queue()
+    queue = get_ingest_queue(settings.ingest_queue_maxsize)
+    requeued = 0
     for row in rows:
         if row.project_id is None:
             continue
-        await queue.put(
-            IngestJob(
-                ingest_id=row.ingest_id,
-                user_id=row.user_id,
-                project_id=row.project_id,
-            )
+        job = IngestJob(
+            ingest_id=row.ingest_id,
+            user_id=row.user_id,
+            project_id=row.project_id,
         )
-    return len(rows)
+        if not try_enqueue_job(job, maxsize=settings.ingest_queue_maxsize):
+            logger.warning(
+                "Ingest queue full during startup requeue; leaving %s pending",
+                row.ingest_id,
+            )
+            continue
+        requeued += 1
+    return requeued

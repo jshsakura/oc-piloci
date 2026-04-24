@@ -11,6 +11,7 @@ import pyarrow as pa
 from lancedb.index import BTree, IvfPq, LabelList
 
 from piloci.config import Settings
+from piloci.utils.logging import get_runtime_profiler
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +117,11 @@ class MemoryStore:
         pid = _safe_id(project_id)
         return f"user_id = '{uid}' AND project_id = '{pid}'"
 
+    def _memory_filter_sql(self, user_id: str, project_id: str, memory_id: str) -> str:
+        where = self._must_filter_sql(user_id, project_id)
+        mid = _safe_id(memory_id)
+        return f"{where} AND memory_id = '{mid}'"
+
     async def save(
         self,
         user_id: str,
@@ -139,12 +145,13 @@ class MemoryStore:
             "updated_at": now,
             "vector": vector,
         }
-        await (
-            tbl.merge_insert("memory_id")
-            .when_matched_update_all()
-            .when_not_matched_insert_all()
-            .execute([row])
-        )
+        with get_runtime_profiler().track("lancedb.save"):
+            await (
+                tbl.merge_insert("memory_id")
+                .when_matched_update_all()
+                .when_not_matched_insert_all()
+                .execute([row])
+            )
         return memory_id
 
     async def search(
@@ -163,13 +170,14 @@ class MemoryStore:
                 safe_tag = tag.replace("'", "''")
                 where += f" AND list_contains(tags, '{safe_tag}')"
 
-        rows = await (
-            tbl.vector_search(query_vector)
-            .distance_type("cosine")
-            .where(where)
-            .limit(top_k)
-            .to_list()
-        )
+        with get_runtime_profiler().track("lancedb.search"):
+            rows = await (
+                tbl.vector_search(query_vector)
+                .distance_type("cosine")
+                .where(where)
+                .limit(top_k)
+                .to_list()
+            )
 
         results = []
         for row in rows:
@@ -186,16 +194,13 @@ class MemoryStore:
         self, user_id: str, project_id: str, memory_id: str
     ) -> dict[str, Any] | None:
         tbl = await self._get_table()
-        mid = _safe_id(memory_id)
         _SCALAR_COLS = ["memory_id", "user_id", "project_id", "content", "tags", "metadata", "created_at", "updated_at"]
-        rows = await tbl.query().where(f"memory_id = '{mid}'").select(_SCALAR_COLS).limit(1).to_list()
+        where = self._memory_filter_sql(user_id, project_id, memory_id)
+        with get_runtime_profiler().track("lancedb.get"):
+            rows = await tbl.query().where(where).select(_SCALAR_COLS).limit(1).to_list()
         if not rows:
             return None
-        row = rows[0]
-        # Enforce isolation: reject if not this user/project
-        if row.get("user_id") != user_id or row.get("project_id") != project_id:
-            return None
-        return _row_to_dict(row)
+        return _row_to_dict(rows[0])
 
     async def list(
         self,
@@ -213,7 +218,8 @@ class MemoryStore:
                 where += f" AND list_contains(tags, '{safe_tag}')"
 
         _SCALAR_COLS = ["memory_id", "user_id", "project_id", "content", "tags", "metadata", "created_at", "updated_at"]
-        rows = await tbl.query().where(where).select(_SCALAR_COLS).limit(limit).offset(offset).to_list()
+        with get_runtime_profiler().track("lancedb.list"):
+            rows = await tbl.query().where(where).select(_SCALAR_COLS).limit(limit).offset(offset).to_list()
         return [_row_to_dict(r) for r in rows]
 
     async def update(
@@ -226,61 +232,85 @@ class MemoryStore:
         tags: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> bool:
-        existing = await self.get(user_id, project_id, memory_id)
-        if existing is None:
-            return False
+        with get_runtime_profiler().track("lancedb.update"):
+            tbl = await self._get_table()
+            where = self._memory_filter_sql(user_id, project_id, memory_id)
+            now = int(time.time())
 
-        tbl = await self._get_table()
-        mid = _safe_id(memory_id)
-        now = int(time.time())
+            if new_vector is None and metadata is None:
+                updates: dict[str, Any] = {"updated_at": now}
+                if content is not None:
+                    updates["content"] = content
+                if tags is not None:
+                    updates["tags"] = tags
+                if len(updates) == 1:
+                    result = await tbl.update(updates=updates, where=where)
+                    return result.rows_updated > 0
+                result = await tbl.update(updates=updates, where=where)
+                return result.rows_updated > 0
 
-        if new_vector is not None:
-            merged_meta = {**existing.get("metadata", {}), **(metadata or {})}
-            row = {
-                "memory_id": mid,
-                "user_id": user_id,
-                "project_id": project_id,
-                "content": content if content is not None else existing["content"],
-                "tags": tags if tags is not None else existing["tags"],
-                "metadata": json.dumps(merged_meta),
-                "created_at": existing["created_at"],
-                "updated_at": now,
-                "vector": new_vector,
-            }
-            await (
-                tbl.merge_insert("memory_id")
-                .when_matched_update_all()
-                .when_not_matched_insert_all()
-                .execute([row])
-            )
-        else:
-            updates: dict[str, Any] = {"updated_at": now}
-            if content is not None:
-                updates["content"] = content
-            if tags is not None:
-                updates["tags"] = tags
-            if metadata is not None:
-                merged = {**existing.get("metadata", {}), **metadata}
-                updates["metadata"] = json.dumps(merged)
-            await tbl.update(updates=updates, where=f"memory_id = '{mid}'")
+            _SCALAR_COLS = [
+                "memory_id",
+                "user_id",
+                "project_id",
+                "content",
+                "tags",
+                "metadata",
+                "created_at",
+                "updated_at",
+            ]
+            rows = await tbl.query().where(where).select(_SCALAR_COLS).limit(1).to_list()
+            if not rows:
+                return False
+            existing = _row_to_dict(rows[0])
 
-        return True
+            if new_vector is not None:
+                merged_meta = {**existing.get("metadata", {}), **(metadata or {})}
+                row = {
+                    "memory_id": _safe_id(memory_id),
+                    "user_id": user_id,
+                    "project_id": project_id,
+                    "content": content if content is not None else existing["content"],
+                    "tags": tags if tags is not None else existing["tags"],
+                    "metadata": json.dumps(merged_meta),
+                    "created_at": existing["created_at"],
+                    "updated_at": now,
+                    "vector": new_vector,
+                }
+                await (
+                    tbl.merge_insert("memory_id")
+                    .when_matched_update_all()
+                    .when_not_matched_insert_all()
+                    .execute([row])
+                )
+            else:
+                updates: dict[str, Any] = {"updated_at": now}
+                if content is not None:
+                    updates["content"] = content
+                if tags is not None:
+                    updates["tags"] = tags
+                if metadata is not None:
+                    merged = {**existing.get("metadata", {}), **metadata}
+                    updates["metadata"] = json.dumps(merged)
+                await tbl.update(updates=updates, where=where)
+
+            return True
 
     async def delete(self, user_id: str, project_id: str, memory_id: str) -> bool:
-        existing = await self.get(user_id, project_id, memory_id)
-        if existing is None:
-            return False
-        tbl = await self._get_table()
-        mid = _safe_id(memory_id)
-        await tbl.delete(f"memory_id = '{mid}'")
-        return True
+        with get_runtime_profiler().track("lancedb.delete"):
+            tbl = await self._get_table()
+            where = self._memory_filter_sql(user_id, project_id, memory_id)
+            result = await tbl.delete(where)
+            deleted_rows = getattr(result, "num_deleted_rows", 0)
+            return isinstance(deleted_rows, int) and deleted_rows > 0
 
     async def clear_project(self, user_id: str, project_id: str) -> int:
-        tbl = await self._get_table()
-        where = self._must_filter_sql(user_id, project_id)
-        count = await tbl.count_rows(filter=where)
-        await tbl.delete(where)
-        return count
+        with get_runtime_profiler().track("lancedb.clear_project"):
+            tbl = await self._get_table()
+            where = self._must_filter_sql(user_id, project_id)
+            result = await tbl.delete(where)
+            deleted_rows = getattr(result, "num_deleted_rows", 0)
+            return deleted_rows if isinstance(deleted_rows, int) else 0
 
     async def close(self) -> None:
         self._table = None

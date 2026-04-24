@@ -49,15 +49,28 @@ Output schema:
 - Output ONLY the JSON object."""
 
 
-async def _summarize(memories: list[dict], settings: Settings) -> dict:
+def _normalize_profile_payload(payload: object) -> dict[str, list[str]]:
+    if not isinstance(payload, dict):
+        return {"static": [], "dynamic": []}
+
+    static_raw = payload.get("static")
+    dynamic_raw = payload.get("dynamic")
+    static = [str(item) for item in static_raw[:20]] if isinstance(static_raw, list) else []
+    dynamic = [str(item) for item in dynamic_raw[:10]] if isinstance(dynamic_raw, list) else []
+    return {"static": static, "dynamic": dynamic}
+
+
+async def _summarize(memories: list[dict[str, object]], settings: Settings) -> dict[str, list[str]]:
     if not memories:
         return {"static": [], "dynamic": []}
 
     # Render most recent first, truncate to reasonable size
     lines = []
     for m in memories:
-        content = m.get("content", "")
-        tags = m.get("tags") or []
+        content_raw = m.get("content", "")
+        content = content_raw if isinstance(content_raw, str) else str(content_raw)
+        tags_raw = m.get("tags")
+        tags = [str(tag) for tag in tags_raw] if isinstance(tags_raw, list) else []
         tag_str = f" [{','.join(tags)}]" if tags else ""
         lines.append(f"- {content}{tag_str}")
     text = "\n".join(lines[:200])  # cap at 200 memories
@@ -72,16 +85,7 @@ async def _summarize(memories: list[dict], settings: Settings) -> dict:
         model=settings.gemma_model,
         max_tokens=1500,
     )
-    static = result.get("static") or []
-    dynamic = result.get("dynamic") or []
-    if not isinstance(static, list):
-        static = []
-    if not isinstance(dynamic, list):
-        dynamic = []
-    return {
-        "static": [str(s) for s in static[:20]],
-        "dynamic": [str(s) for s in dynamic[:10]],
-    }
+    return _normalize_profile_payload(result)
 
 
 async def refresh_profile(
@@ -90,7 +94,7 @@ async def refresh_profile(
     settings: Settings,
     store: MemoryStore,
     force: bool = False,
-) -> dict:
+) -> dict[str, list[str]]:
     """Regenerate and store the profile. Debounced by min_interval."""
     now = time.time()
     key = (user_id, project_id)
@@ -106,7 +110,7 @@ async def refresh_profile(
             )
             existing = row.scalar_one_or_none()
             if existing:
-                return json.loads(existing.profile_json)
+                return _normalize_profile_payload(json.loads(existing.profile_json))
         # fall through to generate if no existing profile
 
     # Fetch recent memories
@@ -141,7 +145,7 @@ async def refresh_profile(
     return profile
 
 
-async def get_profile(user_id: str, project_id: str) -> dict | None:
+async def get_profile(user_id: str, project_id: str) -> dict[str, list[str]] | None:
     """Fast read path for Resources/Prompts — no LLM call."""
     async with async_session() as db:
         row = await db.execute(
@@ -154,9 +158,43 @@ async def get_profile(user_id: str, project_id: str) -> dict | None:
         if existing is None:
             return None
         try:
-            return json.loads(existing.profile_json)
+            return _normalize_profile_payload(json.loads(existing.profile_json))
         except json.JSONDecodeError:
             return None
+
+
+async def _run_profile_refresh_cycle(
+    settings: Settings,
+    store: MemoryStore,
+    stop_event: asyncio.Event,
+) -> int:
+    from piloci.db.models import Project
+
+    async with async_session() as db:
+        projects = (
+            await db.execute(
+                select(Project.user_id, Project.id)
+                .order_by(Project.updated_at.desc())
+                .limit(settings.curator_profile_project_limit)
+            )
+        ).all()
+
+    processed = 0
+    for user_id, project_id in projects:
+        if stop_event.is_set():
+            break
+        try:
+            await refresh_profile(user_id, project_id, settings, store)
+        except Exception as e:
+            logger.warning(
+                "Profile refresh failed for %s/%s: %s",
+                user_id, project_id, e,
+            )
+        processed += 1
+        if settings.curator_profile_pause_ms > 0 and not stop_event.is_set():
+            await asyncio.sleep(settings.curator_profile_pause_ms / 1000)
+
+    return processed
 
 
 async def run_profile_worker(
@@ -165,25 +203,11 @@ async def run_profile_worker(
     stop_event: asyncio.Event,
 ) -> None:
     """Background loop: periodically refresh profiles for active users."""
-    from piloci.db.models import Project
-
     logger.info("Profile worker started")
     while not stop_event.is_set():
         try:
-            async with async_session() as db:
-                projects = (
-                    await db.execute(select(Project.user_id, Project.id))
-                ).all()
-            for user_id, project_id in projects:
-                if stop_event.is_set():
-                    break
-                try:
-                    await refresh_profile(user_id, project_id, settings, store)
-                except Exception as e:
-                    logger.warning(
-                        "Profile refresh failed for %s/%s: %s",
-                        user_id, project_id, e,
-                    )
+            processed = await _run_profile_refresh_cycle(settings, store, stop_event)
+            logger.debug("Profile worker refreshed %d projects", processed)
         except Exception as e:
             logger.exception("Profile worker iteration failed: %s", e)
 

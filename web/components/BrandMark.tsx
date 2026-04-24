@@ -1,87 +1,28 @@
-import Link from 'next/link';
-import { getCopy } from '@/lib/copy';
+"use client";
 
-interface BrandMarkProps {
-  href?: string;
-  className?: string;
-  iconSize?: number;
-  textClassName?: string;
-}
+import Link from "next/link";
 
-export function BrandMark({
-  href = '/',
-  className,
-  iconSize = 32, // 약간 더 키움
-  textClassName,
-}: BrandMarkProps) {
-  const copy = getCopy();
-
+export default function BrandMark({ className }: { className?: string }) {
   return (
-    <Link
-      href={href}
-      className={className}
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: '10px',
-        textDecoration: 'none',
-      }}
-    >
-      <div style={{ width: iconSize, height: iconSize, flexShrink: 0 }}>
-        <svg
-          viewBox="0 0 256 256"
-          width="100%"
-          height="100%"
-          style={{ shapeRendering: 'geometricPrecision' }}
-        >
-          <defs>
-            <linearGradient id="pi-logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stopColor="var(--brand, #cba6f7)" />
-              <stop offset="100%" stopColor="var(--info, #89b4fa)" />
-            </linearGradient>
-          </defs>
-          
-          {/* Background Square with sharp but subtle corners */}
-          <rect width="256" height="256" rx="40" fill="currentColor" className="text-surface-subtle" />
-          
-          {/* High Definition Pi Path - Sharp and solid */}
-          <g transform="translate(48, 58) scale(0.65)">
-            <path 
-              d="M20 30 Q20 0 50 0 H200 Q230 0 230 30 V50 Q230 80 200 80 H50 Q20 80 20 50 Z" 
-              fill="url(#pi-logo-grad)" 
-            />
-            <path 
-              d="M60 80 V200 Q60 240 20 240" 
-              stroke="url(#pi-logo-grad)" 
-              strokeWidth="40" 
-              strokeLinecap="square"
-              fill="none" 
-            />
-            <path 
-              d="M180 80 V240" 
-              stroke="url(#pi-logo-grad)" 
-              strokeWidth="40" 
-              strokeLinecap="square"
-              fill="none" 
-            />
-          </g>
-
-          {/* Center Activity Dot */}
-          <circle cx="128" cy="45" r="10" fill="white" className="animate-pulse" />
-        </svg>
-      </div>
-      <span
-        className={textClassName}
-        style={{
-          fontWeight: 900,
-          fontSize: '18px',
-          color: 'var(--color-text-primary)',
-          letterSpacing: '-0.05em',
-          textTransform: 'lowercase',
-        }}
-      >
-        {copy.common.brandName}
-      </span>
+    <Link href="/" className={className ?? "inline-flex items-center gap-1.5 font-semibold tracking-tight"}>
+      <svg width="24" height="24" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" className="shrink-0">
+        <defs>
+          <linearGradient id="brand-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#020617" />
+            <stop offset="100%" stopColor="#0F172A" />
+          </linearGradient>
+          <linearGradient id="brand-pi" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#00F0FF" />
+            <stop offset="50%" stopColor="#7000FF" />
+            <stop offset="100%" stopColor="#FF007F" />
+          </linearGradient>
+        </defs>
+        <rect width="256" height="256" rx="64" fill="url(#brand-bg)" />
+        <path d="M 60 80 Q 60 70 75 70 H 181 Q 196 70 196 85 V 95 Q 196 105 186 105 H 70 Q 60 105 60 95 Z" fill="url(#brand-pi)" />
+        <path d="M 90 105 V 170 Q 90 190 70 190 Q 60 190 60 180 V 175 Q 60 165 70 165 Q 80 165 80 175 V 105 Z" fill="url(#brand-pi)" opacity="0.9" />
+        <path d="M 150 105 V 175 Q 150 190 165 190 Q 185 190 195 175 Q 200 165 190 155 Q 180 145 170 155 Q 165 160 165 170 V 105 Z" fill="url(#brand-pi)" />
+      </svg>
+      <span className="font-[Gugi,sans-serif] text-foreground tracking-wide">piLoci</span>
     </Link>
   );
 }

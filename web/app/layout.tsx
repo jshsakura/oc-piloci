@@ -55,7 +55,12 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" data-skin="linear" suppressHydrationWarning>
+    <html lang="ko" suppressHydrationWarning>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Gugi&display=swap" rel="stylesheet" />
+      </head>
       <body className="antialiased">
         <Script id="piloci-theme-init" strategy="beforeInteractive">
           {themeInitScript}

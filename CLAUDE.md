@@ -15,7 +15,7 @@
 
 ## Security Non-Negotiables
 
-- 모든 Qdrant 쿼리에 `(user_id, project_id)` 필터 **반드시** 적용 (누락 시 데이터 유출)
+- 모든 LanceDB 조회/검색에 `(user_id, project_id)` 필터 **반드시** 적용 (누락 시 데이터 유출)
 - 비밀번호: argon2id만 사용 (bcrypt 금지)
 - JWT secret, session secret은 환경 변수/Docker secrets로만 — 코드 하드코딩 금지
 - raw SQL 금지, SQLAlchemy ORM만 사용

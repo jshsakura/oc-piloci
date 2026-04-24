@@ -155,6 +155,8 @@ def create_mcp_server(
             model=settings.embed_model,
             cache_dir=settings.embed_cache_dir,
             lru_size=settings.embed_lru_size,
+            executor_workers=settings.embed_executor_workers,
+            max_concurrency=settings.embed_max_concurrency,
         )
 
     def _get_identity() -> tuple[str, str, dict | None, str | None]:

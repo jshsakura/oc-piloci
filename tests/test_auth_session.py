@@ -20,10 +20,10 @@ def _make_settings(max_sessions: int = 10, expire_days: int = 14):
 def _make_pipeline_ctx(results=None):
     """Return a mock async context manager for redis.pipeline()."""
     pipe = AsyncMock()
-    pipe.set = AsyncMock()
-    pipe.sadd = AsyncMock()
-    pipe.delete = AsyncMock()
-    pipe.srem = AsyncMock()
+    pipe.set = MagicMock()
+    pipe.sadd = MagicMock()
+    pipe.delete = MagicMock()
+    pipe.srem = MagicMock()
     pipe.execute = AsyncMock(return_value=results or [True, 1])
     cm = AsyncMock()
     cm.__aenter__ = AsyncMock(return_value=pipe)
@@ -37,7 +37,7 @@ async def test_create_session_returns_hex_token():
     redis = AsyncMock()
     cm, pipe = _make_pipeline_ctx()
     redis.pipeline = MagicMock(return_value=cm)
-    redis.smembers = AsyncMock(return_value=set())
+    redis.scard = AsyncMock(return_value=1)
 
     store = SessionStore(redis=redis, settings=settings)
     sid = await store.create_session("user-1", "127.0.0.1", "TestAgent/1.0")
@@ -52,13 +52,52 @@ async def test_create_session_stores_data_in_pipeline():
     redis = AsyncMock()
     cm, pipe = _make_pipeline_ctx()
     redis.pipeline = MagicMock(return_value=cm)
-    redis.smembers = AsyncMock(return_value=set())
+    redis.scard = AsyncMock(return_value=1)
 
     store = SessionStore(redis=redis, settings=settings)
     await store.create_session("user-abc", "10.0.0.1", "curl/7.0")
 
     pipe.set.assert_called_once()
     pipe.sadd.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_enforce_session_limit_skips_member_scan_when_under_limit():
+    settings = _make_settings(max_sessions=2)
+    redis = AsyncMock()
+    redis.scard = AsyncMock(return_value=2)
+    redis.smembers = AsyncMock()
+    redis.get = AsyncMock()
+
+    store = SessionStore(redis=redis, settings=settings)
+    await store._enforce_session_limit("user-1")
+
+    redis.scard.assert_awaited_once_with("user_sessions:user-1")
+    redis.smembers.assert_not_awaited()
+    redis.get.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_enforce_session_limit_evicts_oldest_when_over_limit():
+    settings = _make_settings(max_sessions=2)
+    redis = AsyncMock()
+    redis.scard = AsyncMock(return_value=3)
+    redis.smembers = AsyncMock(return_value={"sid-old", "sid-mid", "sid-new"})
+    redis.get = AsyncMock(side_effect=lambda key: {
+        "session:sid-old": orjson.dumps({"created_at": "2026-01-01T00:00:00+00:00"}),
+        "session:sid-mid": orjson.dumps({"created_at": "2026-01-02T00:00:00+00:00"}),
+        "session:sid-new": orjson.dumps({"created_at": "2026-01-03T00:00:00+00:00"}),
+    }[key])
+    redis.delete = AsyncMock()
+    redis.srem = AsyncMock()
+
+    store = SessionStore(redis=redis, settings=settings)
+    await store._enforce_session_limit("user-1")
+
+    redis.scard.assert_awaited_once_with("user_sessions:user-1")
+    redis.smembers.assert_awaited_once_with("user_sessions:user-1")
+    redis.delete.assert_awaited_once_with("session:sid-old")
+    redis.srem.assert_awaited_once_with("user_sessions:user-1", "sid-old")
 
 
 @pytest.mark.asyncio

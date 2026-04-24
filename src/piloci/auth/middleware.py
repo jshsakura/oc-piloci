@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_SKIP_PATHS = frozenset(["/healthz", "/readyz"])
+_SKIP_PATHS = frozenset(["/healthz", "/readyz", "/profilez"])
 
 
 class AuthMiddleware(BaseHTTPMiddleware):

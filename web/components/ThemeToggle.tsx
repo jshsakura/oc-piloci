@@ -1,58 +1,20 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
-import { Button } from '@/engine/components/ui/button';
-import { getCopy } from '@/lib/copy';
-
-const THEME_STORAGE_KEY = 'piloci-theme';
-
-type ThemeMode = 'light' | 'dark';
-
-function resolveTheme(): ThemeMode {
-  const storedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-  if (storedTheme === 'light' || storedTheme === 'dark') {
-    return storedTheme;
-  }
-
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-function applyTheme(theme: ThemeMode) {
-  const root = document.documentElement;
-  root.classList.toggle('dark', theme === 'dark');
-  root.style.colorScheme = theme;
-  window.localStorage.setItem(THEME_STORAGE_KEY, theme);
-}
-
-export function ThemeToggle() {
-  const [theme, setTheme] = useState<ThemeMode>('light');
-  const isDark = theme === 'dark';
-  const copy = getCopy();
-
-  useEffect(() => {
-    const initialTheme = resolveTheme();
-    applyTheme(initialTheme);
-    setTheme(initialTheme);
-  }, []);
-
-  const toggleTheme = () => {
-    const nextTheme: ThemeMode = isDark ? 'light' : 'dark';
-    applyTheme(nextTheme);
-    setTheme(nextTheme);
+export default function ThemeToggle() {
+  const toggle = () => {
+    const isDark = document.documentElement.classList.contains("dark");
+    document.documentElement.classList.toggle("dark", !isDark);
+    document.documentElement.style.colorScheme = isDark ? "light" : "dark";
+    localStorage.setItem("piloci-theme", isDark ? "light" : "dark");
   };
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={toggleTheme}
-      aria-label={isDark ? copy.themeToggle.toLightAriaLabel : copy.themeToggle.toDarkAriaLabel}
-      title={isDark ? copy.themeToggle.toLightAriaLabel : copy.themeToggle.toDarkAriaLabel}
-      className="text-text-secondary hover:text-text-primary"
-    >
-      {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+    <Button variant="ghost" size="icon" onClick={toggle} aria-label="Toggle theme">
+      <Sun className="size-4 scale-100 rotate-0 transition-all dark:scale-0 dark:-rotate-90" />
+      <Moon className="absolute size-4 scale-0 rotate-90 transition-all dark:scale-100 dark:rotate-0" />
     </Button>
   );
 }

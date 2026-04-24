@@ -57,13 +57,17 @@ class SessionStore:
         max_sessions = self._settings.session_max_per_user
         user_sessions_key = f"{_USER_SESSIONS_PREFIX}{user_id}"
 
+        session_count = await self._redis.scard(user_sessions_key)
+        if session_count <= max_sessions:
+            return
+
         session_ids = await self._redis.smembers(user_sessions_key)
         if len(session_ids) <= max_sessions:
             return
 
         # Fetch creation times to determine LRU order
         sessions_with_time: list[tuple[str, str]] = []
-        for sid in session_ids:
+        for sid in sorted(session_ids):
             raw = await self._redis.get(f"{_SESSION_PREFIX}{sid}")
             if raw is None:
                 # Stale reference — clean up
@@ -134,6 +138,10 @@ class SessionStore:
         if count == 1:
             await self._redis.expire(key, _RATELIMIT_TTL)
         return count
+
+    async def ping(self) -> bool:
+        """Check whether Redis is reachable."""
+        return bool(await self._redis.ping())
 
 
 _store: SessionStore | None = None

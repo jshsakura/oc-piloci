@@ -81,9 +81,8 @@ else
         error ".env.example not found — cannot create .env"
     fi
     cp "$ENV_EXAMPLE" "$ENV_FILE"
-    sed -i '/^JWT_SECRET=/d' "$ENV_FILE"
-    sed -i '/^SESSION_SECRET=/d' "$ENV_FILE"
-    ok "Created .env from .env.example (review and customize)"
+    ok "Created .env from .env.example"
+    warn "JWT/SESSION secrets are loaded from Docker secrets by compose"
     warn "Edit .env to configure SMTP, OAuth, etc. as needed"
 fi
 

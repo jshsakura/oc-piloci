@@ -32,6 +32,8 @@ services:
       - LANCEDB_PATH=/data/lancedb
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
+      - JWT_SECRET_FILE=/run/secrets/jwt_secret
+      - SESSION_SECRET_FILE=/run/secrets/session_secret
     env_file:
       - .env
     secrets: [jwt_secret, session_secret]

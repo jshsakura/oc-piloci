@@ -69,14 +69,18 @@ def build_project_vault(project: dict[str, Any], memories: list[dict[str, Any]])
     edges: list[dict[str, Any]] = []
     node_ids: set[str] = set()
     edge_keys: set[tuple[str, str, str]] = set()
+    _tag_count: int = 0
 
     def add_node(node_id: str, label: str, kind: str, **extra: Any) -> None:
+        nonlocal _tag_count
         if node_id in node_ids:
             return
         node_ids.add(node_id)
         node = {"id": node_id, "label": label, "kind": kind}
         node.update(extra)
         nodes.append(node)
+        if kind == "tag":
+            _tag_count += 1
 
     def add_edge(source: str, target: str, kind: str) -> None:
         key = (source, target, kind)
@@ -146,7 +150,7 @@ def build_project_vault(project: dict[str, Any], memories: list[dict[str, Any]])
             "notes": len(notes),
             "nodes": len(nodes),
             "edges": len(edges),
-            "tags": len([node for node in nodes if node["kind"] == "tag"]),
+            "tags": _tag_count,
         },
         "notes": notes,
         "graph": {

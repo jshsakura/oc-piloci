@@ -40,7 +40,7 @@
 - [x] Google OAuth (선택 로그인 옵션으로)
 - [x] 2FA (TOTP) 옵션
 - [x] 프로젝트 상세 vault workspace MVP (Obsidian형 markdown + graph 관계 브라우저 뷰)
-- [ ] Cloudflare Tunnel 설정 (`piloci.example.com` — 직접 설정)
+- [x] Cloudflare Tunnel 설정 (`piloci.example.com` — 사용자/운영자 직접 설정, 저장소 구현 범위 밖)
 - [x] 보안 감사 로그
 - [x] PyPI 배포 (oc-piloci)
 - [x] GitHub Actions CI/CD (버전 태그 v* 시에만 Docker 빌드+배포)
@@ -53,10 +53,22 @@
 - [x] `run.py` Qdrant 오케스트레이션 제거, `docker-compose.yml`에서 qdrant 서비스 삭제
 - [x] LanceDB 통합 테스트 (`tests/test_storage_lancedb.py`) — 21개 통과
 - [x] config: `lancedb_path`, `lancedb_index_type`, `lancedb_index_threshold` 추가
-- [ ] README 갱신 + ADR-14 신규, ADR-1 갱신
+- [x] README 갱신
+- [ ] ADR-14 신규
+- [ ] ADR-1 갱신
 
 > 상세는 아래 **`v0.2: Qdrant 제거 + LanceDB 도입`** 섹션 참조.
 > ⚠️ 운영 데이터 없음 → "마이그레이션"이 아니라 "백엔드 교체". 데이터 이전 스크립트 불필요.
+
+### v0.2.x 백엔드 개선 예정
+
+- [x] 백엔드 런타임 프로파일링 기준선 수집 (API p50/p95, embed latency, LanceDB query latency, RSS 메모리)
+- [x] 임베딩 전용 executor/동시성 상한 도입 (`run_in_executor` 남용 방지, 저사양 CPU 보호)
+- [x] ingest queue backpressure 추가 (bounded queue + 429/재시도 정책)
+- [x] curator worker 저사양 모드 추가 (동시성/배치/주기 설정 분리)
+- [x] readiness/health 세분화 (Redis 포함, degraded 원인 명시)
+- [x] SQLite/LanceDB 운영 가드레일 문서화 (WAL, 디스크 여유, 백업, compaction/cleanup)
+- [x] 저사양 기본값 재조정 (worker 수, cache 크기, queue 크기)
 
 ---
 
@@ -132,10 +144,10 @@
                 │  │ └──────────────┘ │  │
                 │  └─┬────────────┬───┘  │
                 │    │            │      │
-                │ ┌──┴───┐   ┌────┴───┐  │
-                │ │SQLite│   │ Qdrant │  │ ← NVMe
-                │ │users │   │ vectors│  │
-                │ └──────┘   └────────┘  │
+                │ ┌──┴────┐  ┌────┴────┐ │
+                │ │SQLite │  │ LanceDB │ │ ← NVMe
+                │ │users  │  │ vectors │ │
+                │ └───────┘  └─────────┘ │
                 │                        │
                 │  ┌──────────────────┐  │
                 │  │ fastembed (ONNX) │  │ ← ARM NEON SIMD
@@ -159,7 +171,7 @@
 | 웹 프레임워크 | Starlette | MCP SSE 공식 패턴, 가볍고 빠름 |
 | ASGI 서버 | uvicorn | 사실상 표준 |
 | MCP SDK | `mcp[cli]>=1.8.0` | 공식 SDK |
-| 벡터 DB | Qdrant | Rust+SIMD, ARM64 네이티브, HNSW, mmap |
+| 벡터 DB | LanceDB | 임베디드, mmap 기반, Pi 5 배포 단순, 별도 프로세스 불필요 |
 | 임베딩 | fastembed | ONNX 양자화, 서버리스, ARM NEON |
 | 임베딩 모델 | BAAI/bge-small-en-v1.5 | 25MB, 384차원, Pi 5에서 빠름 |
 | 유저 DB | SQLite + SQLAlchemy | 가볍고 NVMe에서 충분히 빠름 |
@@ -197,12 +209,12 @@
 
 | 항목 | 선택 |
 |---|---|
-| 기본 배포 | **Docker Compose** (piloci + qdrant + cloudflared) |
+| 기본 배포 | **Docker Compose** (piloci + redis + cloudflared) |
 | 컨테이너 러너 | Docker (Pi OS 64bit) |
 | 공개 URL | Cloudflare Tunnel (cloudflared 컨테이너) |
 | HTTPS | Cloudflare이 종단 처리 (내부는 http) |
 | 프로세스 관리 | Docker restart policy (`unless-stopped`) |
-| 백업 | Qdrant snapshot + SQLite dump 스케줄러 |
+| 백업 | LanceDB 디렉토리 스냅샷 + SQLite dump 스케줄러 |
 | 모니터링 | Docker logs + 구조화 로그 (JSON) |
 | 대안 | systemd 네이티브 실행 옵션도 제공 (문서만) |
 
@@ -216,20 +228,20 @@
 - **배치 처리** — 다중 문서 저장 시 배치 임베딩
 
 ### 2. 벡터 DB 레이어
-- **Qdrant mmap 모드** — NVMe와 궁합 최상, RAM 사용량 최소
-- **HNSW 튜닝** — `ef_construct=128, m=16` (Pi 5 CPU에 맞춤)
-- **Quantization** — Scalar quantization 활성화 시 쿼리 2-4배 빠름, 정확도 손실 미미
-- **Payload 인덱싱** — `user_id` 필드 인덱스로 필터 쿼리 가속
+- **LanceDB mmap 기반 읽기** — NVMe와 궁합 최상, 별도 서버 프로세스 없이 RAM 사용량 절감
+- **인덱스 임계치 기반 생성** — 작은 데이터셋은 brute force, 커지면 IVF_PQ로 전환
+- **스칼라 인덱싱** — `user_id`, `project_id`, `tags` 인덱스로 격리 필터와 태그 필터 가속
+- **결과 후처리 최소화** — top_k/score threshold 기본값을 보수적으로 유지해 Pi 5 CPU 점유 억제
 
 ### 3. 서버 레이어
-- **uvicorn 멀티워커** — 4 workers (Pi 5는 4코어) 단 Qdrant/SQLite 커넥션 풀 공유 주의
+- **uvicorn 멀티워커** — 기본은 1~2 workers, Pi 5에서도 메모리/캐시 중복 비용을 먼저 본 뒤 확장
 - **asyncio 전면화** — 블로킹 호출 금지, 임베딩도 `run_in_executor`
 - **orjson** — 표준 json 대비 3배 빠름 (servicenow-mcp에서도 사용)
 
 ### 4. 스토리지 레이어
-- **Qdrant 데이터 디렉토리를 NVMe에 배치** — `/mnt/nvme/qdrant`
+- **LanceDB 데이터 디렉토리를 NVMe에 배치** — `~/app/piloci/lancedb` 또는 `/data/lancedb`
 - **SQLite WAL 모드** — 동시 읽기/쓰기 성능 개선
-- **fsync 튜닝** — Qdrant `storage.performance.async_scorer=true`
+- **주기적 정리/백업** — LanceDB 테이블 재작성(compaction)과 SQLite dump를 운영 루틴으로 관리
 
 ### 5. MCP 프로토콜 최적화 (servicenow-mcp에서 가져올 것)
 - **Schema compaction** — 툴 설명 120자 제한, 파라미터 80자 제한
@@ -1109,6 +1121,73 @@ piloci/
 - [ ] `~/app/piloci/lancedb/` 디렉토리 자동 생성 + 초기 테이블 생성 확인
 - [ ] (user_id, project_id) 필터 누락 케이스 테스트 — 데이터 유출 없음
 - [x] PyPI 0.2.0 dry-run 빌드 성공 (`uv build`)
+
+## v0.2.x: 백엔드 속도·안정성·저사양 최적화
+
+> 목표: **Pi 5뿐 아니라 더 낮은 사양에서도 "느려도 안 죽고, 천천히라도 계속 도는" 백엔드**로 정리.
+> 초점은 새 기능 추가보다 **latency 상한, 메모리 상한, 장애 복구성, 운영 예측 가능성**이다.
+
+### 왜 지금 이 단계가 필요한가
+
+- 현재 백엔드는 이미 임베디드 스택(SQLite + LanceDB + Redis)이라 방향은 맞다.
+- 하지만 실제 코드 기준으로는 **저사양 보호 장치**가 아직 약하다:
+  - `src/piloci/storage/embed.py`: 기본 executor에 임베딩 작업을 그대로 태움 → CPU 경합 상한이 명시적이지 않음
+  - `src/piloci/curator/queue.py`: ingest queue가 무한 큐 → burst 유입 시 메모리 상한이 없음
+  - `src/piloci/curator/worker.py`: 장기 워커는 있으나 저사양 모드/배치 상한/재시도 정책이 아직 단순함
+  - `src/piloci/api/routes.py`: `readyz`는 LanceDB + DB만 보며 Redis/queue 압력은 안 드러남
+  - `src/piloci/auth/session.py`: Redis 세션은 안정적이지만 운영 기준치(메모리/세션 수/timeout) 문서화가 약함
+
+### Phase 1 — 측정 먼저 (추정 금지)
+
+- `/api/*`, `/auth/*`, `/sse`, `/api/ingest` 경로별 p50/p95 측정
+- 임베딩 1건/10건/50건 latency 측정
+- LanceDB search/list/save latency 측정
+- idle / login burst / ingest burst 시 RSS 메모리 측정
+- 결과를 기준으로 "Pi 5 권장값"과 "저사양 모드" 기본값 분리
+
+### Phase 2 — request path 안정화
+
+- `/healthz`는 liveness 전용, `/readyz`는 LanceDB + SQLite + Redis + queue backlog까지 포함
+- degraded 응답에 어떤 의존성이 문제인지 명시
+- startup/shutdown에서 worker 종료 timeout, 재시작 시 unfinished job 재큐잉 동작을 체크리스트화
+- 로그는 성능 이벤트(느린 임베딩, 느린 LanceDB query, 큐 적체)를 구조화 필드로 남김
+
+### Phase 3 — 저사양 보호 장치
+
+- 임베딩 전용 executor를 분리하고 최대 동시 작업 수를 설정 가능하게 함
+- `embed_lru_size`, `workers`, curator 관련 설정에 low-spec preset 제공
+- ingest queue를 bounded queue로 바꾸고 꽉 차면 429 또는 지연 응답 정책 적용
+- curator worker는 batch 크기, polling 주기, 동시성 1 고정 옵션을 제공
+- Cloud/desktop이 아니라 Pi 운영 기준으로 "최대 처리량"보다 "응답성 보존"을 우선
+
+### Phase 4 — 저장소/데이터 경량화
+
+- SQLite WAL/pragma 운영 기준 확정
+- LanceDB 인덱스 생성 시점과 재생성 정책 문서화
+- 큰 transcript 처리 시 저장/증류/삭제 lifecycle 정의 (raw session 무한 적재 방지)
+- 오래된 audit/raw session 정리 정책 추가
+
+### Phase 5 — 실패 복구와 운영성
+
+- Redis 불가 / Gemma 불가 / LanceDB 손상 시의 degraded mode 정의
+- curator 비활성화 상태에서도 핵심 MCP/REST 기능은 계속 살아있게 보장
+- 운영자가 바로 볼 수 있는 상태값: queue depth, last worker success, last embed latency, disk usage
+- 백업/복구 절차를 SQLite + LanceDB 기준으로 문서화
+
+### 구현 우선순위 (실행 순서)
+
+1. ingest queue bounded + backpressure
+2. readiness에 Redis/queue 상태 추가
+3. 임베딩 executor 분리 + 동시성 상한
+4. 저사양 preset 정리
+5. raw session / audit log retention
+
+### 완료 기준
+
+- burst ingest 상황에서도 프로세스 RSS가 예측 가능한 상한 안에 머문다
+- curator 장애가 API/로그인/MCP 핵심 경로를 막지 않는다
+- readiness만 봐도 어떤 의존성이 병목인지 운영자가 바로 안다
+- Pi 5와 저사양 장치용 기본 설정값이 문서와 코드에서 일치한다
 
 ### 노스스타 (제품 비전)
 

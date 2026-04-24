@@ -6,10 +6,18 @@ import uuid
 import pytest
 
 from piloci.storage.lancedb_store import MemoryStore, VECTOR_SIZE
+from piloci.utils.logging import get_runtime_profiler, reset_runtime_profiler
 
 _USER = "aaaaaaaa-0000-0000-0000-000000000001"
 _PROJECT = "bbbbbbbb-0000-0000-0000-000000000001"
 _VECTOR = [0.1] * VECTOR_SIZE
+
+
+@pytest.fixture(autouse=True)
+def _reset_runtime_profiler_fixture():
+    reset_runtime_profiler()
+    yield
+    reset_runtime_profiler()
 
 
 # ---------------------------------------------------------------------------
@@ -30,6 +38,7 @@ async def test_ensure_collection_idempotent(lancedb_store):
 async def test_save_returns_uuid(lancedb_store):
     mid = await lancedb_store.save(_USER, _PROJECT, "hello world", _VECTOR)
     uuid.UUID(mid)  # raises if invalid
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.save"]["count"] == 1
 
 
 @pytest.mark.asyncio
@@ -58,22 +67,29 @@ async def test_get_returns_none_when_missing(lancedb_store):
     fake_id = str(uuid.uuid4())
     result = await lancedb_store.get(_USER, _PROJECT, fake_id)
     assert result is None
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.get"]["count"] == 1
 
 
 @pytest.mark.asyncio
 async def test_get_enforces_project_isolation(lancedb_store):
     mid = await lancedb_store.save(_USER, _PROJECT, "secret", _VECTOR)
     other_project = "proj-cccccccc-0000-0000-0000-000000000002"
+    reset_runtime_profiler()
     result = await lancedb_store.get(_USER, other_project, mid)
     assert result is None
+    snapshot = get_runtime_profiler().snapshot()["metrics"]
+    assert snapshot["lancedb.get"]["count"] == 1
 
 
 @pytest.mark.asyncio
 async def test_get_enforces_user_isolation(lancedb_store):
     mid = await lancedb_store.save(_USER, _PROJECT, "secret", _VECTOR)
     other_user = "user-dddddddd-0000-0000-0000-000000000002"
+    reset_runtime_profiler()
     result = await lancedb_store.get(other_user, _PROJECT, mid)
     assert result is None
+    snapshot = get_runtime_profiler().snapshot()["metrics"]
+    assert snapshot["lancedb.get"]["count"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -100,6 +116,7 @@ async def test_list_tag_filter(lancedb_store):
     results = await lancedb_store.list(_USER, _PROJECT, tags=["python"])
     assert len(results) == 1
     assert results[0]["content"] == "tagged"
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.list"]["count"] == 1
 
 
 @pytest.mark.asyncio
@@ -121,13 +138,18 @@ async def test_list_pagination(lancedb_store):
 async def test_update_returns_false_when_missing(lancedb_store):
     result = await lancedb_store.update(_USER, _PROJECT, str(uuid.uuid4()), content="new")
     assert result is False
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.update"]["count"] == 1
 
 
 @pytest.mark.asyncio
 async def test_update_content(lancedb_store):
     mid = await lancedb_store.save(_USER, _PROJECT, "original", _VECTOR)
+    reset_runtime_profiler()
     result = await lancedb_store.update(_USER, _PROJECT, mid, content="updated")
     assert result is True
+    snapshot = get_runtime_profiler().snapshot()["metrics"]
+    assert snapshot["lancedb.update"]["count"] == 1
+    assert "lancedb.get" not in snapshot
     record = await lancedb_store.get(_USER, _PROJECT, mid)
     assert record is not None
     assert record["content"] == "updated"
@@ -161,14 +183,30 @@ async def test_update_with_new_vector(lancedb_store):
 async def test_delete_returns_false_when_missing(lancedb_store):
     result = await lancedb_store.delete(_USER, _PROJECT, str(uuid.uuid4()))
     assert result is False
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.delete"]["count"] == 1
 
 
 @pytest.mark.asyncio
 async def test_delete_removes_record(lancedb_store):
     mid = await lancedb_store.save(_USER, _PROJECT, "to delete", _VECTOR)
+    reset_runtime_profiler()
     result = await lancedb_store.delete(_USER, _PROJECT, mid)
     assert result is True
     assert await lancedb_store.get(_USER, _PROJECT, mid) is None
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.delete"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_existing_does_not_profile_get(lancedb_store):
+    mid = await lancedb_store.save(_USER, _PROJECT, "to delete", _VECTOR)
+    reset_runtime_profiler()
+
+    result = await lancedb_store.delete(_USER, _PROJECT, mid)
+
+    assert result is True
+    snapshot = get_runtime_profiler().snapshot()["metrics"]
+    assert snapshot["lancedb.delete"]["count"] == 1
+    assert "lancedb.get" not in snapshot
 
 
 @pytest.mark.asyncio
@@ -189,10 +227,12 @@ async def test_delete_enforces_isolation(lancedb_store):
 async def test_clear_project_removes_all(lancedb_store):
     for _ in range(3):
         await lancedb_store.save(_USER, _PROJECT, "mem", _VECTOR)
+    reset_runtime_profiler()
     count = await lancedb_store.clear_project(_USER, _PROJECT)
     assert count == 3
     remaining = await lancedb_store.list(_USER, _PROJECT)
     assert remaining == []
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.clear_project"]["count"] == 1
 
 
 @pytest.mark.asyncio
@@ -201,9 +241,11 @@ async def test_clear_project_does_not_touch_other_projects(lancedb_store):
     await lancedb_store.save(_USER, _PROJECT, "mine", _VECTOR)
     await lancedb_store.save(_USER, other, "theirs", _VECTOR)
 
+    reset_runtime_profiler()
     await lancedb_store.clear_project(_USER, _PROJECT)
 
     assert await lancedb_store.list(_USER, other) != []
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.clear_project"]["count"] == 1
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +259,18 @@ async def test_search_returns_results(lancedb_store):
     assert len(results) >= 1
     assert "score" in results[0]
     assert 0.0 <= results[0]["score"] <= 1.0
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.search"]["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_isolation_still_records_profiler_metric(lancedb_store):
+    mid = await lancedb_store.save(_USER, _PROJECT, "secret", _VECTOR)
+    reset_runtime_profiler()
+
+    result = await lancedb_store.get("other-user", _PROJECT, mid)
+
+    assert result is None
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.get"]["count"] == 1
 
 
 @pytest.mark.asyncio

@@ -8,10 +8,12 @@ import orjson
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
+from sqlalchemy import delete
 
 from piloci.auth.jwt_utils import create_token
-from piloci.curator.queue import IngestJob, get_ingest_queue
+from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
 from piloci.curator.vault import build_project_vault
+from piloci.utils.logging import get_runtime_profiler
 from piloci.auth.local import (
     AccountLockedError,
     AuthError,
@@ -37,6 +39,17 @@ def _ip(request: Request) -> str:
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.client.host if request.client else "unknown"
+
+
+def _queue_pressure(depth: int, capacity: int) -> str:
+    if capacity <= 0:
+        return "unbounded"
+    utilization = depth / capacity
+    if utilization >= 1.0:
+        return "full"
+    if utilization >= 0.8:
+        return "high"
+    return "normal"
 
 
 # ---------------------------------------------------------------------------
@@ -705,6 +718,7 @@ async def route_ingest(request: Request) -> Response:
     Body: {client, session_id?, transcript: [...], project_id?}
     Stores into raw_sessions and pushes job onto the curator queue.
     """
+    settings = get_settings()
     user = request.state.user
     if user is None:
         return _json({"error": "unauthorized"}, 401)
@@ -743,9 +757,34 @@ async def route_ingest(request: Request) -> Response:
         )
         await db.commit()
 
-    queue = get_ingest_queue()
-    await queue.put(IngestJob(ingest_id=ingest_id, user_id=user_id, project_id=project_id))
-    return _json({"queued": True, "ingest_id": ingest_id}, 202)
+    queue = get_ingest_queue(settings.ingest_queue_maxsize)
+    job = IngestJob(ingest_id=ingest_id, user_id=user_id, project_id=project_id)
+    if not try_enqueue_job(job, maxsize=settings.ingest_queue_maxsize):
+        async with async_session() as db:
+            await db.execute(delete(RawSession).where(RawSession.ingest_id == ingest_id))
+            await db.commit()
+        response = _json(
+            {
+                "error": "ingest queue is full",
+                "queued": False,
+                "queue_depth": queue.qsize(),
+                "queue_capacity": queue.maxsize,
+                "retry_after_sec": settings.ingest_retry_after_sec,
+            },
+            429,
+        )
+        response.headers["Retry-After"] = str(settings.ingest_retry_after_sec)
+        return response
+
+    return _json(
+        {
+            "queued": True,
+            "ingest_id": ingest_id,
+            "queue_depth": queue.qsize(),
+            "queue_capacity": queue.maxsize,
+        },
+        202,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -794,6 +833,8 @@ async def route_update_memory(request: Request) -> Response:
             model=settings.embed_model,
             cache_dir=settings.embed_cache_dir,
             lru_size=settings.embed_lru_size,
+            executor_workers=settings.embed_executor_workers,
+            max_concurrency=settings.embed_max_concurrency,
         )
     updated = await store.update(
         user_id=user_id,
@@ -847,29 +888,69 @@ async def route_healthz(request: Request) -> Response:
 
 
 async def route_readyz(request: Request) -> Response:
+    settings = get_settings()
     checks: dict[str, Any] = {}
-    ok = True
+    causes: list[str] = []
 
     # Check LanceDB
     try:
         store = request.app.state.store
         await store._get_table()
-        checks["lancedb"] = "ok"
+        checks["lancedb"] = {"status": "ok"}
     except Exception as e:
-        checks["lancedb"] = f"error: {e}"
-        ok = False
+        checks["lancedb"] = {"status": "error", "detail": str(e)}
+        causes.append("lancedb_unavailable")
 
     # Check DB
     try:
         async with async_session() as db:
             from sqlalchemy import text
             await db.execute(text("SELECT 1"))
-        checks["db"] = "ok"
+        checks["db"] = {"status": "ok"}
     except Exception as e:
-        checks["db"] = f"error: {e}"
-        ok = False
+        checks["db"] = {"status": "error", "detail": str(e)}
+        causes.append("database_unavailable")
 
-    return _json({"status": "ok" if ok else "degraded", "checks": checks}, 200 if ok else 503)
+    # Check Redis session store
+    try:
+        session_store = get_session_store(settings)
+        await session_store.ping()
+        checks["redis"] = {"status": "ok"}
+    except Exception as e:
+        checks["redis"] = {"status": "error", "detail": str(e)}
+        causes.append("redis_unavailable")
+
+    queue = get_ingest_queue(settings.ingest_queue_maxsize)
+    queue_depth = queue.qsize()
+    queue_capacity = queue.maxsize
+    pressure = _queue_pressure(queue_depth, queue_capacity)
+    checks["ingest_queue"] = {
+        "status": "ok" if pressure != "full" else "error",
+        "depth": queue_depth,
+        "capacity": queue_capacity,
+        "pressure": pressure,
+    }
+    if pressure == "full":
+        causes.append("ingest_queue_full")
+
+    ok = not causes
+    return _json(
+        {
+            "status": "ok" if ok else "degraded",
+            "checks": checks,
+            "causes": causes,
+        },
+        200 if ok else 503,
+    )
+
+
+async def route_profilez(request: Request) -> Response:
+    return _json(
+        {
+            "status": "ok",
+            "profiling": get_runtime_profiler().snapshot(),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -881,6 +962,7 @@ def get_routes() -> list[Route]:
     return [
         Route("/healthz", route_healthz),
         Route("/readyz", route_readyz),
+        Route("/profilez", route_profilez),
         Route("/auth/signup", route_signup, methods=["POST"]),
         Route("/auth/login", route_login, methods=["POST"]),
         Route("/auth/logout", route_logout, methods=["POST"]),

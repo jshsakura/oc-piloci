@@ -15,11 +15,23 @@ class IngestJob:
 _queue: asyncio.Queue[IngestJob] | None = None
 
 
-def get_ingest_queue() -> asyncio.Queue[IngestJob]:
+def get_ingest_queue(maxsize: int | None = None) -> asyncio.Queue[IngestJob]:
     global _queue
     if _queue is None:
-        _queue = asyncio.Queue()
+        queue_size = maxsize if maxsize is not None else 0
+        if queue_size < 0:
+            raise ValueError("Queue maxsize must be >= 0")
+        _queue = asyncio.Queue(maxsize=queue_size)
     return _queue
+
+
+def try_enqueue_job(job: IngestJob, *, maxsize: int | None = None) -> bool:
+    queue = get_ingest_queue(maxsize=maxsize)
+    try:
+        queue.put_nowait(job)
+    except asyncio.QueueFull:
+        return False
+    return True
 
 
 def reset_ingest_queue() -> None:

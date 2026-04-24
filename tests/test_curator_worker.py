@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from piloci.curator.queue import IngestJob, get_ingest_queue, reset_ingest_queue
+from piloci.curator.queue import IngestJob, get_ingest_queue, reset_ingest_queue, try_enqueue_job
 
 
 @pytest.fixture(autouse=True)
@@ -24,13 +24,25 @@ def _reset_queue():
 
 @pytest.mark.asyncio
 async def test_queue_singleton_roundtrip():
-    q1 = get_ingest_queue()
+    q1 = get_ingest_queue(maxsize=2)
     q2 = get_ingest_queue()
     assert q1 is q2
 
     await q1.put(IngestJob(ingest_id="i1", user_id="u", project_id="p"))
     job = await q2.get()
     assert job.ingest_id == "i1"
+
+
+def test_queue_maxsize_applied_on_first_init():
+    queue = get_ingest_queue(maxsize=2)
+    assert queue.maxsize == 2
+
+
+def test_try_enqueue_job_returns_false_when_full():
+    queue = get_ingest_queue(maxsize=1)
+    assert try_enqueue_job(IngestJob(ingest_id="i1", user_id="u", project_id="p"), maxsize=1) is True
+    assert queue.qsize() == 1
+    assert try_enqueue_job(IngestJob(ingest_id="i2", user_id="u", project_id="p"), maxsize=1) is False
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ from piloci.db.session import init_db
 from piloci.mcp.server import create_mcp_server
 from piloci.mcp.sse import create_sse_app
 from piloci.storage.lancedb_store import MemoryStore
-from piloci.utils.logging import configure_logging
+from piloci.utils.logging import RuntimeProfilingMiddleware, configure_logging
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +135,7 @@ def create_app():
         debug=settings.debug,
         routes=routes,
         middleware=[
+            Middleware(RuntimeProfilingMiddleware),
             Middleware(SecurityHeadersMiddleware),
             Middleware(AuthMiddleware, settings=settings),
         ],
@@ -151,6 +152,11 @@ async def _startup(app, store, stop_event, bg_tasks) -> None:
     logger.info("Database initialized")
     await store.ensure_collection()
     logger.info("LanceDB collection ready")
+
+    from piloci.ops.maintenance import run_maintenance_worker
+
+    bg_tasks.append(asyncio.create_task(run_maintenance_worker(settings, stop_event)))
+    logger.info("Maintenance worker started")
 
     if settings.curator_enabled:
         from piloci.curator.worker import process_unfinished, run_worker

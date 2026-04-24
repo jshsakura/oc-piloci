@@ -32,7 +32,10 @@ def _get_engine() -> AsyncEngine:
         @event.listens_for(_engine.sync_engine, "connect")
         def _set_wal_mode(dbapi_conn, connection_record):  # type: ignore[misc]
             dbapi_conn.execute("PRAGMA journal_mode=WAL")
+            dbapi_conn.execute(f"PRAGMA synchronous={settings.sqlite_synchronous}")
+            dbapi_conn.execute(f"PRAGMA busy_timeout={settings.sqlite_busy_timeout_ms}")
             dbapi_conn.execute("PRAGMA foreign_keys=ON")
+            dbapi_conn.execute("PRAGMA temp_store=MEMORY")
 
     return _engine
 

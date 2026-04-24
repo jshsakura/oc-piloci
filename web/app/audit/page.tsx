@@ -1,55 +1,48 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
-import { useAuthStore } from '@/lib/auth';
-import { NavBar } from '@/components/NavBar';
-import { Badge } from '@/engine/components/ui/badge';
-import { Button } from '@/engine/components/ui/button';
-import { Skeleton } from '@/engine/components/ui/skeleton';
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
+import { useAuthStore } from "@/lib/auth";
+import { api } from "@/lib/api";
+import type { AuditLog } from "@/lib/types";
+import AppShell from "@/components/AppShell";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/engine/components/ui/select';
+} from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
 
-const LIMIT = 50;
+const LIMIT = 20;
 
 const ACTION_OPTIONS = [
-  { value: '', label: '전체' },
-  { value: 'login_success', label: 'login_success' },
-  { value: 'login_fail', label: 'login_fail' },
-  { value: 'signup', label: 'signup' },
-  { value: 'token_created', label: 'token_created' },
-  { value: 'token_revoked', label: 'token_revoked' },
-  { value: 'project_created', label: 'project_created' },
-  { value: 'project_deleted', label: 'project_deleted' },
+  { value: "all", label: "전체" },
+  { value: "login_success", label: "로그인 성공" },
+  { value: "login_fail", label: "로그인 실패" },
+  { value: "signup", label: "회원가입" },
+  { value: "token_created", label: "토큰 생성" },
+  { value: "token_revoked", label: "토큰 폐기" },
+  { value: "project_created", label: "프로젝트 생성" },
+  { value: "project_deleted", label: "프로젝트 삭제" },
 ];
-
-interface AuditLog {
-  id: number;
-  action: string;
-  ip_address: string | null;
-  user_agent: string | null;
-  meta_data: string | null;
-  created_at: string;
-}
 
 function formatKST(isoString: string): string {
   try {
-    const date = new Date(isoString);
-    return date.toLocaleString('ko-KR', {
-      timeZone: 'Asia/Seoul',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
+    return new Date(isoString).toLocaleString("ko-KR", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
       hour12: false,
     });
   } catch {
@@ -57,347 +50,118 @@ function formatKST(isoString: string): string {
   }
 }
 
-function shortUA(ua: string | null): string {
-  if (!ua) return '-';
-  // Extract browser name
-  const match =
-    ua.match(/\b(Chrome|Firefox|Safari|Edge|OPR|Opera|Brave)\/[\d.]+/i) ||
-    ua.match(/\b(curl|python-requests|axios|okhttp)\b/i);
-  if (match) return match[0].slice(0, 32);
-  return ua.slice(0, 32) + (ua.length > 32 ? '…' : '');
-}
-
 function ActionBadge({ action }: { action: string }) {
-  if (action === 'login_success') {
-    return (
-      <Badge
-        style={{
-          backgroundColor: 'rgba(34,197,94,0.15)',
-          color: '#22C55E',
-          borderColor: 'rgba(34,197,94,0.3)',
-        }}
-      >
-        {action}
-      </Badge>
-    );
-  }
-  if (action === 'login_fail') {
-    return (
-      <Badge
-        style={{
-          backgroundColor: 'rgba(239,68,68,0.15)',
-          color: '#EF4444',
-          borderColor: 'rgba(239,68,68,0.3)',
-        }}
-      >
-        {action}
-      </Badge>
-    );
-  }
-  return <Badge variant="outline">{action}</Badge>;
-}
+  const isSuccess = action.includes("success") || action.includes("created") || action === "signup";
+  const isFail = action.includes("fail") || action.includes("deleted") || action.includes("revoked");
 
-function SkeletonRows() {
-  return (
-    <>
-      {Array.from({ length: 5 }).map((_, i) => (
-        <tr key={i}>
-          <td style={{ padding: '12px 16px' }}>
-            <Skeleton className="h-4 w-36" />
-          </td>
-          <td style={{ padding: '12px 16px' }}>
-            <Skeleton className="h-5 w-24 rounded-full" />
-          </td>
-          <td style={{ padding: '12px 16px' }}>
-            <Skeleton className="h-4 w-28" />
-          </td>
-          <td style={{ padding: '12px 16px' }}>
-            <Skeleton className="h-4 w-40" />
-          </td>
-        </tr>
-      ))}
-    </>
-  );
+  if (isSuccess) return <Badge variant="default" className="text-xs">{action}</Badge>;
+  if (isFail) return <Badge variant="destructive" className="text-xs">{action}</Badge>;
+  return <Badge variant="secondary" className="text-xs">{action}</Badge>;
 }
 
 export default function AuditPage() {
   const router = useRouter();
   const { user } = useAuthStore();
-
-  const [actionFilter, setActionFilter] = useState('');
+  const [actionFilter, setActionFilter] = useState("all");
   const [offset, setOffset] = useState(0);
 
   useEffect(() => {
-    if (user === null) {
-      router.replace('/login');
-    }
+    if (!user) router.replace("/login");
   }, [user, router]);
 
-  if (user === null) {
-    return null;
-  }
+  if (!user) return null;
 
-  const queryKey = ['audit', actionFilter, offset];
+  const actionParam = actionFilter === "all" ? undefined : actionFilter;
 
   const { data: logs, isLoading, isError } = useQuery<AuditLog[]>({
-    queryKey,
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        limit: String(LIMIT),
-        offset: String(offset),
-      });
-      if (actionFilter) params.set('action', actionFilter);
-      const res = await fetch(`/api/audit?${params}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to fetch audit logs');
-      return res.json();
-    },
+    queryKey: ["audit", actionFilter, offset],
+    queryFn: () => api.listAudit(LIMIT, offset, actionParam),
     enabled: !!user,
   });
-
-  const handleActionChange = (value: string) => {
-    setActionFilter(value);
-    setOffset(0);
-  };
 
   const hasPrev = offset > 0;
   const hasNext = (logs?.length ?? 0) === LIMIT;
 
-  const sectionCardStyle: React.CSSProperties = {
-    backgroundColor: 'var(--color-surface-raised, #1A1A1F)',
-    border: '1px solid var(--color-border, #2A2A35)',
-    borderRadius: '14px',
-    overflow: 'hidden',
-  };
-
-  const thStyle: React.CSSProperties = {
-    padding: '10px 16px',
-    textAlign: 'left',
-    fontSize: '11px',
-    fontWeight: 600,
-    color: '#9494A0',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    borderBottom: '1px solid #2A2A35',
-    backgroundColor: 'rgba(255,255,255,0.02)',
-    whiteSpace: 'nowrap',
-  };
-
-  const tdStyle: React.CSSProperties = {
-    padding: '12px 16px',
-    fontSize: '13px',
-    color: '#E8E8ED',
-    borderBottom: '1px solid rgba(42,42,53,0.6)',
-    verticalAlign: 'middle',
-  };
-
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        backgroundColor: 'var(--color-surface-page, #0F0F10)',
-        color: 'var(--color-text-primary, #E8E8ED)',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-      }}
-      data-skin="linear"
-    >
-      <NavBar title="감사 로그" />
-
-      <main style={{ maxWidth: '960px', margin: '0 auto', padding: '32px 24px 80px' }}>
-        {/* Back link */}
-        <div style={{ marginBottom: '24px' }}>
-          <Link
-            href="/settings"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '6px',
-              fontSize: '13px',
-              color: '#9494A0',
-              textDecoration: 'none',
-              transition: 'color 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLAnchorElement).style.color = '#E8E8ED';
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLAnchorElement).style.color = '#9494A0';
-            }}
-          >
-            <svg
-              width="14"
-              height="14"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polyline points="15 18 9 12 15 6" />
-            </svg>
-            설정
-          </Link>
+    <AppShell>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">감사 로그</h1>
+          <p className="text-sm text-muted-foreground">보안 이벤트 및 접근 기록</p>
         </div>
-
-        {/* Page title + filter */}
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            flexWrap: 'wrap',
-            gap: '12px',
-            marginBottom: '24px',
-          }}
-        >
-          <h1
-            style={{
-              fontSize: '26px',
-              fontWeight: 800,
-              letterSpacing: '-0.02em',
-              color: '#E8E8ED',
-              margin: 0,
-            }}
-          >
-            감사 로그
-          </h1>
-
-          <div style={{ minWidth: '180px' }}>
-            <Select value={actionFilter} onValueChange={handleActionChange}>
-              <SelectTrigger size="sm">
-                <SelectValue placeholder="액션 필터" />
-              </SelectTrigger>
-              <SelectContent>
-                {ACTION_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="w-full sm:w-48">
+          <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setOffset(0); }}>
+            <SelectTrigger><SelectValue placeholder="필터" /></SelectTrigger>
+            <SelectContent>
+              {ACTION_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+      </div>
 
-        {/* Table card */}
-        <div style={sectionCardStyle}>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>시각 (KST)</th>
-                  <th style={thStyle}>액션</th>
-                  <th style={thStyle}>IP</th>
-                  <th style={thStyle}>브라우저</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <SkeletonRows />
-                ) : isError ? (
-                  <tr>
-                    <td colSpan={4} style={{ ...tdStyle, textAlign: 'center', color: '#EF4444', padding: '32px' }}>
-                      데이터를 불러오지 못했습니다.
-                    </td>
-                  </tr>
-                ) : !logs || logs.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={4}
-                      style={{
-                        ...tdStyle,
-                        textAlign: 'center',
-                        color: '#9494A0',
-                        padding: '48px 16px',
-                      }}
-                    >
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-                        <svg
-                          width="32"
-                          height="32"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="#2A2A35"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                          <polyline points="14 2 14 8 20 8" />
-                          <line x1="16" y1="13" x2="8" y2="13" />
-                          <line x1="16" y1="17" x2="8" y2="17" />
-                          <polyline points="10 9 9 9 8 9" />
-                        </svg>
-                        <span style={{ fontSize: '14px' }}>감사 로그가 없습니다</span>
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  logs.map((log) => (
-                    <tr
-                      key={log.id}
-                      style={{ transition: 'background-color 0.1s' }}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLTableRowElement).style.backgroundColor =
-                          'rgba(255,255,255,0.025)';
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLTableRowElement).style.backgroundColor = 'transparent';
-                      }}
-                    >
-                      <td style={{ ...tdStyle, color: '#9494A0', fontFamily: 'monospace', fontSize: '12px' }}>
-                        {formatKST(log.created_at)}
-                      </td>
-                      <td style={tdStyle}>
-                        <ActionBadge action={log.action} />
-                      </td>
-                      <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: '12px', color: '#9494A0' }}>
-                        {log.ip_address ?? '-'}
-                      </td>
-                      <td style={{ ...tdStyle, color: '#9494A0', fontSize: '12px' }}>
-                        {shortUA(log.user_agent)}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+      <div className="mt-6 rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>시간</TableHead>
+              <TableHead>이벤트</TableHead>
+              <TableHead>IP</TableHead>
+              <TableHead>User Agent</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              Array.from({ length: 5 }).map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-4 w-32" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-4 w-36" /></TableCell>
+                </TableRow>
+              ))
+            ) : isError ? (
+              <TableRow>
+                <TableCell colSpan={4} className="py-12 text-center text-muted-foreground">
+                  감사 로그를 불러오지 못했습니다
+                </TableCell>
+              </TableRow>
+            ) : !logs || logs.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={4} className="py-12 text-center text-muted-foreground">
+                  기록된 이벤트가 없습니다
+                </TableCell>
+              </TableRow>
+            ) : (
+              logs.map((log) => (
+                <TableRow key={log.id}>
+                  <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
+                    {formatKST(log.created_at)}
+                  </TableCell>
+                  <TableCell><ActionBadge action={log.action} /></TableCell>
+                  <TableCell className="font-mono text-xs text-muted-foreground">{log.ip_address ?? "-"}</TableCell>
+                  <TableCell className="max-w-[200px] truncate text-xs text-muted-foreground">
+                    {log.user_agent ? log.user_agent.slice(0, 40) : "-"}
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
-          {/* Pagination */}
-          {!isLoading && !isError && (hasPrev || hasNext) && (
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '12px 16px',
-                borderTop: '1px solid #2A2A35',
-              }}
-            >
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!hasPrev}
-                onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}
-              >
-                이전
-              </Button>
-              <span style={{ fontSize: '12px', color: '#9494A0' }}>
-                {offset / LIMIT + 1} 페이지
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={!hasNext}
-                onClick={() => setOffset((o) => o + LIMIT)}
-              >
-                다음
-              </Button>
-            </div>
-          )}
+      {!isLoading && !isError && (hasPrev || hasNext) && (
+        <div className="mt-4 flex items-center justify-end gap-3">
+          <span className="text-sm text-muted-foreground">페이지 {offset / LIMIT + 1}</span>
+          <Button variant="outline" size="sm" disabled={!hasPrev} onClick={() => setOffset((o) => Math.max(0, o - LIMIT))}>
+            이전
+          </Button>
+          <Button variant="outline" size="sm" disabled={!hasNext} onClick={() => setOffset((o) => o + LIMIT)}>
+            다음
+          </Button>
         </div>
-      </main>
-    </div>
+      )}
+    </AppShell>
   );
 }

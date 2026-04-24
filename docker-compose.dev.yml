@@ -25,9 +25,9 @@ services:
       - ~/app/piloci/data:/data
     environment:
       - PORT=8314
-      - QDRANT_URL=http://host.docker.internal:6333
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite+aiosqlite:////data/piloci.db
+      - LANCEDB_PATH=/data/lancedb
       - LOG_LEVEL=DEBUG
       - LOG_FORMAT=text
       - RELOAD=true
@@ -40,8 +40,6 @@ services:
     restart: "no"
 
   # ── Deps ──────────────────────────────────────────────────────
-  # Qdrant runs natively on the host (Pi 5 16KB page issue with Docker jemalloc)
-  # Start with: ~/app/piloci/bin/qdrant --storage-path ~/app/piloci/qdrant
 
   redis:
     image: redis:7-alpine

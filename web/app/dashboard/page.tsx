@@ -1,209 +1,202 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ProjectList } from '@/components/ProjectList';
-import { useAuthStore } from '@/lib/auth';
-import { api } from '@/lib/api';
-import { Project } from '@/lib/types';
-import { Card, CardHeader, CardTitle, CardContent } from '@/engine/components/ui/card';
-import { Button } from '@/engine/components/ui/button';
-import { Input } from '@/engine/components/ui/input';
-import { Skeleton } from '@/engine/components/ui/skeleton';
-import { TopBar } from '@/engine/components/patterns/top-bar';
-
-function SkeletonCard() {
-  return (
-    <Card>
-      <CardContent className="pt-6">
-        <div className="flex items-start justify-between gap-2 mb-2">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-5 w-16 rounded-full" />
-        </div>
-        <Skeleton className="h-3 w-24 mb-3" />
-        <Skeleton className="h-3 w-20" />
-      </CardContent>
-    </Card>
-  );
-}
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FolderPlus, RefreshCcw } from "lucide-react";
+import AppShell from "@/components/AppShell";
+import { ProjectCard } from "@/components/ProjectCard";
+import { useAuthStore } from "@/lib/auth";
+import { api } from "@/lib/api";
+import type { Project } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
   const queryClient = useQueryClient();
-
-  const [showNewForm, setShowNewForm] = useState(false);
-  const [newSlug, setNewSlug] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newDescription, setNewDescription] = useState('');
-  const [formError, setFormError] = useState('');
+  const [open, setOpen] = useState(false);
+  const [newSlug, setNewSlug] = useState("");
+  const [newName, setNewName] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [formError, setFormError] = useState("");
 
   useEffect(() => {
-    if (user === null) {
-      router.replace('/login');
-    }
-  }, [user, router]);
+    if (!user) router.replace("/login");
+  }, [router, user]);
 
-  if (user === null) {
-    return null;
-  }
+  if (!user) return null;
 
   const { data: projects, isLoading, isError } = useQuery({
-    queryKey: ['projects'],
+    queryKey: ["projects"],
     queryFn: api.listProjects,
   });
 
   const createMutation = useMutation({
     mutationFn: () => api.createProject(newSlug, newName, newDescription || undefined),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] });
-      setShowNewForm(false);
-      setNewSlug('');
-      setNewName('');
-      setNewDescription('');
-      setFormError('');
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setOpen(false);
+      setNewSlug("");
+      setNewName("");
+      setNewDescription("");
+      setFormError("");
     },
     onError: (err: unknown) => {
-      const msg = err instanceof Error ? err.message : '프로젝트 생성에 실패했습니다.';
-      setFormError(msg);
+      setFormError(err instanceof Error ? err.message : "프로젝트 생성에 실패했습니다");
     },
   });
 
-  const handleProjectSelect = (project: Project) => {
-    router.push('/projects/?slug=' + project.slug);
-  };
-
-  const handleCreateSubmit = (e: React.FormEvent) => {
+  const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    setFormError('');
+    setFormError("");
     if (!newSlug.trim() || !newName.trim()) {
-      setFormError('슬러그와 이름을 모두 입력해주세요.');
+      setFormError("슬러그와 이름을 모두 입력해주세요");
       return;
     }
     createMutation.mutate();
   };
 
-  const handleLogout = () => {
-    logout();
-    router.replace('/login');
-  };
+  const projectCount = projects?.length ?? 0;
+  const totalMemories = projects?.reduce((sum, p) => sum + p.memory_count, 0) ?? 0;
 
   return (
-    <div className="min-h-screen bg-surface-page">
-      <div className="max-w-5xl mx-auto">
-        {/* Header */}
-        <TopBar
-          logo={
-            <div>
-              <h1 className="text-2xl font-bold text-text-primary">
-                안녕하세요, {user.email}님
-              </h1>
-              <p className="text-sm text-text-secondary mt-1">piLoci 메모리 대시보드</p>
-            </div>
-          }
-          actions={
-            <Button variant="outline" size="sm" onClick={handleLogout}>
-              로그아웃
+    <AppShell>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">대시보드</h1>
+          <p className="text-sm text-muted-foreground">프로젝트를 관리하고 워크스페이스에 접속하세요</p>
+        </div>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm">
+              <FolderPlus className="mr-2 size-4" />
+              새 프로젝트
             </Button>
-          }
-        />
-
-        {/* Projects Section */}
-        <div className="px-6 pb-8">
-          <Card>
-            <CardHeader className="border-b">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg font-semibold">프로젝트</CardTitle>
-                <Button
-                  variant={showNewForm ? 'outline' : 'default'}
-                  size="sm"
-                  onClick={() => {
-                    setShowNewForm((v) => !v);
-                    setFormError('');
-                  }}
-                >
-                  {showNewForm ? '취소' : '+ 새 프로젝트'}
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>새 프로젝트 만들기</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="slug">슬러그 *</Label>
+                <Input
+                  id="slug"
+                  value={newSlug}
+                  onChange={(e) => setNewSlug(e.target.value)}
+                  placeholder="my-project"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="name">이름 *</Label>
+                <Input
+                  id="name"
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="My Project"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="desc">설명</Label>
+                <Input
+                  id="desc"
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  placeholder="프로젝트 설명"
+                />
+              </div>
+              {formError && <p className="text-sm text-destructive">{formError}</p>}
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                  취소
+                </Button>
+                <Button type="submit" disabled={createMutation.isPending}>
+                  {createMutation.isPending ? "생성 중..." : "생성"}
                 </Button>
               </div>
-            </CardHeader>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
 
-            <CardContent>
-              {/* New Project Form */}
-              {showNewForm && (
-                <form
-                  onSubmit={handleCreateSubmit}
-                  className="mb-6 p-4 rounded-xl border border-border bg-surface-page"
-                >
-                  <h3 className="text-sm font-semibold text-text-primary mb-4">새 프로젝트 만들기</h3>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
-                    <div>
-                      <label className="block text-xs text-text-secondary mb-1">슬러그 *</label>
-                      <Input
-                        type="text"
-                        value={newSlug}
-                        onChange={(e) => setNewSlug(e.target.value)}
-                        placeholder="my-project"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-text-secondary mb-1">이름 *</label>
-                      <Input
-                        type="text"
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        placeholder="프로젝트 이름"
-                      />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="block text-xs text-text-secondary mb-1">설명 (선택)</label>
-                    <Input
-                      type="text"
-                      value={newDescription}
-                      onChange={(e) => setNewDescription(e.target.value)}
-                      placeholder="프로젝트 설명"
-                    />
-                  </div>
-                  {formError && (
-                    <p className="text-xs text-destructive mb-3">{formError}</p>
-                  )}
-                  <Button
-                    type="submit"
-                    disabled={createMutation.isPending}
-                    size="sm"
-                  >
-                    {createMutation.isPending ? '생성 중...' : '프로젝트 만들기'}
-                  </Button>
-                </form>
-              )}
+      {/* Stats */}
+      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">프로젝트</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{projectCount}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">총 메모리</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{totalMemories}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">상태</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">{isLoading ? "동기화 중" : "준비"}</p>
+          </CardContent>
+        </Card>
+      </div>
 
-              {/* Content */}
-              {isLoading ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <SkeletonCard />
-                  <SkeletonCard />
-                  <SkeletonCard />
-                </div>
-              ) : isError ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center">
-                  <p className="text-destructive text-sm">데이터를 불러오지 못했습니다. 새로고침해주세요.</p>
-                  <Button
-                    variant="brandGhost"
-                    size="xs"
-                    className="mt-3"
-                    onClick={() => queryClient.invalidateQueries({ queryKey: ['projects'] })}
-                  >
-                    다시 시도
-                  </Button>
-                </div>
-              ) : (
-                <ProjectList projects={projects ?? []} onSelect={handleProjectSelect} />
-              )}
+      {/* Projects */}
+      <div className="mt-8">
+        {isLoading ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {[1, 2, 3].map((i) => (
+              <Card key={i}>
+                <CardContent className="p-6">
+                  <Skeleton className="mb-3 h-5 w-32" />
+                  <Skeleton className="mb-2 h-4 w-full" />
+                  <Skeleton className="h-4 w-24" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        ) : isError ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-4 py-12">
+              <RefreshCcw className="size-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">프로젝트를 불러오지 못했습니다</p>
+              <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["projects"] })}>
+                재시도
+              </Button>
             </CardContent>
           </Card>
-        </div>
+        ) : projects?.length === 0 ? (
+          <Card>
+            <CardContent className="flex flex-col items-center gap-4 py-12">
+              <FolderPlus className="size-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">아직 프로젝트가 없습니다</p>
+              <Button onClick={() => setOpen(true)}>프로젝트 만들기</Button>
+            </CardContent>
+          </Card>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {projects?.map((project) => (
+              <ProjectCard
+                key={project.id}
+                project={project}
+                onOpen={(p: Project) => router.push(`/projects/?slug=${p.slug}`)}
+              />
+            ))}
+          </div>
+        )}
       </div>
-    </div>
+    </AppShell>
   );
 }
