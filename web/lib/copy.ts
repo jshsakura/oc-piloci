@@ -189,7 +189,7 @@ const copy = {
         },
         capabilities: {
           title: '반드시 필요한 툴만, 극한의 미니멀리즘',
-          desc: '최소한의 툴 구성으로 불필요하게 여러분의 컨텍스트를 낭비하지 않습니다.',
+          desc: 'LLM의 프롬프트 맥락을 해치지 않도록, 최소한의 툴 개수로 최대한의 효율을 추구합니다.',
           note: 'LLM의 프롬프트 맥락을 해치지 않도록, 최소한의 툴 개수로 최대 효율을 추구합니다.',
           list: [
             { name: 'memory', desc: '새로운 정보나 프로젝트의 맥락을 영구 메모리에 저장하거나 오래된 항목을 제거합니다.' },
@@ -464,7 +464,7 @@ const copy = {
         },
         capabilities: {
           title: 'Only What You Need — Radical Minimalism',
-          desc: 'Three tools handle everything. Zero context wasted.',
+          desc: 'Minimal tool count by design — to preserve LLM prompt context while maximizing efficiency.',
           note: 'Minimal tool count by design — to preserve LLM prompt context while maximizing efficiency.',
           list: [
             { name: 'memory', desc: 'Save new facts or project context to memory, or remove outdated entries by ID.' },

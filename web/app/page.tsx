@@ -298,7 +298,6 @@ export default function LandingPage() {
               );
             })}
           </div>
-          <p className="mt-8 text-center text-sm text-muted-foreground/70">{t.landing.sections.capabilities.note}</p>
         </div>
       </section>
 
