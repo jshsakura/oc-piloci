@@ -167,7 +167,7 @@ const copy = {
         },
         features: {
           title: '아키나 다운힐의 AE86처럼, 무게는 줄이고 속도는 빠르게',
-          subtitle: 'piLoci는 라즈베리파이와 같은 저전력 환경에서도 작동하도록 설계되어 토큰, I/O, LLM 호출을 최소화한 MCP 메모리 서버입니다.',
+          subtitle: '임베딩은 LRU 캐시로 재사용하고, 검색 결과는 excerpt만 먼저 반환합니다. 프로젝트별 메모리 격리로 컨텍스트 오염을 원천 차단합니다.',
           list: [
             { title: '맥락 격리', desc: '프로젝트별 메모리 분리. 맥락 섞임 방지.' },
             { title: 'AST 기반 추출', desc: 'Tree-sitter로 코드 구조를 정밀하게 보존.' },
@@ -442,7 +442,7 @@ const copy = {
         },
         features: {
           title: 'Like an AE86 on Akina Downhill — Less Weight, More Speed',
-          subtitle: 'piLoci is an MCP memory server designed for low-power environments like Raspberry Pi — minimizing tokens, I/O, and LLM calls.',
+          subtitle: 'Embeddings reuse via LRU cache, search returns excerpts first. Per-project isolation prevents context contamination at the source.',
           list: [
             { title: 'Context Isolation', desc: 'Per-project memory separation. No context mixing.' },
             { title: 'AST-based Extraction', desc: 'Precise code structure preservation via Tree-sitter.' },
