@@ -14,7 +14,7 @@ from typing import Any
 import mcp.types as types
 from mcp.server.lowlevel import Server
 
-from piloci.config import Settings
+from piloci.config import Settings, get_settings
 from piloci.storage.embed import embed_one
 from piloci.storage.lancedb_store import MemoryStore
 from piloci.tools._schema import compact_schema
@@ -161,7 +161,7 @@ def create_mcp_server(
 
     def _get_identity() -> tuple[str, str, dict | None, str | None]:
         """Extract (user_id, project_id, auth_payload, session_id)."""
-        from piloci.mcp.sse import mcp_auth_ctx
+        from piloci.mcp.session_state import mcp_auth_ctx
 
         auth = mcp_auth_ctx.get()
         if auth:
@@ -191,7 +191,9 @@ def create_mcp_server(
         elif name == "recall":
             args = RecallInput.model_validate(arguments)
             result = await handle_recall(
-                args, user_id, project_id, store, _embed, profile_fn=profile_fn
+                args, user_id, project_id, store, _embed,
+                profile_fn=profile_fn,
+                export_dir=get_settings().export_dir,
             )
         elif name == "listProjects":
             args = ListProjectsInput.model_validate(arguments)
@@ -206,6 +208,14 @@ def create_mcp_server(
             )
         else:
             raise ValueError(f"Unknown tool: {name}")
+
+        from piloci.mcp.session_state import mcp_session_ctx, record_tool_call
+
+        record_tool_call(
+            mcp_session_ctx.get(),
+            name,
+            args.model_dump(exclude_none=True),
+        )
 
         import orjson
         return [types.TextContent(type="text", text=orjson.dumps(result).decode())]

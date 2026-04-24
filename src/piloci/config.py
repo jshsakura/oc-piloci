@@ -72,6 +72,12 @@ class Settings(BaseSettings):
     audit_log_retention_days: int = 90
     raw_session_retention_days: int = 14
     maintenance_interval_sec: int = 3600
+    export_dir: Path = Path("/data/exports")
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    telegram_min_duration_sec: int = 300
+    telegram_min_memory_ops: int = 3
+    telegram_timeout_sec: float = 5.0
 
     # Redis (M2+)
     redis_url: str = "redis://localhost:6379/0"
