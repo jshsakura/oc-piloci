@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
+from dataclasses import dataclass
+from typing import Any
 
 import uvicorn
 from starlette.applications import Starlette
@@ -21,6 +24,38 @@ from piloci.storage.lancedb_store import MemoryStore
 from piloci.utils.logging import RuntimeProfilingMiddleware, configure_logging
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _ProjectsCacheEntry:
+    fetched_at: float
+    projects: list[dict[str, Any]]
+
+
+class _ProjectsCache:
+    def __init__(self, ttl_sec: float = 300.0) -> None:
+        self.ttl_sec = ttl_sec
+        self._entries: dict[str, _ProjectsCacheEntry] = {}
+
+    def get(self, user_id: str) -> list[dict[str, Any]] | None:
+        entry = self._entries.get(user_id)
+        if entry is None:
+            return None
+        if time.monotonic() - entry.fetched_at >= self.ttl_sec:
+            self._entries.pop(user_id, None)
+            return None
+        return [project.copy() for project in entry.projects]
+
+    def set(self, user_id: str, projects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        cached = [project.copy() for project in projects]
+        self._entries[user_id] = _ProjectsCacheEntry(
+            fetched_at=time.monotonic(),
+            projects=cached,
+        )
+        return [project.copy() for project in cached]
+
+    def invalidate(self, user_id: str) -> None:
+        self._entries.pop(user_id, None)
 
 
 async def _run_stdio() -> None:
@@ -47,20 +82,27 @@ def _build_mcp(settings, store: MemoryStore):
     from piloci.db.session import async_session
     from piloci.db.models import Project
 
-    async def profile_fn(user_id: str, project_id: str) -> dict | None:
+    projects_cache = _ProjectsCache(ttl_sec=300.0)
+
+    async def profile_fn(user_id: str, project_id: str) -> dict[str, Any] | None:
         return await _get_profile(user_id, project_id)
 
-    async def projects_fn(user_id: str, refresh: bool) -> list[dict]:
+    async def projects_fn(user_id: str, refresh: bool) -> list[dict[str, Any]]:
+        if not refresh:
+            cached = projects_cache.get(user_id)
+            if cached is not None:
+                return cached
         async with async_session() as db:
             rows = (
                 await db.execute(select(Project).where(Project.user_id == user_id))
             ).scalars().all()
-        return [
+        projects = [
             {"id": p.id, "slug": p.slug, "name": p.name, "memory_count": p.memory_count}
             for p in rows
         ]
+        return projects_cache.set(user_id, projects)
 
-    async def recent_fn(user_id: str, project_id: str, limit: int) -> list[dict]:
+    async def recent_fn(user_id: str, project_id: str, limit: int) -> list[dict[str, Any]]:
         rows = await store.list(
             user_id=user_id, project_id=project_id, limit=limit, offset=0
         )
@@ -98,7 +140,7 @@ def create_app():
 
     # State held across lifespan
     stop_event = asyncio.Event()
-    bg_tasks: list[asyncio.Task] = []
+    bg_tasks: list[asyncio.Task[Any]] = []
 
     from contextlib import asynccontextmanager
 
