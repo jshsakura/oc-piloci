@@ -37,6 +37,14 @@ export default function LandingPage() {
     { role: "result", text: `↳ ${ex.result}` },
     { role: "claude", text: ex.a },
   ];
+  if ("followUp" in ex && ex.followUp) {
+    termLines.push(
+      { role: "user", text: ex.followUp.q },
+      { role: "tool", text: `⚡ ${ex.followUp.tool}(${ex.followUp.toolArgs})` },
+      { role: "result", text: `↳ ${ex.followUp.result}` },
+      { role: "claude", text: ex.followUp.a },
+    );
+  }
 
   const totalChars = termLines.reduce((s, l) => s + l.text.length, 0);
 
@@ -47,7 +55,7 @@ export default function LandingPage() {
       termTimer.current = setTimeout(() => {
         setTermIdx((i) => (i + 1) % terminal.examples.length);
         setTyped(0);
-      }, 2800);
+      }, "followUp" in ex && ex.followUp ? 3800 : 2800);
     }
     return () => { if (termTimer.current) clearTimeout(termTimer.current); };
   }, [typed, totalChars, terminal.examples.length]);
@@ -77,7 +85,16 @@ export default function LandingPage() {
       {/* Nav */}
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <BrandMark />
+          <div className="flex items-center gap-2">
+            <BrandMark />
+            <span className="flex items-center gap-1.5 rounded-full border border-green-300 bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 tracking-wide dark:border-green-400/50 dark:bg-green-500/10 dark:text-green-400">
+              <span className="relative flex size-1.5">
+                <span className="absolute inline-flex size-full animate-ping rounded-full bg-green-500/75 dark:bg-green-400/75" />
+                <span className="relative inline-flex size-1.5 rounded-full bg-green-600 dark:bg-green-400" />
+              </span>
+              {t.common.badge}
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -89,7 +106,7 @@ export default function LandingPage() {
             </Button>
             <button
               onClick={() => setLocale(locale === "ko" ? "en" : "ko")}
-              className="flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="flex h-8 cursor-pointer items-center gap-1 rounded-md border border-border px-2 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
             >
               <span className={locale === "ko" ? "text-foreground" : ""}>KO</span>
               <span className="text-border">/</span>
@@ -158,14 +175,14 @@ export default function LandingPage() {
 
           {/* Terminal demo */}
           <div className="mx-auto mt-10 sm:mt-12 max-w-2xl text-left">
-            <div className="overflow-hidden rounded-xl border bg-card shadow-sm">
+            <div className="overflow-hidden rounded-xl border bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
               <div className="flex items-center gap-2 border-b px-4 py-2.5">
                 <span className="size-2.5 rounded-full bg-[oklch(0.65_0.2_25)]" />
                 <span className="size-2.5 rounded-full bg-[oklch(0.82_0.16_85)]" />
                 <span className="size-2.5 rounded-full bg-[oklch(0.7_0.18_145)]" />
                 <span className="ml-2 text-xs font-medium text-muted-foreground">{terminal.title}</span>
               </div>
-              <div className="h-[240px] sm:h-[280px] px-4 py-3 font-mono text-[11px] sm:text-xs leading-relaxed overflow-hidden">
+              <div className="px-4 py-3 font-mono text-[11px] sm:text-xs leading-relaxed overflow-hidden h-[260px] sm:h-[300px]">
                 {(() => {
                   let remaining = typed;
                   const rendered: React.ReactNode[] = [];
@@ -203,7 +220,7 @@ export default function LandingPage() {
                           </>
                         )}
                         {visible}
-                        {isTyping && <span className="animate-pulse text-muted-foreground/40">▎</span>}
+                        {isTyping && <span className="text-foreground/70" style={{ animation: 'blink 1s step-end infinite' }}>│</span>}
                       </p>
                     );
                   });
@@ -214,10 +231,10 @@ export default function LandingPage() {
           </div>
 
           {/* Install command */}
-          <div className="mx-auto mt-10 sm:mt-12 max-w-lg">
+          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl">
             <button
               onClick={copyInstall}
-              className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/50 px-5 py-3 font-mono text-sm transition-colors hover:bg-muted"
+              className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
             >
               <span className="flex items-center gap-3">
                 <span className="text-muted-foreground">$</span>
@@ -243,7 +260,8 @@ export default function LandingPage() {
       {/* Features */}
       <section className="border-t bg-muted py-20">
         <div className="mx-auto max-w-6xl px-4">
-          <h2 className="mb-12 text-center text-2xl font-bold">{t.landing.sections.features.title}</h2>
+          <h2 className="mb-3 text-center text-2xl font-bold">{t.landing.sections.features.title}</h2>
+          <p className="mb-12 text-center text-muted-foreground">{t.landing.sections.features.subtitle}</p>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {features.map((f, i) => {
               const Icon = featureIcons[i] ?? Fingerprint;
@@ -293,7 +311,11 @@ export default function LandingPage() {
               <CardContent className="p-8">
                 <Heart className="mb-3 size-5 text-primary" />
                 <h2 className="mb-2 text-2xl font-bold">{t.landing.sections.pricing.title}</h2>
-                <p className="mb-8 text-sm text-muted-foreground">{t.landing.sections.pricing.desc}</p>
+                <div className="mb-8 space-y-1">
+                  {t.landing.sections.pricing.desc.map((line, i) => (
+                    <p key={i} className="text-sm text-muted-foreground">{line}</p>
+                  ))}
+                </div>
                 <ul className="space-y-3">
                   {t.landing.sections.pricing.features.map((f) => (
                     <li key={f} className="flex items-center gap-3 text-sm">

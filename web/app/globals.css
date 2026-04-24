@@ -2,6 +2,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+body {
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
