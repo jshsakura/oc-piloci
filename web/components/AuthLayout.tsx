@@ -27,9 +27,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         <BrandMark />
         <div className="space-y-4">
           <h1 className="text-3xl font-bold tracking-tight">
-            <RainbowAI text="당신의 AI를 위한" />
+            <RainbowAI text="당신의 AI에게" />
             <br />
-            메모리 엔진
+            새로운 기억들을 추가해보세요
           </h1>
           <p className="text-muted-foreground max-w-md">
             piLoci는 프로젝트별 격리된 메모리 공간으로 AI가 맥락을 잃지 않도록 돕습니다.
@@ -37,8 +37,8 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
         </div>
         <p className="text-sm text-muted-foreground">© piLoci 2026. Husband of Rebekah.</p>
       </div>
-      <div className="flex w-full lg:w-1/2 items-center justify-center p-6">
-        <div className="w-full max-w-sm">{children}</div>
+      <div className="flex w-full lg:w-1/2 items-center justify-center p-6 landing-pattern">
+        {children}
       </div>
     </div>
   );
