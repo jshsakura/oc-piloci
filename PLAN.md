@@ -1653,6 +1653,112 @@ CREATE TABLE user_profiles (
 - [ ] OpenCode session_completed 훅 → 저장 검증 (수동)
 - [ ] 토큰 소비 측정: 1세션에 <2,000 토큰 (캐시 히트 시)
 
+### v0.3 설계 정제 (2026-04-24)
+
+> 이 세션에서 위 v0.3 원본 계획을 코드 기반으로 검증·정제한 결과.
+> 원본 계획과 충돌 시 이 섹션이 우선.
+
+#### 1. SSE 세션 자동 캡처: 툴콜 훅 방식
+
+**문제**: SSE 핸들러(`sse.py`)는 투명 파이프. `read_stream`/`write_stream`이 MCP SDK로 직행하며 대화 버퍼링 없음. MCP 프로토콜에 실리는 것은 툴콜+결과뿐, LLM-사용자 대화는 백엔드가 볼 수 없음.
+
+**결정**: 전체 대화 캡처 시도 안 함. 대신 툴콜 단위 훅:
+- `handle_sse()` finally 블록에 세션 종료 훅 추가 (이미 `mcp_auth_ctx.reset()` 있음)
+- 수집: "이 세션에서 recall N번, memory M번, forget K번 호출됨" (메타데이터만)
+- 결과를 RawSession에 기록 (transcript 없이 메타데이터 전용)
+- 전체 대화는 클라이언트가 `POST /api/ingest`로 전송 (기존 엔드포인트, 변경 없음)
+
+**구현 위치**: `src/piloci/mcp/sse.py` finally 블록 + `src/piloci/mcp/server.py` `_call_tool()` 래퍼
+
+#### 2. 단일 진실 공급원: LanceDB만, 새 저장소 없음
+
+**문제**: 원본 계획에 "KnowledgeVault SQLite 테이블" 제안 있었으나, 불필요한 복잡도 증가.
+
+**결정**: SQLite 테이블 추가 없음. LanceDB가 단일 진실 공급원.
+- 모든 메모리는 LanceDB에 저장 (변경 없음)
+- Vault(`build_project_vault()` 출력)는 LanceDB에서 파생된 뷰
+- Vault 결과를 파일시스템에 캐시 (`/data/vaults/{slug}/vault.json`)
+- 캐시 무효화: memory save/forget 시 해당 프로젝트 캐시 무효화 → debounce 후 재구축
+- Obsidian 내보내기: 캐시된 Vault → 마크다운 파일 생성
+- Web UI 그래프: 캐시된 Vault의 `graph.nodes/edges` 직접 사용
+
+**삭제**: `tools/project_tools.py`는 사용되지 않는 레거시 모듈 (MCP 서버에 import 안 됨). 정리 대상.
+
+#### 3. Gemma 호출 추가 없음
+
+**문제**: Pi 5 (8GB RAM + 16GB swap)에서 `Semaphore(1)`이 이미 모든 Gemma 호출을 직렬화. Ingest 추출 + Profile 리프레시가 하나의 레인 공유. 추가 호출 여력 없음.
+
+**결정**: 새 Gemma 호출 추가 안 함.
+- SSE 세션 훅 → RawSession 기록 (메타데이터) → 기존 IngestJob 큐 → 기존 큐레이터 → 기존 Gemma
+- 큐레이터 파이프라인에 데이터를 더 공급만 하고, 추출 로직은 변경 없음
+- 성능 개선은 Semaphore 분리(ingest vs profile) 등 기존 경로 최적화에 집중
+
+#### 4. 사용자 데이터 이식 (Export/Import)
+
+**요구사항**: 사용자가 자기 데이터를 다른 piLoci 인스턴스로 들고 갈 수 있어야 함. 관리자 마이그레이션이 아니라 사용자 단위.
+
+**설계**:
+```
+Export: GET /api/data/export → 파일 다운로드
+├── manifest.json    ← piLoci 버전, embed 모델, 체크섬, 타임스탬프
+├── projects.json    ← 프로젝트 메타
+├── memories.parquet ← LanceDB 메모리 (벡터 포함)
+└── profile.json     ← 사용자 프로필
+
+Import: POST /api/data/import (multipart) → 현재 계정으로 병합
+├── 로그인된 사용자의 ID로 자동 매핑
+├── 프로젝트 slug 충돌 시 자동 이름 변경
+├── embed 모델 버전 비교 → 다르면 재임베드
+└── 프로필 재생성 트리거
+```
+
+**핵심 원칙**: 사용자는 이미 대상 서버에 계정이 있음. 파일 업로드 → "불러오기" → 현재 계정으로 쏙 들어감. 사용자 생성/ID 재매핑 불필요.
+
+**포맷**: Parquet (벡터 컬럼 그대로 담을 수 있고 LanceDB와 호환)
+
+#### 5. 성능 최적화 우선순위
+
+기존 코드 기반 분석 결과, 다음 항목들을 v0.3 구현 시 함께 처리:
+
+| 항목 | 현재 상태 | 개선 |
+|---|---|---|
+| Batch embedding | `embed_one()` 1건씩 executor hop | 호출부에서 리스트 단위 배치 |
+| `EmbeddingCache.get()` | `list.remove()` O(n) | `OrderedDict` 또는 `dict`+순서 추적 |
+| Gemma Semaphore | 글로벌 `Semaphore(1)` | ingest/profile 분리 (2개 세마포어) |
+| Workspace cache | 매 GET마다 전체 재구축 | 파일시스템 캐시 + 이벤트 무효화 |
+| `listProjects` 캐시 | MCP desc는 "5분 캐시"라 했지만 DB 조회 | 실제 캐시 구현 |
+| `container_tag` | 스키마에 노출되나 핸들러에서 무시 | 스키마에서 제거 또는 구현 |
+| Bulk save | LanceDB에 1건씩 save | 배치 save API 추가 |
+
+#### 6. v0.3 작업 순서 (정제됨)
+
+Phase 1-8은 원본 계획 유지. 다음 Phase 추가:
+
+**Phase 10: 사용자 데이터 이식**
+- [ ] `GET /api/data/export` — LanceDB 필터링 + Parquet 직렬화 + manifest 생성
+- [ ] `POST /api/data/import` — 업로드 수신 → 파싱 → 현재 사용자 ID로 병합
+- [ ] embed 모델 버전 비교 → 불일치 시 재임베드 옵션
+- [ ] `tests/test_data_portability.py`
+
+**Phase 11: Vault 캐시 + Obsidian 내보내기**
+- [ ] `build_project_vault()` 결과를 `/data/vaults/{slug}/vault.json`에 캐시
+- [ ] memory save/forget 시 캐시 무효화 이벤트 (debounce)
+- [ ] `GET /api/vault/{slug}/export` — 캐시에서 Obsidian 마크다운 .zip 생성
+- [ ] Web UI graph 엔드포인트, 캐시된 vault JSON 직접 반환
+- [ ] `tests/test_vault_cache.py`
+
+**Phase 12: 성능 개선**
+- [ ] Batch embedding API
+- [ ] EmbeddingCache O(1) 갱신
+- [ ] Gemma 세마포어 분리 (ingest / profile)
+- [ ] listProjects 캐시 구현
+- [ ] LanceDB bulk save
+- [ ] `container_tag` 스키마 정리
+
+**Phase 13: 레거시 정리**
+- [ ] `src/piloci/tools/project_tools.py` 제거 (사용되지 않음)
+- [ ] 사용하지 않는 import/참조 정리
+
 ---
 
 ## 세션 인수인계 규칙

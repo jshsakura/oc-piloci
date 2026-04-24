@@ -1,16 +1,111 @@
 # piLoci
 
-Self-hosted multi-user LLM memory service for Raspberry Pi 5.
+[![Website](https://img.shields.io/badge/website-piloci.jshsakura.com-blue)](https://piloci.jshsakura.com/) [![한국어](https://img.shields.io/badge/문서-한국어-green)](./README.ko.md)
 
-piLoci combines a Python MCP server, web dashboard, SQLite auth data, and LanceDB vector storage so you can run project-scoped memory on your own hardware.
+Self-hosted, multi-user LLM memory service for teams — on Raspberry Pi 5.
+
+piLoci combines a Python MCP server, web dashboard, SQLite auth data, LanceDB vector storage, and an Obsidian-style workspace layer so your team can run project-scoped memory on your own hardware.
 
 > **Current status**: alpha, package version `0.1.0`
->  
-> Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, Google OAuth option, 2FA option, audit logs, and vault workspace MVP are implemented.
+>
+> Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, Google OAuth option, 2FA option, audit logs, transcript ingest pipeline, and vault workspace MVP are implemented.
+
+## Overview
+
+piLoci (파이로싸이) — from **Raspberry Pi** + **Method of Loci** (the ancient memory palace technique) — is a live, self-hosted multi-user LLM memory service designed to run on Raspberry Pi 5. It stays on-device, supports multiple projects with strict memory isolation, and exposes an MCP-based surface for programmatic memory storage and retrieval. The stack emphasizes a local-first approach with embedded vector storage, a lightweight API, and an Obsidian-style workspace for easy knowledge curation.
+
+**Built for teams**: Multiple users share a single piLoci instance. Each user gets their own account (with optional 2FA), and projects enforce strict memory isolation — so your team works together on the same hardware without leaking context between projects. Think of it as a shared, always-on brain for your project team.
+
+The project is in alpha (v0.1.0). While many core components are functional, ongoing development continues to harden reliability, security, and UX.
+
+## Inspiration: llm-wiki
+
+piLoci draws design inspiration from [llm-wiki](https://github.com/Pratiyush/llm-wiki) (Andrés Caparros). llm-wiki implements a wiki-like knowledge layer for LLMs with a categorized wiki structure (sources / entities / concepts / syntheses / comparisons / questions), a lifecycle for wiki entries (draft → reviewed → verified → stale → archived), dual outputs (HTML, Markdown, and JSON), and an Auto Dream integration worker.
+
+It demonstrates how structured, curator-driven knowledge can support long-term memory with modular exports and graph relationships. piLoci borrows this concept into a runtime server with key differentiators:
+
+- **Always-on** — not a batch pipeline but a live service your team connects to in real time
+- **MCP-native** — LLM clients interact through the Model Context Protocol, not CLI scripts
+- **Multi-user / project-isolated** — teams share one instance, projects stay strictly separated
+- **LanceDB semantic search** — embedded vector store with no external process to manage
+
+## Architecture at a glance
+
+```
+Internet → Cloudflare Tunnel → piloci:8314 ← redis:6379
+                                   └── SQLite + LanceDB (/data volume)
+```
+
+| Component | Role |
+|---|---|
+| **piloci** | Starlette-based API server handling REST/MCP, auth, and static frontend |
+| **Redis** | Session storage, rate limiting, transient counters |
+| **SQLite** | Users, projects, tokens, audit logs |
+| **LanceDB** | Embedded vector store — no separate DB process required |
+| **Workspace** | Obsidian-style vault: notes, tags, wikilinks, and graph data |
+| **Frontend** | Next.js (styleseed-based) with a rich web UI |
+| **Tunnel** | Optional Cloudflare Tunnel for external access |
+| **Deploy** | Local-first Docker — all data stays on-device, tuned for Pi 5 |
+
+## Obsidian integration
+
+piLoci already exposes an Obsidian-friendly workspace today. It can generate markdown notes with YAML frontmatter, preserve tags and wikilinks, and expose a workspace API that returns notes and graph data. A small external script can write generated notes into a real Obsidian vault. Full two-way sync with Obsidian is planned for a future milestone.
+
+### What works now
+
+- Workspace API returns notes and graph data
+- Fetch markdown notes and write them into an Obsidian vault via a small script
+- Memories are curated and surfaced as Obsidian-like notes
+
+### What is planned
+
+- Full two-way synchronization between piLoci memories and Obsidian vaults
+- Conflict handling and seamless edit propagation
+- A dedicated Obsidian plugin
+
+### Practical integration pattern
+
+The most realistic near-term workflow:
+
+1. Store and curate memories inside piLoci (via MCP tools or the web UI)
+2. Call `GET /api/projects/slug/{slug}/workspace`
+3. Write each `workspace.notes[].markdown` into its `workspace.notes[].path`
+4. Open that directory as an Obsidian vault — or sync it into an existing one
+
+## Usage scenarios
+
+### Scenario A — Team project memory hub
+
+A small team sets up one piLoci on a shared Pi 5. Each member creates an account, joins shared projects, and stores memories via MCP tools. Everyone benefits from the same knowledge base while project isolation keeps unrelated work separate.
+
+### Scenario B — Multi-project workspace
+
+A solo developer or researcher runs several projects (e.g., "thesis research", "side project", "client work") on one piLoci. Each project's memories stay isolated, and the workspace viewer shows notes and relationships per project.
+
+### Scenario C — Obsidian export
+
+Generate workspace notes and export to an Obsidian vault via simple file write — useful for teams who want to curate knowledge in Obsidian after it's been collected in piLoci.
+
+```bash
+curl -sS http://localhost:8314/api/projects/slug/my-project/workspace
+```
+
+## Tech stack
+
+piLoci combines a Python-based MCP-enabled API server with a lightweight frontend. It uses **SQLite** for identity data, **LanceDB** for embedded vector storage, **Redis** for sessions, and **ONNX-based embeddings** ([fastembed](https://github.com/qdrant/fastembed)) for fast, on-device inference. The frontend is built with **Next.js** (styleseed-driven) for a polished UI, while **Docker** provides a straightforward, local-first deployment model.
+
+> **Why LanceDB?** Qdrant's jemalloc dependency cannot handle Raspberry Pi 5's 16 KB page size (SIGABRT). LanceDB is embedded, mmap-based, and pip-installable — no external process needed.
+
+## Getting started
+
+Clone the repo, run the setup, then deploy with Docker Compose as described in the [Deploy with Docker](#deploy-with-docker) section below. It runs locally on Raspberry Pi 5 with optional public exposure via Cloudflare Tunnel. See [PLAN.md](./PLAN.md) for the phased plan and current status.
 
 ## Quick Links
 
+- **[piloci.jshsakura.com](https://piloci.jshsakura.com/)** — live product site
+- [README.ko.md](./README.ko.md) — 한국어 문서
 - [PLAN.md](./PLAN.md) — source of truth for architecture and implementation phases
+- [docs/](./docs/) — additional documentation
 - [SECURITY.md](./SECURITY.md) — security policy
 - PyPI package: `oc-piloci`
 
@@ -27,11 +122,25 @@ piLoci combines a Python MCP server, web dashboard, SQLite auth data, and LanceD
 - Project-scoped memory isolation
 - Google OAuth and TOTP 2FA options
 - Audit logs and production Docker deployment
+- Transcript ingest endpoint + `piloci-ingest` CLI for client session capture
+- Vault workspace API that turns memories into markdown notes, tags, links, and graph data
+- In-browser project workspace viewer for generated notes and relationships
 
 ### What is still open
 
 - Cloudflare Tunnel production setup for a real public hostname (`PLAN.md` marks this as manual)
 - ADR refresh for the LanceDB transition
+- Real on-disk vault export / sync for a physical Obsidian vault directory
+- Two-way sync from Obsidian edits back into piLoci memories
+
+## Functional Highlights
+
+- **Project-scoped memory isolation**: every memory operation is scoped by user and project so different projects do not leak context into each other.
+- **MCP-native memory surface**: piLoci exposes `memory`, `recall`, `listProjects`, and `whoAmI` so compatible clients can save and retrieve long-term context directly.
+- **Transcript ingest pipeline**: `piloci-ingest` can collect session transcripts from Claude Code, OpenCode, and Codex-style histories and send them to `/api/ingest` for queued processing.
+- **Obsidian-style workspace generation**: piLoci can derive markdown notes with YAML frontmatter, tags, wikilinks, and graph relationships from stored memories.
+- **Workspace API + browser UI**: `GET /api/projects/slug/{slug}/workspace` returns notes and graph data, and the web app already lets you browse the generated workspace without a separate export step.
+- **Local-first deployment model**: SQLite, LanceDB, and Redis stay under your control, with no required hosted memory backend.
 
 ## Phase Roadmap
 
@@ -67,18 +176,6 @@ The current plan in `PLAN.md` points toward:
 - background curation with local Gemma
 - markdown/wiki-style vault outputs
 - richer Obsidian-compatible knowledge views
-
-## Architecture
-
-```text
-Internet → Cloudflare Tunnel → piloci:8314 ← redis:6379
-                                  └── SQLite + LanceDB (/data volume)
-```
-
-- **piloci** — Starlette app serving API, auth, MCP, and static frontend
-- **redis** — sessions, rate limiting, transient counters
-- **SQLite** — users, projects, tokens, audit logs
-- **LanceDB** — embedded vector store, no separate DB process required
 
 ## Deploy with Docker
 
@@ -210,6 +307,28 @@ source .venv/bin/activate
 uv pip install -e ".[dev]"
 ```
 
+### Transcript ingest CLI
+
+piLoci ships with a helper CLI for sending captured client transcripts into the ingest queue:
+
+```bash
+piloci-ingest --client opencode --dry-run
+piloci-ingest --client codex --history-file ~/.codex/history.jsonl --project-id <project-id>
+```
+
+Supported client adapters in the current implementation:
+
+- `claude-code`
+- `opencode`
+- `codex`
+- `gemini` (placeholder / best-effort stub)
+
+Configuration can come from `~/.piloci/config.toml` or environment variables such as:
+
+- `PILOCI_ENDPOINT`
+- `PILOCI_TOKEN`
+- `PILOCI_PROJECT_ID`
+
 ### Web build
 
 ```bash
@@ -262,4 +381,4 @@ git push origin main v0.1.0
 
 ## Resume Development
 
-Start each implementation session from `PLAN.md`, then check `## 현재 상태` for the next incomplete item.
+Start each implementation session from `PLAN.md`, then check `## 현재 상태` (Current Status) for the next incomplete item.

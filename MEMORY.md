@@ -2,6 +2,7 @@
 
 ## 2026-04-24
 
+- Reframed `README.md` around the actual Obsidian-adjacent functionality already in the repo: transcript ingest via `piloci-ingest`, the `/api/projects/slug/{slug}/workspace` vault workspace API, markdown/frontmatter note generation, graph data, and the current boundary that full on-disk Obsidian sync is not implemented yet.
 - Tightened `src/piloci/storage/lancedb_store.py` again so `get()` now pushes `(user_id, project_id, memory_id)` isolation directly into the LanceDB query instead of materializing a row first and rejecting it in Python.
 - Expanded `tests/test_storage_lancedb.py` around the get/isolation path and revalidated the LanceDB + profiling + embed regression slice after the query-level isolation change (`33 passed`).
 - Tightened `src/piloci/auth/session.py` so `_enforce_session_limit()` checks Redis set cardinality first and skips the expensive `SMEMBERS`/per-session scan on the common under-limit login path.
