@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from piloci.storage.lancedb_store import MemoryStore, VECTOR_SIZE
+from piloci.storage.lancedb_store import VECTOR_SIZE, _row_to_dict
 from piloci.utils.logging import get_runtime_profiler, reset_runtime_profiler
 
 _USER = "aaaaaaaa-0000-0000-0000-000000000001"
@@ -56,6 +56,21 @@ async def test_save_with_metadata(lancedb_store):
     record = await lancedb_store.get(_USER, _PROJECT, mid)
     assert record is not None
     assert record["metadata"]["key"] == "val"
+
+
+def test_row_to_dict_parses_metadata_bytes():
+    record = _row_to_dict({
+        "memory_id": "mem-1",
+        "user_id": _USER,
+        "project_id": _PROJECT,
+        "content": "meta bytes",
+        "tags": ["meta"],
+        "metadata": b'{"key":"val"}',
+        "created_at": 1,
+        "updated_at": 2,
+    })
+
+    assert record["metadata"] == {"key": "val"}
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +177,33 @@ async def test_update_tags(lancedb_store):
     record = await lancedb_store.get(_USER, _PROJECT, mid)
     assert record is not None
     assert record["tags"] == ["new"]
+
+
+@pytest.mark.asyncio
+async def test_update_metadata_merges_existing_metadata(lancedb_store):
+    mid = await lancedb_store.save(
+        _USER,
+        _PROJECT,
+        "content",
+        _VECTOR,
+        metadata={"existing": "kept", "changed": "old"},
+    )
+
+    result = await lancedb_store.update(
+        _USER,
+        _PROJECT,
+        mid,
+        metadata={"changed": "new", "added": "value"},
+    )
+
+    assert result is True
+    record = await lancedb_store.get(_USER, _PROJECT, mid)
+    assert record is not None
+    assert record["metadata"] == {
+        "existing": "kept",
+        "changed": "new",
+        "added": "value",
+    }
 
 
 @pytest.mark.asyncio

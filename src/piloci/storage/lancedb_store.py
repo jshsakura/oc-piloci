@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 import time
 import uuid
 from typing import Any
 
+import orjson
 import pyarrow as pa
 from lancedb.index import BTree, IvfPq, LabelList
 
@@ -43,10 +43,10 @@ def _safe_id(value: str) -> str:
 
 def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
     metadata = row.get("metadata") or "{}"
-    if isinstance(metadata, str):
+    if isinstance(metadata, str | bytes | bytearray):
         try:
-            metadata = json.loads(metadata)
-        except (json.JSONDecodeError, ValueError):
+            metadata = orjson.loads(metadata)
+        except (orjson.JSONDecodeError, ValueError):
             metadata = {}
     tags = row.get("tags") or []
     return {
@@ -140,7 +140,7 @@ class MemoryStore:
             "project_id": project_id,
             "content": content,
             "tags": tags or [],
-            "metadata": json.dumps(metadata or {}),
+            "metadata": orjson.dumps(metadata or {}).decode(),
             "created_at": now,
             "updated_at": now,
             "vector": vector,
@@ -272,7 +272,7 @@ class MemoryStore:
                     "project_id": project_id,
                     "content": content if content is not None else existing["content"],
                     "tags": tags if tags is not None else existing["tags"],
-                    "metadata": json.dumps(merged_meta),
+                    "metadata": orjson.dumps(merged_meta).decode(),
                     "created_at": existing["created_at"],
                     "updated_at": now,
                     "vector": new_vector,
@@ -291,7 +291,7 @@ class MemoryStore:
                     updates["tags"] = tags
                 if metadata is not None:
                     merged = {**existing.get("metadata", {}), **metadata}
-                    updates["metadata"] = json.dumps(merged)
+                    updates["metadata"] = orjson.dumps(merged).decode()
                 await tbl.update(updates=updates, where=where)
 
             return True
