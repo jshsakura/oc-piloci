@@ -23,30 +23,24 @@ const copy = getCopy();
 export const metadata: Metadata = {
   title: {
     template: '%s | piLoci',
-    default: 'piLoci - High Performance MCP Memory Engine',
+    default: 'piLoci - Knowledge Memory for Your AI Core',
   },
   description: copy.metadata.description,
-  metadataBase: new URL('https://piloci.io'), // 예시 URL
+  metadataBase: new URL('https://piloci.io'),
   openGraph: {
-    title: 'piLoci - Your AI Memory Vault',
+    title: 'piLoci - Knowledge Memory for Your AI Core',
     description: copy.metadata.description,
     url: 'https://piloci.io',
     siteName: 'piLoci',
-    images: [
-      {
-        url: '/og-image.png', // 이미지 있다고 가정
-        width: 1200,
-        height: 630,
-      },
-    ],
+    images: [{ url: '/og-image.webp', width: 1200, height: 630 }],
     locale: 'ko_KR',
     type: 'website',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'piLoci - Your AI Memory Vault',
+    title: 'piLoci - Knowledge Memory for Your AI Core',
     description: copy.metadata.description,
-    images: ['/og-image.png'],
+    images: ['/og-image.webp'],
   },
   icons: {
     icon: "/icon.svg",

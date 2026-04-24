@@ -61,9 +61,41 @@ const copy = {
       ],
       titleLines: ['KNOWLEDGE MEMORY', 'FOR YOUR AI CORE'],
       descriptionLines: [
-        'piLoci는 라즈베리파이와 같은 저전력 환경에서도 완벽하게 작동하는',
-        'Model Context Protocol(MCP) 기반의 퍼스널 메모리 서버입니다.',
+        'piLoci는 라즈베리파이와 같은 저전력 환경에서도 완벽하게 작동하는 Model Context Protocol(MCP) 기반의 퍼스널 메모리 서버입니다.',
       ],
+      terminal: {
+        title: 'piLoci MCP',
+        examples: [
+          {
+            q: '어제 진행했던 프로젝트 뭐였지?',
+            tool: 'search_context',
+            toolArgs: '{"query": "어제 진행 프로젝트", "top_k": 3}',
+            result: '3개 결과 — [piloci/스캐폴딩] [piloci/MCP 라우팅] [piloci/인증]',
+            a: '어제 piLoci 프로젝트를 진행하셨습니다. MCP 서버 라우팅 구조를 /mcp 프리픽스로 리팩토링하고, SSE 전송 레이어를 Starlette 서브앱으로 마운트하는 작업을 하셨네요.',
+          },
+          {
+            q: '이번 프로젝트 제약사항 정리해줘',
+            tool: 'search_context',
+            toolArgs: '{"query": "제약사항 constraints 보안", "top_k": 5}',
+            result: '5개 결과 — [CLAUDE.md] [routes.py] [sse.py] [.env.example] [security]',
+            a: '수집된 제약사항: ① argon2id만 사용 (bcrypt 금지) ② raw SQL 금지, ORM만 ③ JWT secret 환경변수로만 ④ (user_id, project_id) 필터 필수 ⑤ orjson 사용',
+          },
+          {
+            q: '어디까지 했더라… 진행 상황 알려줘',
+            tool: 'recall_project_state',
+            toolArgs: '{"project_id": "piloci"}',
+            result: '상태 로드 — 메모리 847개, 태그 23개, 최근 세션 12개',
+            a: '현재 piLoci 프로젝트는 랜딩 페이지 UI 개선 중입니다. 다크 테마 violet 톤 적용, MCP 라우팅 /mcp로 리팩토링 완료. 다음: Docker 프로덕션 설정.',
+          },
+          {
+            q: '그때 논의한 인증 방식 다시 알려줘',
+            tool: 'search_context',
+            toolArgs: '{"query": "인증 auth 방식 토큰", "top_k": 3}',
+            result: '3개 결과 — [auth 라우트] [2FA 설정] [토큰 스코프]',
+            a: 'JWT 세션 + TOTP 2FA 이중 인증, argon2id 비밀번호 해시, API 토큰은 프로젝트 스코프 기반이었어요. refresh 토큰은 httpOnly 쿠키에 저장하기로 했습니다.',
+          },
+        ],
+      },
       stats: {
         latency: '2ms',
         reduction: '85%',
@@ -100,6 +132,7 @@ const copy = {
         capabilities: {
           title: '제공되는 도구 (Tools)',
           desc: 'piLoci MCP 서버는 LLM이 직접 호출할 수 있는 다음과 같은 강력한 도구들을 제공합니다.',
+          note: 'LLM의 프롬프트 맥락을 해치지 않도록, 최소한의 툴 개수로 최대 효율을 추구합니다.',
           list: [
             { name: 'store_memory', desc: '새로운 정보나 프로젝트의 맥락을 영구 메모리에 저장합니다.' },
             { name: 'search_context', desc: '현재 작업과 가장 관련성이 높은 과거 기억을 시멘틱 검색으로 불러옵니다.' },
@@ -107,8 +140,8 @@ const copy = {
           ]
         },
         pricing: {
-          title: '영원한 무료, 완전한 자유',
-          desc: 'piLoci는 커뮤니티와 함께 성장하는 오픈소스 프로젝트입니다. 어떤 비용이나 제약 없이 당신의 AI 코어를 강화하세요.',
+          title: '투명한 오픈소스, 완전한 자유',
+          desc: 'piLoci는 모든 소스코드가 공개된 오픈소스 프로젝트입니다. 투명성과 신뢰를 바탕으로 당신의 AI 코어를 강화하세요.',
           features: ['무제한 프로젝트 생성', '로컬 SQLite + LanceDB', '상업적 이용 가능 (MIT)', '개인 정보 추적 0%'],
           engineering: {
             title: '라즈베리파이에서 비용 없이',
@@ -232,9 +265,41 @@ const copy = {
       ],
       titleLines: ['KNOWLEDGE MEMORY', 'FOR YOUR AI CORE'],
       descriptionLines: [
-        'piLoci is a personal memory server based on Model Context Protocol(MCP)',
-        'designed to run perfectly on low-power devices like Raspberry Pi.',
+        'piLoci is a personal memory server based on Model Context Protocol(MCP), designed to run perfectly on low-power devices like Raspberry Pi.',
       ],
+      terminal: {
+        title: 'piLoci MCP',
+        examples: [
+          {
+            q: 'What was I working on yesterday?',
+            tool: 'search_context',
+            toolArgs: '{"query": "yesterday project", "top_k": 3}',
+            result: '3 results — [piloci/scaffolding] [piloci/MCP routing] [piloci/auth]',
+            a: 'You were working on piLoci yesterday — refactored the MCP routing to use a /mcp prefix, and mounted the SSE transport as a Starlette sub-app.',
+          },
+          {
+            q: 'Gather the constraints for this project',
+            tool: 'search_context',
+            toolArgs: '{"query": "constraints security requirements", "top_k": 5}',
+            result: '5 results — [CLAUDE.md] [routes.py] [sse.py] [.env.example] [security]',
+            a: 'Collected constraints: ① argon2id only (no bcrypt) ② ORM only, no raw SQL ③ JWT secret via env vars ④ (user_id, project_id) filter required ⑤ orjson mandatory',
+          },
+          {
+            q: 'Where did I leave off? Catch me up',
+            tool: 'recall_project_state',
+            toolArgs: '{"project_id": "piloci"}',
+            result: 'State loaded — 847 memories, 23 tags, 12 recent sessions',
+            a: 'You were polishing the landing page UI — dark theme violet tones, MCP routing refactored to /mcp. Next up: Docker production setup.',
+          },
+          {
+            q: 'Remind me of the auth approach we decided on',
+            tool: 'search_context',
+            toolArgs: '{"query": "auth authentication token session", "top_k": 3}',
+            result: '3 results — [auth routes] [2FA setup] [token scopes]',
+            a: 'Dual auth: JWT sessions + TOTP 2FA, argon2id password hashing, scoped API tokens per project. Refresh tokens in httpOnly cookies.',
+          },
+        ],
+      },
       stats: {
         latency: '2ms',
         reduction: '85%',
@@ -271,6 +336,7 @@ const copy = {
         capabilities: {
           title: 'Available Tools',
           desc: 'piLoci MCP server provides the following powerful tools that LLMs can call directly.',
+          note: 'Minimal tool count by design — to preserve LLM prompt context while maximizing efficiency.',
           list: [
             { name: 'store_memory', desc: 'Save new information or project context to permanent memory.' },
             { name: 'search_context', desc: 'Retrieve past memories most relevant to the current task via semantic search.' },
@@ -278,8 +344,8 @@ const copy = {
           ]
         },
         pricing: {
-          title: 'Always Free, Total Freedom',
-          desc: 'piLoci is an open-source project growing with the community. Enhance your AI core without any costs or restrictions.',
+          title: 'Transparent Open Source, Total Freedom',
+          desc: 'piLoci is fully open source — every line of code is public. Built on transparency and trust.',
           features: ['Unlimited Projects', 'Local SQLite + LanceDB', 'Commercial Use (MIT)', 'Zero Telemetry'],
           engineering: {
             title: 'Runs on Raspberry Pi, Zero Cost',
