@@ -27,6 +27,30 @@ def _make_request(body: dict[str, object], user: dict[str, str] | None) -> Reque
     return Request(scope, receive)
 
 
+def _make_memory_request(
+    body: dict[str, object],
+    user: dict[str, str] | None,
+    store: object,
+) -> Request:
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/memories",
+        "headers": [],
+        "query_string": b"",
+        "client": ("127.0.0.1", 12345),
+        "state": {"user": user},
+        "app": SimpleNamespace(state=SimpleNamespace(store=store)),
+    }
+
+    payload = orjson.dumps(body)
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": payload, "more_body": False}
+
+    return Request(scope, receive)
+
+
 def _session_cm(session: MagicMock) -> AsyncMock:
     cm = AsyncMock()
     cm.__aenter__ = AsyncMock(return_value=session)
@@ -117,3 +141,81 @@ async def test_route_ingest_returns_202_when_enqueued(monkeypatch):
     assert payload["queue_capacity"] == 4
     write_session.add.assert_called_once()
     write_session.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_route_create_memory_saves_project_scoped_memory(monkeypatch, mock_store, settings):
+    from piloci.api import routes
+    from piloci.storage import embed
+
+    vector = [0.2] * 384
+    mock_store.save.return_value = "memory-1"
+    request = _make_memory_request(
+        {"content": "remember this", "tags": ["alpha", "beta"], "metadata": {"source": "ui"}},
+        user={"sub": "user-1", "project_id": "project-1"},
+        store=mock_store,
+    )
+
+    invalidated: list[tuple[object, str, str]] = []
+
+    async def fake_embed_one(**kwargs):
+        assert kwargs["text"] == "remember this"
+        return vector
+
+    async def fake_invalidate(vault_dir, user_id: str, project_id: str) -> None:
+        invalidated.append((vault_dir, user_id, project_id))
+
+    monkeypatch.setattr(routes, "get_settings", lambda: settings)
+    monkeypatch.setattr(embed, "embed_one", fake_embed_one)
+    monkeypatch.setattr(routes, "invalidate_project_vault_cache", fake_invalidate)
+
+    response = await routes.route_create_memory(request)
+    payload = orjson.loads(response.body)
+
+    assert response.status_code == 201
+    assert payload == {"success": True, "memory_id": "memory-1", "project_id": "project-1"}
+    mock_store.save.assert_awaited_once_with(
+        user_id="user-1",
+        project_id="project-1",
+        content="remember this",
+        vector=vector,
+        tags=["alpha", "beta"],
+        metadata={"source": "ui"},
+    )
+    assert invalidated == [(settings.vault_dir, "user-1", "project-1")]
+
+
+@pytest.mark.asyncio
+async def test_route_create_memory_requires_project_scope(mock_store):
+    from piloci.api import routes
+
+    request = _make_memory_request(
+        {"content": "remember this"},
+        user={"sub": "user-1"},
+        store=mock_store,
+    )
+
+    response = await routes.route_create_memory(request)
+    payload = orjson.loads(response.body)
+
+    assert response.status_code == 400
+    assert payload["error"] == "project scope required"
+    mock_store.save.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_route_create_memory_rejects_blank_content(mock_store):
+    from piloci.api import routes
+
+    request = _make_memory_request(
+        {"content": "   "},
+        user={"sub": "user-1", "project_id": "project-1"},
+        store=mock_store,
+    )
+
+    response = await routes.route_create_memory(request)
+    payload = orjson.loads(response.body)
+
+    assert response.status_code == 400
+    assert payload["error"] == "content required"
+    mock_store.save.assert_not_awaited()

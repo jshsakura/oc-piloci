@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, cast
 
 import orjson
 from sqlalchemy import delete
@@ -950,6 +950,60 @@ async def route_ingest(request: Request) -> Response:
 # ---------------------------------------------------------------------------
 
 
+async def route_create_memory(request: Request) -> Response:
+    user = request.state.user
+    if user is None:
+        return _json({"error": "unauthorized"}, 401)
+    user_id_value = user.get("sub") or user.get("user_id")
+    project_id_value = user.get("project_id")
+    if not isinstance(user_id_value, str) or not user_id_value:
+        return _json({"error": "user_id required"}, 400)
+    if not isinstance(project_id_value, str) or not project_id_value:
+        return _json({"error": "project scope required"}, 400)
+    user_id = user_id_value
+    project_id = project_id_value
+    try:
+        body_obj = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "invalid JSON"}, 400)
+    if not isinstance(body_obj, dict):
+        return _json({"error": "invalid JSON"}, 400)
+    body = cast(dict[str, object], body_obj)
+
+    raw_content = body.get("content")
+    if not isinstance(raw_content, str) or not raw_content.strip():
+        return _json({"error": "content required"}, 400)
+    content = raw_content.strip()
+
+    raw_tags = body.get("tags")
+    tags = [tag for tag in raw_tags if isinstance(tag, str)] if isinstance(raw_tags, list) else None
+    raw_metadata = body.get("metadata")
+    metadata = cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else None
+
+    from piloci.storage import embed
+
+    settings = get_settings()
+    vector = await embed.embed_one(
+        text=content,
+        model=settings.embed_model,
+        cache_dir=settings.embed_cache_dir,
+        lru_size=settings.embed_lru_size,
+        executor_workers=settings.embed_executor_workers,
+        max_concurrency=settings.embed_max_concurrency,
+    )
+    store = request.app.state.store
+    memory_id = await store.save(
+        user_id=user_id,
+        project_id=project_id,
+        content=content,
+        vector=vector,
+        tags=tags,
+        metadata=metadata,
+    )
+    await invalidate_project_vault_cache(settings.vault_dir, user_id, project_id)
+    return _json({"success": True, "memory_id": memory_id, "project_id": project_id}, 201)
+
+
 async def route_get_memory(request: Request) -> Response:
     user = request.state.user
     if user is None:
@@ -1151,6 +1205,7 @@ def get_routes() -> list[Route]:
         Route("/auth/google/callback", route_google_callback, methods=["GET"]),
         # v0.3: auto-capture + memory admin
         Route("/api/ingest", route_ingest, methods=["POST"]),
+        Route("/api/memories", route_create_memory, methods=["POST"]),
         Route("/api/memories/{id}", route_get_memory, methods=["GET"]),
         Route("/api/memories/{id}", route_update_memory, methods=["PATCH"]),
         Route("/api/memories/{id}", route_delete_memory, methods=["DELETE"]),
