@@ -17,7 +17,7 @@
 # ──────────────────────────────────────────────────────────────
 services:
   piloci:
-    image: ${PILOCI_IMAGE:-ghcr.io/your-org-or-user/piloci:latest}
+    image: ${PILOCI_IMAGE:-jshsakura/piloci:latest}
     restart: unless-stopped
     read_only: true
     user: "1000:1000"

@@ -402,7 +402,7 @@ git push origin main v0.1.0
 - checks tag/version consistency
 - runs Python tests
 - builds the static web app
-- publishes multi-arch Docker images
+- publishes multi-arch Docker images to Docker Hub and GHCR
 - creates a GitHub Release
 - publishes `oc-piloci` to PyPI
 

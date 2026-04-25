@@ -20,6 +20,7 @@ env:
   PYTHON_VERSION: '3.11'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  DOCKERHUB_IMAGE: jshsakura/piloci
 
 jobs:
   # ──────────────────────────────────────────
@@ -145,11 +146,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_IMAGE }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -219,11 +228,14 @@ jobs:
             ## Docker
 
             ```bash
-            # Raspberry Pi 5 (arm64)
+            # Docker Hub (recommended)
+            docker pull jshsakura/piloci:${{ needs.version-check.outputs.version }}
+
+            # GHCR
             docker pull ghcr.io/${{ github.repository }}:${{ needs.version-check.outputs.version }}
 
             # docker-compose.yml 업데이트
-            image: ghcr.io/${{ github.repository }}:${{ needs.version-check.outputs.version }}
+            image: jshsakura/piloci:${{ needs.version-check.outputs.version }}
             docker compose pull && docker compose up -d
             ```
 
