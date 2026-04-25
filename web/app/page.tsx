@@ -259,7 +259,7 @@ export default function LandingPage() {
       </section>
 
       {/* Features */}
-      <section className="border-t bg-muted py-20">
+      <section className="border-t py-20">
         <div className="mx-auto max-w-6xl px-4">
           <h2 className="mb-3 text-center text-2xl font-bold">{t.landing.sections.features.title}</h2>
           <div className="mx-auto mb-12 max-w-3xl space-y-3 text-center text-muted-foreground">
@@ -285,7 +285,7 @@ export default function LandingPage() {
       </section>
 
       {/* Quiet curator */}
-      <section className="border-t bg-background py-20">
+      <section className="border-t py-20">
         <div className="mx-auto grid max-w-6xl gap-10 px-4 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
           <div>
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-primary">
@@ -408,7 +408,7 @@ export default function LandingPage() {
       </section>
 
       {/* Pricing + Engineering */}
-      <section className="border-t bg-muted py-20">
+      <section className="border-t py-20">
         <div className="mx-auto max-w-6xl px-4">
           <div className="grid gap-8 lg:grid-cols-2">
             {/* Free tier card */}
