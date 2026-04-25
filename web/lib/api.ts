@@ -37,6 +37,10 @@ export const api = {
     request(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ confirm: true }) }),
 
   // Auth
+  forgotPassword: (email: string) =>
+    request("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) }),
+  resetPassword: (token: string, new_password: string) =>
+    request("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, new_password }) }),
   me: () => request<import("./types").User>('/api/me'),
   changePassword: (current_password: string, new_password: string) =>
     request('/api/account/password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
