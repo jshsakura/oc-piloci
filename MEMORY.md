@@ -2,6 +2,9 @@
 
 ## 2026-04-25
 
+- Optimized curator ingest persistence in `src/piloci/curator/worker.py` and `src/piloci/storage/lancedb_store.py`: in-job vector duplicates are now filtered before LanceDB search, and accepted memories are written through one `save_many(...)` batch upsert instead of per-memory saves.
+- Added regression coverage for batched curator saves, in-batch duplicate skipping, and LanceDB `save_many` profiling; revalidated the slice with `uv run pytest tests/test_curator_worker.py tests/test_storage_lancedb.py -v --no-cov` (`38 passed`) plus `ruff check` on touched files.
+
 - Completed the repo-wide stdlib `json` cleanup for runtime paths: CLI/profile/curator/Gemma/MCP/ingest/baseline code now uses `orjson`, and grep confirms no remaining `json.loads`/`json.dumps`/`json.load` usage under `src/piloci`.
 - Hardened commit-time quality gates in `.pre-commit-config.yaml`: Black, isort, Ruff, and full pytest now run through local `uv run ...` hooks so the hook uses the project environment instead of failing on missing `python3.11` hook virtualenvs.
 - Removed lint-exposed dead/noisy code while validating the hooks: unused signup assignment was dropped, embedding batch cache update now uses `zip(..., strict=True)`, empty/opaque `pass` exception paths were replaced with explicit continue/debug behavior, and the full pre-commit suite passes.
