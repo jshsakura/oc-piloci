@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 """CLI entry point: `piloci` command."""
 
 import argparse
-import json
 import sys
 
+import orjson
 from dotenv import load_dotenv
 
 
@@ -25,7 +26,9 @@ def main() -> None:
     # stdio command (dev/testing)
     sub.add_parser("stdio", help="Run MCP server over stdio")
 
-    baseline = sub.add_parser("profile-baseline", help="Collect idle runtime baseline via health endpoints")
+    baseline = sub.add_parser(
+        "profile-baseline", help="Collect idle runtime baseline via health endpoints"
+    )
     baseline.add_argument("--endpoint", default=None)
     baseline.add_argument("--samples", type=int, default=None)
     baseline.add_argument("--timeout", type=float, default=None)
@@ -42,6 +45,7 @@ def main() -> None:
 
     if args.command == "stdio":
         from piloci.main import run_stdio
+
         run_stdio()
     elif args.command == "profile-baseline":
         from piloci.profiling_baseline import collect_baseline, resolve_baseline_defaults
@@ -55,10 +59,11 @@ def main() -> None:
             timeout=args.timeout or defaults["timeout"],
             token=args.token or defaults["token"],
         )
-        print(json.dumps(payload, indent=2))
+        print(orjson.dumps(payload, option=orjson.OPT_INDENT_2).decode())
     elif args.command == "serve":
         if args.host or args.port or args.reload:
             import os
+
             if args.host:
                 os.environ["HOST"] = args.host
             if args.port:
@@ -66,6 +71,7 @@ def main() -> None:
             if args.reload:
                 os.environ["RELOAD"] = "true"
         from piloci.main import run_sse
+
         run_sse()
     else:
         parser.print_help()

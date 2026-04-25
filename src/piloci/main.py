@@ -9,7 +9,7 @@ from typing import Any
 import uvicorn
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
-from starlette.routing import Mount, Route
+from starlette.routing import Mount
 
 from piloci.api.ratelimit import setup_ratelimit
 from piloci.api.routes import get_routes
@@ -77,10 +77,11 @@ def run_stdio() -> None:
 
 def _build_mcp(settings, store: MemoryStore):
     """Build MCP server with v0.3 resources/prompts wired to DB + store."""
-    from piloci.curator.profile import get_profile as _get_profile
     from sqlalchemy import select
-    from piloci.db.session import async_session
+
+    from piloci.curator.profile import get_profile as _get_profile
     from piloci.db.models import Project
+    from piloci.db.session import async_session
 
     projects_cache = _ProjectsCache(ttl_sec=300.0)
 
@@ -94,8 +95,10 @@ def _build_mcp(settings, store: MemoryStore):
                 return cached
         async with async_session() as db:
             rows = (
-                await db.execute(select(Project).where(Project.user_id == user_id))
-            ).scalars().all()
+                (await db.execute(select(Project).where(Project.user_id == user_id)))
+                .scalars()
+                .all()
+            )
         projects = [
             {"id": p.id, "slug": p.slug, "name": p.name, "memory_count": p.memory_count}
             for p in rows
@@ -103,9 +106,7 @@ def _build_mcp(settings, store: MemoryStore):
         return projects_cache.set(user_id, projects)
 
     async def recent_fn(user_id: str, project_id: str, limit: int) -> list[dict[str, Any]]:
-        rows = await store.list(
-            user_id=user_id, project_id=project_id, limit=limit, offset=0
-        )
+        rows = await store.list(user_id=user_id, project_id=project_id, limit=limit, offset=0)
         rows.sort(key=lambda m: m.get("updated_at", 0), reverse=True)
         return rows
 
@@ -180,16 +181,14 @@ async def _startup(app, store, stop_event, bg_tasks) -> None:
     logger.info("Maintenance worker started")
 
     if settings.curator_enabled:
-        from piloci.curator.worker import process_unfinished, run_worker
         from piloci.curator.profile import run_profile_worker
+        from piloci.curator.worker import process_unfinished, run_worker
 
         requeued = await process_unfinished(settings, store)
         logger.info("Re-queued %d unprocessed sessions", requeued)
 
         bg_tasks.append(asyncio.create_task(run_worker(settings, store, stop_event)))
-        bg_tasks.append(
-            asyncio.create_task(run_profile_worker(settings, store, stop_event))
-        )
+        bg_tasks.append(asyncio.create_task(run_profile_worker(settings, store, stop_event)))
         logger.info("Curator + profile workers started")
 
 
@@ -200,8 +199,8 @@ async def _shutdown(store, stop_event, bg_tasks) -> None:
             await asyncio.wait_for(task, timeout=10.0)
         except asyncio.TimeoutError:
             task.cancel()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Background task failed during shutdown: %s", exc)
     await store.close()
     logger.info("LanceDB connection closed")
 

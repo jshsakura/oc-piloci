@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """piloci-ingest CLI: normalize session transcripts from each MCP client
 and POST them to /api/ingest. Designed to run inside each client's
 session-end hook. Zero client-LLM tokens (runs in shell, not LLM).
@@ -11,15 +12,17 @@ Supported clients:
 """
 
 import argparse
-import json
 import os
 import sys
+import tomllib
 from pathlib import Path
+from typing import Any
 
 import httpx
+import orjson
 
 
-def _read_config() -> dict:
+def _read_config() -> dict[str, Any]:
     """Load endpoint + token from ~/.piloci/config.toml, with env fallback."""
     cfg = {
         "endpoint": os.environ.get("PILOCI_ENDPOINT", "http://localhost:8314"),
@@ -29,10 +32,6 @@ def _read_config() -> dict:
     config_path = Path.home() / ".piloci" / "config.toml"
     if config_path.exists():
         try:
-            try:
-                import tomllib
-            except ImportError:
-                import tomli as tomllib  # type: ignore
             with open(config_path, "rb") as f:
                 data = tomllib.load(f)
             cfg["endpoint"] = data.get("endpoint", cfg["endpoint"])
@@ -48,7 +47,7 @@ def _read_config() -> dict:
 # ---------------------------------------------------------------------------
 
 
-def _load_claude_code(stdin_data: dict) -> tuple[str | None, list[dict]]:
+def _load_claude_code(stdin_data: dict[str, Any]) -> tuple[str | None, list[dict[str, Any]]]:
     transcript_path = stdin_data.get("transcript_path")
     session_id = stdin_data.get("session_id")
     if not transcript_path or not Path(transcript_path).exists():
@@ -60,13 +59,13 @@ def _load_claude_code(stdin_data: dict) -> tuple[str | None, list[dict]]:
             if not line:
                 continue
             try:
-                transcript.append(json.loads(line))
-            except json.JSONDecodeError:
-                pass
+                transcript.append(orjson.loads(line))
+            except (orjson.JSONDecodeError, ValueError):
+                continue
     return session_id, transcript
 
 
-def _load_opencode(session_id: str | None) -> tuple[str | None, list[dict]]:
+def _load_opencode(session_id: str | None) -> tuple[str | None, list[dict[str, Any]]]:
     """Read the most recent session from OpenCode's SQLite storage.
 
     Storage dir: ~/.local/share/opencode/storage
@@ -80,8 +79,8 @@ def _load_opencode(session_id: str | None) -> tuple[str | None, list[dict]]:
         return session_id, []
     latest = candidates[0]
     try:
-        with open(latest) as f:
-            data = json.load(f)
+        with open(latest, "rb") as f:
+            data = orjson.loads(f.read())
         transcript = data.get("messages") or data.get("transcript") or []
         sid = data.get("id") or data.get("sessionId") or session_id
         return sid, transcript if isinstance(transcript, list) else []
@@ -89,7 +88,7 @@ def _load_opencode(session_id: str | None) -> tuple[str | None, list[dict]]:
         return session_id, []
 
 
-def _load_codex(history_file: str | None) -> tuple[str | None, list[dict]]:
+def _load_codex(history_file: str | None) -> tuple[str | None, list[dict[str, Any]]]:
     path = Path(history_file) if history_file else Path.home() / ".codex" / "history.jsonl"
     if not path.exists():
         return None, []
@@ -101,19 +100,18 @@ def _load_codex(history_file: str | None) -> tuple[str | None, list[dict]]:
             if not line:
                 continue
             try:
-                entry = json.loads(line)
+                entry = orjson.loads(line)
                 transcript.append(entry)
                 if session_id is None:
                     session_id = entry.get("session_id") or entry.get("sessionId")
-            except json.JSONDecodeError:
-                pass
+            except (orjson.JSONDecodeError, ValueError):
+                continue
     # Only send most recent session (last ~50 entries to stay bounded)
     return session_id, transcript[-200:]
 
 
-def _load_gemini(session_id: str | None) -> tuple[str | None, list[dict]]:
+def _load_gemini(session_id: str | None) -> tuple[str | None, list[dict[str, Any]]]:
     """Gemini CLI currently stubs transcript_path. Best-effort placeholder."""
-    gemini_dir = os.environ.get("GEMINI_PROJECT_DIR") or os.environ.get("HOME", "")
     if not session_id:
         session_id = os.environ.get("GEMINI_SESSION_ID")
     # TODO: parse Gemini's actual session format once #14715 resolves
@@ -148,8 +146,8 @@ def main() -> int:
     # Claude Code: hook sends JSON on stdin
     if args.client == "claude-code":
         try:
-            stdin_data = json.loads(sys.stdin.read() or "{}")
-        except json.JSONDecodeError:
+            stdin_data = orjson.loads(sys.stdin.read() or "{}")
+        except (orjson.JSONDecodeError, ValueError):
             stdin_data = {}
         session_id, transcript = _load_claude_code(stdin_data)
     elif args.client == "opencode":
@@ -175,12 +173,20 @@ def main() -> int:
         payload["project_id"] = project_id
 
     if args.dry_run:
-        print(json.dumps({"endpoint": endpoint, "payload_preview": {
-            "client": payload["client"],
-            "session_id": payload["session_id"],
-            "transcript_length": len(transcript),
-            "project_id": payload.get("project_id"),
-        }}, indent=2))
+        print(
+            orjson.dumps(
+                {
+                    "endpoint": endpoint,
+                    "payload_preview": {
+                        "client": payload["client"],
+                        "session_id": payload["session_id"],
+                        "transcript_length": len(transcript),
+                        "project_id": payload.get("project_id"),
+                    },
+                },
+                option=orjson.OPT_INDENT_2,
+            ).decode()
+        )
         return 0
 
     if not token:
@@ -191,7 +197,7 @@ def main() -> int:
         resp = httpx.post(
             f"{endpoint.rstrip('/')}/api/ingest",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            content=json.dumps(payload),
+            content=orjson.dumps(payload),
             timeout=10.0,
         )
         if resp.status_code >= 400:

@@ -1,8 +1,9 @@
 """Tests for local authentication (signup, login, password policy)."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
 import uuid
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -13,14 +14,14 @@ from piloci.auth.local import (
     TOTPRequiredError,
     WeakPasswordError,
     _validate_password,
-    signup,
     login,
+    signup,
 )
-
 
 # ---------------------------------------------------------------------------
 # _validate_password
 # ---------------------------------------------------------------------------
+
 
 def test_strong_password_passes():
     _validate_password("SecurePass1!")
@@ -54,6 +55,7 @@ def test_exactly_minimum_length_passes():
 # signup
 # ---------------------------------------------------------------------------
 
+
 def _make_db_session(existing_user=None):
     db = AsyncMock()
     result = MagicMock()
@@ -78,7 +80,7 @@ async def test_signup_success():
     db = _make_db_session(existing_user=None)
     settings = _make_settings()
 
-    user = await signup("new@test.com", "SecurePass1!", "New User", db, settings)
+    await signup("new@test.com", "SecurePass1!", "New User", db, settings)
     db.add.assert_called()
     db.commit.assert_awaited()
 
@@ -105,6 +107,7 @@ async def test_signup_weak_password_raises():
 # ---------------------------------------------------------------------------
 # login
 # ---------------------------------------------------------------------------
+
 
 def _make_session_store(fail_count=0):
     store = AsyncMock()
@@ -138,6 +141,7 @@ async def test_login_unknown_email_raises():
 @pytest.mark.asyncio
 async def test_login_wrong_password_raises():
     from piloci.db.models import User
+
     user = MagicMock(spec=User)
     user.totp_enabled = False
     user.password_hash = "invalid-hash"

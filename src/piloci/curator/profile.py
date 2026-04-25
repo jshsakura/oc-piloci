@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Profile summarizer: all memories → compressed {static, dynamic} profile.
 
 Stored in `user_profiles` table. Exposed via `piloci://profile` Resource
@@ -6,11 +7,11 @@ and `context` Prompt.
 """
 
 import asyncio
-import json
 import logging
 import time
 from datetime import datetime, timezone
 
+import orjson
 from sqlalchemy import select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
@@ -110,13 +111,11 @@ async def refresh_profile(
             )
             existing = row.scalar_one_or_none()
             if existing:
-                return _normalize_profile_payload(json.loads(existing.profile_json))
+                return _normalize_profile_payload(orjson.loads(existing.profile_json))
         # fall through to generate if no existing profile
 
     # Fetch recent memories
-    memories = await store.list(
-        user_id=user_id, project_id=project_id, limit=200, offset=0
-    )
+    memories = await store.list(user_id=user_id, project_id=project_id, limit=200, offset=0)
     # sort by updated_at desc (most recent first)
     memories.sort(key=lambda m: m.get("updated_at", 0), reverse=True)
 
@@ -126,7 +125,7 @@ async def refresh_profile(
         logger.warning("Profile summarize failed for %s/%s: %s", user_id, project_id, e)
         profile = {"static": [], "dynamic": []}
 
-    payload = json.dumps(profile)
+    payload = orjson.dumps(profile).decode()
     stmt = sqlite_insert(UserProfile).values(
         user_id=user_id,
         project_id=project_id,
@@ -158,8 +157,8 @@ async def get_profile(user_id: str, project_id: str) -> dict[str, list[str]] | N
         if existing is None:
             return None
         try:
-            return _normalize_profile_payload(json.loads(existing.profile_json))
-        except json.JSONDecodeError:
+            return _normalize_profile_payload(orjson.loads(existing.profile_json))
+        except (orjson.JSONDecodeError, ValueError):
             return None
 
 
@@ -188,7 +187,9 @@ async def _run_profile_refresh_cycle(
         except Exception as e:
             logger.warning(
                 "Profile refresh failed for %s/%s: %s",
-                user_id, project_id, e,
+                user_id,
+                project_id,
+                e,
             )
         processed += 1
         if settings.curator_profile_pause_ms > 0 and not stop_event.is_set():

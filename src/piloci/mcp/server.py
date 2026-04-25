@@ -8,11 +8,11 @@ Core mechanism (copied from supermemory-mcp v4.0):
 3. Resources (profile/projects/recent) give LLM passive context without tool calls.
 """
 
-import json
 import logging
 from typing import Any
 
 import mcp.types as types
+import orjson
 from mcp.server.lowlevel import Server
 from pydantic import AnyUrl, TypeAdapter
 
@@ -257,15 +257,15 @@ def create_mcp_server(
 
         if uri_str == RESOURCE_PROFILE:
             profile = await profile_fn(user_id, project_id) if profile_fn else None
-            return json.dumps(profile or {"static": [], "dynamic": []})
+            return orjson.dumps(profile or {"static": [], "dynamic": []}).decode()
 
         if uri_str == RESOURCE_PROJECTS:
             projects = await projects_fn(user_id, False) if projects_fn else []
-            return json.dumps({"projects": projects})
+            return orjson.dumps({"projects": projects}).decode()
 
         if uri_str == RESOURCE_RECENT:
             memories = await recent_fn(user_id, project_id, 20) if recent_fn else []
-            return json.dumps({"memories": memories})
+            return orjson.dumps({"memories": memories}).decode()
 
         raise ValueError(f"Unknown resource: {uri_str}")
 

@@ -1,12 +1,13 @@
 from __future__ import annotations
+
 """OpenAI-compatible HTTP client for local Gemma (llama-server on :9090)."""
 
 import asyncio
-import json
 import logging
 from typing import Any
 
 import httpx
+import orjson
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +61,15 @@ async def chat_json(
                         if text.startswith("json"):
                             text = text[4:]
                         text = text.strip("`\n ")
-                    return json.loads(text)
-                except (httpx.HTTPError, json.JSONDecodeError, KeyError) as e:
+                    return orjson.loads(text)
+                except (httpx.HTTPError, orjson.JSONDecodeError, KeyError) as e:
                     last_err = e
                     logger.warning(
                         "Gemma call attempt %d/%d failed: %s",
-                        attempt + 1, retries, e,
+                        attempt + 1,
+                        retries,
+                        e,
                     )
                     if attempt + 1 < retries:
-                        await asyncio.sleep(2 ** attempt)
+                        await asyncio.sleep(2**attempt)
     raise ValueError(f"Gemma call failed after {retries} retries: {last_err}")

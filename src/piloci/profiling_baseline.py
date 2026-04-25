@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import time
 from collections.abc import Sequence
 from typing import Any
 
 import httpx
+import orjson
 from dotenv import load_dotenv
 
 DEFAULT_PATHS = ["/healthz", "/readyz", "/profilez"]
@@ -142,7 +142,9 @@ def collect_baseline(
     token: str | None = None,
 ) -> dict[str, Any]:
     selected_paths = list(paths or DEFAULT_PATHS)
-    with httpx.Client(base_url=endpoint.rstrip("/"), timeout=timeout, follow_redirects=True) as client:
+    with httpx.Client(
+        base_url=endpoint.rstrip("/"), timeout=timeout, follow_redirects=True
+    ) as client:
         return collect_baseline_with_client(
             client,
             paths=selected_paths,
@@ -177,5 +179,5 @@ def main(argv: Sequence[str] | None = None) -> int:
         timeout=args.timeout or defaults["timeout"],
         token=args.token or defaults["token"],
     )
-    print(json.dumps(payload, indent=2))
+    print(orjson.dumps(payload, option=orjson.OPT_INDENT_2).decode())
     return 0

@@ -3,10 +3,10 @@ from __future__ import annotations
 """Background worker: drain ingest queue → Gemma extraction → save memories."""
 
 import asyncio
-import json
 import logging
 from datetime import datetime, timezone
 
+import orjson
 from sqlalchemy import select, update
 
 from piloci.config import Settings
@@ -114,7 +114,7 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
         if row is None:
             logger.warning("RawSession %s not found", job.ingest_id)
             return
-        transcript = json.loads(row.transcript_json)
+        transcript = orjson.loads(row.transcript_json)
 
     try:
         memories = await _extract_memories(transcript, settings)

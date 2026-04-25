@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -108,7 +109,7 @@ async def embed_texts(
                 new_vectors = await loop.run_in_executor(
                     executor, partial(_embed_sync, missing_texts, model, cache_dir)
                 )
-        for i, vec in zip(missing_idx, new_vectors):
+        for i, vec in zip(missing_idx, new_vectors, strict=True):
             cache.set(texts[i], vec)
             results[i] = vec
 

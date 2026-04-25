@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 
 import httpx
@@ -9,6 +10,7 @@ from piloci.config import Settings
 from piloci.mcp.session_state import McpSessionTracker
 
 _MAX_TEXT_LEN = 4096
+logger = logging.getLogger(__name__)
 
 
 def should_send_session_summary(tracker: McpSessionTracker | None, settings: Settings) -> bool:
@@ -70,8 +72,8 @@ async def send_session_summary(tracker: McpSessionTracker, settings: Settings) -
             try:
                 data = response.json()
                 retry_after = int(data.get("parameters", {}).get("retry_after", retry_after))
-            except ValueError:
-                pass
+            except ValueError as exc:
+                logger.debug("Telegram 429 response was not JSON: %s", exc)
             await asyncio.sleep(retry_after + random.uniform(0, 1))
 
     if last_response is not None:
