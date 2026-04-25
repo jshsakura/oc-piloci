@@ -2,6 +2,10 @@
 
 ## 2026-04-25
 
+- Completed the repo-wide stdlib `json` cleanup for runtime paths: CLI/profile/curator/Gemma/MCP/ingest/baseline code now uses `orjson`, and grep confirms no remaining `json.loads`/`json.dumps`/`json.load` usage under `src/piloci`.
+- Hardened commit-time quality gates in `.pre-commit-config.yaml`: Black, isort, Ruff, and full pytest now run through local `uv run ...` hooks so the hook uses the project environment instead of failing on missing `python3.11` hook virtualenvs.
+- Removed lint-exposed dead/noisy code while validating the hooks: unused signup assignment was dropped, embedding batch cache update now uses `zip(..., strict=True)`, empty/opaque `pass` exception paths were replaced with explicit continue/debug behavior, and the full pre-commit suite passes.
+
 - Optimized curator ingest embedding in `src/piloci/curator/worker.py`: extracted memories are now normalized first and embedded with a single `embed_texts(...)` batch call instead of `embed_one()` per memory, while duplicate checks and `store.save()` remain per-item for low-risk behavior.
 - Cleaned the remaining basedpyright warnings in touched backend files (`src/piloci/auth/oauth.py`, `src/piloci/api/routes.py`, `src/piloci/mcp/server.py`) and revalidated the slice with required hygiene commands (`black`, `ruff`, targeted pytest).
 - Expanded `tests/test_curator_worker.py` with multi-memory ingest coverage for batched embeddings, duplicate skipping, and vault-cache invalidation; targeted regressions now pass with `43 passed`.
