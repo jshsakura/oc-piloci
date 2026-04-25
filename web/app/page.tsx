@@ -326,31 +326,58 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              <div className="relative min-h-[300px] overflow-hidden rounded-3xl border bg-muted/40 p-6">
-                <div className="absolute left-[18%] top-[16%] h-px w-[36%] rotate-[18deg] bg-primary/25" />
-                <div className="absolute right-[18%] top-[22%] h-px w-[30%] -rotate-[32deg] bg-primary/20" />
-                <div className="absolute bottom-[30%] left-[26%] h-px w-[42%] -rotate-[18deg] bg-primary/20" />
-                <div className="absolute bottom-[24%] right-[20%] h-px w-[34%] rotate-[28deg] bg-primary/25" />
+              <div className="relative min-h-[220px] overflow-hidden rounded-2xl sm:rounded-3xl border bg-muted/40 sm:aspect-[4/3]">
+                <div
+                  className="absolute inset-0 opacity-[0.035]"
+                  style={{
+                    backgroundImage: "radial-gradient(circle, currentColor 1px, transparent 1px)",
+                    backgroundSize: "20px 20px",
+                  }}
+                />
 
-                <div className="absolute left-6 top-8 rounded-2xl border bg-background/95 px-4 py-3 shadow-sm">
-                  <p className="text-xs font-semibold text-primary">Project</p>
-                  <p className="text-sm font-medium">piLoci</p>
+                <svg
+                  className="absolute inset-0 h-full w-full"
+                  viewBox="0 0 100 75"
+                  preserveAspectRatio="none"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <circle cx="50" cy="37.5" r="16" className="fill-primary/[0.04]" />
+                  <circle cx="50" cy="37.5" r="9" className="fill-primary/[0.07]" />
+                  <path d="M 16 14 Q 30 24 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20" strokeDasharray="1 1.5" />
+                  <circle cx="16" cy="14" r="0.9" className="fill-primary/30" />
+                  <path d="M 84 14 Q 68 24 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20" strokeDasharray="1 1.5" />
+                  <circle cx="84" cy="14" r="0.9" className="fill-primary/30" />
+                  <path d="M 16 62 Q 30 52 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20" strokeDasharray="1 1.5" />
+                  <circle cx="16" cy="62" r="0.9" className="fill-primary/30" />
+                  <path d="M 84 62 Q 68 52 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20" strokeDasharray="1 1.5" />
+                  <circle cx="84" cy="62" r="0.9" className="fill-primary/30" />
+                </svg>
+
+                {/* Project — top-left */}
+                <div className="absolute left-[5%] top-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm">
+                  <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider text-primary">{curation.graphNodes.project.label}</p>
+                  <p className="text-xs sm:text-sm font-medium">{curation.graphNodes.project.value}</p>
                 </div>
-                <div className="absolute right-8 top-10 rounded-2xl border bg-background/95 px-4 py-3 shadow-sm">
-                  <p className="text-xs font-semibold text-primary">Decision</p>
-                  <p className="text-sm font-medium">local first</p>
+                {/* Decision — top-right */}
+                <div className="absolute right-[5%] top-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm">
+                  <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider text-primary">{curation.graphNodes.decision.label}</p>
+                  <p className="text-xs sm:text-sm font-medium">{curation.graphNodes.decision.value}</p>
                 </div>
-                <div className="absolute left-[34%] top-[42%] rounded-2xl border border-primary/30 bg-primary px-5 py-4 text-primary-foreground shadow-lg">
-                  <p className="text-xs font-semibold opacity-80">Curated Memory</p>
-                  <p className="text-sm font-semibold">quiet context</p>
+                {/* Curated — center hub */}
+                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl sm:rounded-2xl border border-primary/30 bg-primary px-3 py-2 sm:px-5 sm:py-4 text-primary-foreground shadow-lg">
+                  <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider opacity-80">{curation.graphNodes.curated.label}</p>
+                  <p className="text-xs sm:text-sm font-semibold">{curation.graphNodes.curated.value}</p>
                 </div>
-                <div className="absolute bottom-10 left-10 rounded-2xl border bg-background/95 px-4 py-3 shadow-sm">
-                  <p className="text-xs font-semibold text-primary">Constraint</p>
-                  <p className="text-sm font-medium">Pi 5 budget</p>
+                {/* Constraint — bottom-left */}
+                <div className="absolute left-[5%] bottom-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm">
+                  <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider text-primary">{curation.graphNodes.constraint.label}</p>
+                  <p className="text-xs sm:text-sm font-medium">{curation.graphNodes.constraint.value}</p>
                 </div>
-                <div className="absolute bottom-8 right-8 rounded-2xl border bg-background/95 px-4 py-3 shadow-sm">
-                  <p className="text-xs font-semibold text-primary">Preference</p>
-                  <p className="text-sm font-medium">no cloud leak</p>
+                {/* Preference — bottom-right */}
+                <div className="absolute right-[5%] bottom-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm">
+                  <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider text-primary">{curation.graphNodes.preference.label}</p>
+                  <p className="text-xs sm:text-sm font-medium">{curation.graphNodes.preference.value}</p>
                 </div>
               </div>
             </CardContent>
