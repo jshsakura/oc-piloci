@@ -30,6 +30,7 @@ from piloci.auth.session import get_session_store
 from piloci.config import get_settings
 from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
 from piloci.curator.vault import (
+    build_project_vault_preview,
     ensure_project_vault,
     export_project_vault_zip,
     invalidate_project_vault_cache,
@@ -385,6 +386,31 @@ async def route_project_workspace(request: Request) -> Response:
         memories = await store.list(user_id=user_id, project_id=project["id"], limit=200, offset=0)
         workspace = ensure_project_vault(project, memories, settings.vault_dir, force=True)
     return _json({"project": project, "workspace": workspace})
+
+
+async def route_project_workspace_preview(request: Request) -> Response:
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    slug = (request.path_params.get("slug") or "").strip().lower()
+    if not slug:
+        return _json({"error": "project slug required"}, 400)
+
+    user_id = user["sub"]
+    project = await _get_user_project_by_slug(user_id, slug)
+    if project is None:
+        return _json({"error": "Not found"}, 404)
+
+    settings = get_settings()
+    refresh = _truthy(request.query_params.get("refresh"))
+    workspace = None if refresh else load_cached_project_vault(settings.vault_dir, project["slug"])
+    if workspace is None:
+        store = request.app.state.store
+        memories = await store.list(user_id=user_id, project_id=project["id"], limit=200, offset=0)
+        workspace = ensure_project_vault(project, memories, settings.vault_dir, force=True)
+
+    return _json({"project": project, "workspace": build_project_vault_preview(workspace)})
 
 
 async def route_vault_export(request: Request) -> Response:
@@ -1189,6 +1215,11 @@ def get_routes() -> list[Route]:
         Route("/auth/reset-password", route_reset_password, methods=["POST"]),
         Route("/api/projects", route_list_projects, methods=["GET"]),
         Route("/api/projects", route_create_project, methods=["POST"]),
+        Route(
+            "/api/projects/slug/{slug}/workspace/preview",
+            route_project_workspace_preview,
+            methods=["GET"],
+        ),
         Route("/api/projects/slug/{slug}/workspace", route_project_workspace, methods=["GET"]),
         Route("/api/vault/{slug}/export", route_vault_export, methods=["GET"]),
         Route("/api/projects/{id}", route_delete_project, methods=["DELETE"]),

@@ -207,6 +207,34 @@ def ensure_project_vault(
     return build_and_cache_project_vault(project, memories, vault_dir)
 
 
+def build_project_vault_preview(workspace: dict[str, Any], note_limit: int = 5) -> dict[str, Any]:
+    notes = workspace.get("notes") or []
+    preview_notes: list[dict[str, Any]] = []
+    for note in notes[:note_limit]:
+        preview_notes.append(
+            {
+                "memory_id": note.get("memory_id"),
+                "title": note.get("title"),
+                "path": note.get("path"),
+                "created_at": note.get("created_at"),
+                "updated_at": note.get("updated_at"),
+                "tags": note.get("tags") or [],
+                "links": note.get("links") or [],
+                "excerpt": note.get("excerpt") or "",
+            }
+        )
+
+    return {
+        "root": workspace.get("root"),
+        "generated_at": workspace.get("generated_at"),
+        "stats": workspace.get("stats"),
+        "notes": preview_notes,
+        "graph": workspace.get("graph") or {"nodes": [], "edges": []},
+        "preview": True,
+        "note_limit": note_limit,
+    }
+
+
 async def invalidate_project_vault_cache(
     vault_dir: Path,
     user_id: str,
