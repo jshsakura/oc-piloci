@@ -16,7 +16,7 @@ from piloci.curator.vault import invalidate_project_vault_cache
 from piloci.db.models import RawSession
 from piloci.db.session import async_session
 from piloci.storage.embed import embed_texts
-from piloci.storage.lancedb_store import MemoryStore
+from piloci.storage.lancedb_store import MemoryStore, MemoryWrite
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +108,28 @@ async def _is_duplicate(
     return results[0].get("score", 0.0) >= DEDUP_THRESHOLD
 
 
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if len(left) != len(right):
+        return 0.0
+    dot = 0.0
+    left_norm = 0.0
+    right_norm = 0.0
+    for left_value, right_value in zip(left, right, strict=True):
+        dot += left_value * right_value
+        left_norm += left_value * left_value
+        right_norm += right_value * right_value
+    if left_norm == 0.0 or right_norm == 0.0:
+        return 0.0
+    return dot / ((left_norm**0.5) * (right_norm**0.5))
+
+
+def _is_duplicate_in_batch(vector: list[float], accepted_vectors: list[list[float]]) -> bool:
+    return any(
+        _cosine_similarity(vector, accepted_vector) >= DEDUP_THRESHOLD
+        for accepted_vector in accepted_vectors
+    )
+
+
 async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -> None:
     async with async_session() as db:
         row = await db.get(RawSession, job.ingest_id)
@@ -155,22 +177,33 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
         else []
     )
 
-    saved_count = 0
+    pending_writes: list[MemoryWrite] = []
+    accepted_vectors: list[list[float]] = []
     for (content, tags), vector in zip(prepared, vectors, strict=True):
         try:
+            if _is_duplicate_in_batch(vector, accepted_vectors):
+                logger.debug("Skipping duplicate memory within ingest job: %s", content[:60])
+                continue
             if await _is_duplicate(store, job.user_id, job.project_id, vector):
                 logger.debug("Skipping duplicate memory: %s", content[:60])
                 continue
-            await store.save(
-                user_id=job.user_id,
-                project_id=job.project_id,
-                content=content,
-                vector=vector,
-                tags=tags[:5],
-            )
-            saved_count += 1
+            pending_writes.append({"content": content, "vector": vector, "tags": tags[:5]})
+            accepted_vectors.append(vector)
         except Exception as e:
-            logger.warning("Failed to save extracted memory: %s", e)
+            logger.warning("Failed to deduplicate extracted memory: %s", e)
+
+    saved_count = 0
+    if pending_writes:
+        try:
+            saved_count = len(
+                await store.save_many(
+                    user_id=job.user_id,
+                    project_id=job.project_id,
+                    memories=pending_writes,
+                )
+            )
+        except Exception as e:
+            logger.warning("Failed to save extracted memories: %s", e)
 
     async with async_session() as db:
         await db.execute(

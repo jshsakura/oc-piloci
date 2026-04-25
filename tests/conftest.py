@@ -20,6 +20,7 @@ def settings(tmp_path):
 def mock_store():
     store = AsyncMock(spec=MemoryStore)
     store.save.return_value = "test-memory-id"
+    store.save_many.return_value = ["test-memory-id"]
     store.search.return_value = []
     store.get.return_value = None
     store.list.return_value = []

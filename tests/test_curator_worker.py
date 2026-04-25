@@ -149,6 +149,8 @@ async def test_process_job_batches_embedding_and_saves(settings, mock_store):
     fake_db.get.return_value = SimpleNamespace(
         transcript_json='[{"role": "user", "content": "hello"}]'
     )
+    first_vector = [1.0, *([0.0] * 383)]
+    second_vector = [0.0, 1.0, *([0.0] * 382)]
 
     with (
         patch.object(
@@ -163,25 +165,28 @@ async def test_process_job_batches_embedding_and_saves(settings, mock_store):
             ),
         ),
         patch.object(
-            w, "embed_texts", AsyncMock(return_value=[[0.1] * 384, [0.2] * 384])
+            w, "embed_texts", AsyncMock(return_value=[first_vector, second_vector])
         ) as embed_mock,
         patch.object(w, "_is_duplicate", AsyncMock(side_effect=[False, False])),
         patch.object(w, "async_session", return_value=fake_db),
         patch.object(w, "invalidate_project_vault_cache", AsyncMock()) as invalidate_mock,
     ):
+        mock_store.save_many.return_value = ["m1", "m2"]
         await w._process_job(job, settings, mock_store)
 
     embed_mock.assert_awaited_once()
     await_args = embed_mock.await_args
     assert await_args is not None
     assert await_args.args[0] == ["first memory", "second memory"]
-    assert mock_store.save.await_count == 2
-    first_call = mock_store.save.await_args_list[0].kwargs
-    second_call = mock_store.save.await_args_list[1].kwargs
-    assert first_call["content"] == "first memory"
-    assert first_call["tags"] == ["a", "fact"]
-    assert second_call["content"] == "second memory"
-    assert second_call["tags"] == ["b", "decision"]
+    mock_store.save.assert_not_awaited()
+    mock_store.save_many.assert_awaited_once()
+    save_call = mock_store.save_many.await_args.kwargs
+    assert save_call["user_id"] == "u1"
+    assert save_call["project_id"] == "p1"
+    assert save_call["memories"] == [
+        {"content": "first memory", "vector": first_vector, "tags": ["a", "fact"]},
+        {"content": "second memory", "vector": second_vector, "tags": ["b", "decision"]},
+    ]
     invalidate_mock.assert_awaited_once_with(settings.vault_dir, "u1", "p1")
 
 
@@ -211,7 +216,52 @@ async def test_process_job_skips_duplicate_but_invalidates_after_save(settings, 
         patch.object(w, "async_session", return_value=fake_db),
         patch.object(w, "invalidate_project_vault_cache", AsyncMock()) as invalidate_mock,
     ):
+        mock_store.save_many.return_value = ["m1"]
         await w._process_job(job, settings, mock_store)
 
-    assert mock_store.save.await_count == 1
+    mock_store.save.assert_not_awaited()
+    mock_store.save_many.assert_awaited_once()
+    assert mock_store.save_many.await_args.kwargs["memories"] == [
+        {"content": "keep me", "vector": [0.1] * 384, "tags": ["fact"]}
+    ]
+    invalidate_mock.assert_awaited_once_with(settings.vault_dir, "u1", "p1")
+
+
+@pytest.mark.asyncio
+async def test_process_job_skips_in_batch_vector_duplicate_before_store_search(
+    settings, mock_store
+):
+    from piloci.curator import worker as w
+
+    job = IngestJob(ingest_id="i3", user_id="u1", project_id="p1")
+    fake_db = _FakeAsyncSession()
+    fake_db.get.return_value = SimpleNamespace(
+        transcript_json='[{"role": "user", "content": "hello"}]'
+    )
+    duplicate_check = AsyncMock(return_value=False)
+
+    with (
+        patch.object(
+            w,
+            "_extract_memories",
+            AsyncMock(
+                return_value=[
+                    {"content": "memory one", "tags": [], "category": "fact"},
+                    {"content": "memory one paraphrased", "tags": [], "category": "fact"},
+                ]
+            ),
+        ),
+        patch.object(w, "embed_texts", AsyncMock(return_value=[[0.1] * 384, [0.1] * 384])),
+        patch.object(w, "_is_duplicate", duplicate_check),
+        patch.object(w, "async_session", return_value=fake_db),
+        patch.object(w, "invalidate_project_vault_cache", AsyncMock()) as invalidate_mock,
+    ):
+        mock_store.save_many.return_value = ["m1"]
+        await w._process_job(job, settings, mock_store)
+
+    assert duplicate_check.await_count == 1
+    mock_store.save_many.assert_awaited_once()
+    assert mock_store.save_many.await_args.kwargs["memories"] == [
+        {"content": "memory one", "vector": [0.1] * 384, "tags": ["fact"]}
+    ]
     invalidate_mock.assert_awaited_once_with(settings.vault_dir, "u1", "p1")
