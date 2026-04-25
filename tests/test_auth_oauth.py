@@ -1,4 +1,5 @@
 """Tests for Google OAuth helper functions."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -93,8 +94,9 @@ async def test_upsert_google_user_creates_new():
 
 @pytest.mark.asyncio
 async def test_upsert_google_user_links_existing():
-    from piloci.auth.oauth import upsert_google_user
     from unittest.mock import MagicMock
+
+    from piloci.auth.oauth import upsert_google_user
 
     userinfo = {"email": "existing@test.com", "sub": "g-sub-777", "name": "Existing"}
 

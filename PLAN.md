@@ -1357,7 +1357,7 @@ memory(
     memory_id: str | None = None,       # forget 시 필수
     container_tag: str | None = None,   # 프로젝트 지정 (user 토큰 전용)
 )
-# description 시작: "CRITICAL: THIS IS THE ONLY MEMORY TOOL. DO NOT USE 
+# description 시작: "CRITICAL: THIS IS THE ONLY MEMORY TOOL. DO NOT USE
 #   ANY OTHER SAVE/STORE/REMEMBER/NOTE TOOL..."
 
 # 2. recall - 검색 + 프로필 (SuperMemory 방식)
@@ -1407,7 +1407,7 @@ async def context_prompt(include_recent: bool = True) -> Prompt:
         "conversations.",
         "",
     ]
-    
+
     profile = await get_profile(user_id, project_id)
     if profile.static:
         parts.append("## User Context")
@@ -1416,7 +1416,7 @@ async def context_prompt(include_recent: bool = True) -> Prompt:
     if include_recent and profile.dynamic:
         parts.append("\n**Recent Activity:**")
         parts.extend(f"- {f}" for f in profile.dynamic)
-    
+
     return Prompt(messages=[{"role": "user", "content": "\n".join(parts)}])
 ```
 
@@ -1567,7 +1567,7 @@ CREATE TABLE raw_sessions (
     memories_extracted INTEGER DEFAULT 0
 );
 
-CREATE INDEX idx_raw_unprocessed ON raw_sessions(processed_at) 
+CREATE INDEX idx_raw_unprocessed ON raw_sessions(processed_at)
   WHERE processed_at IS NULL;
 
 CREATE TABLE user_profiles (

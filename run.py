@@ -26,7 +26,8 @@ PUBLIC_BASE_URL = os.environ.get("PILOCI_PUBLIC_URL", "")
 def kill_on_port(port: int) -> None:
     result = subprocess.run(
         ["ss", "-Htlnp", f"sport = :{port}"],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
     for line in result.stdout.splitlines():
         if "pid=" in line:
@@ -46,7 +47,8 @@ def pkill(pattern: str) -> None:
 def compose(args: list[str]) -> None:
     subprocess.run(
         ["docker", "compose", "-f", DEV_COMPOSE, *args],
-        cwd=ROOT, check=True,
+        cwd=ROOT,
+        check=True,
     )
 
 
@@ -80,7 +82,7 @@ def dev_up() -> None:
     )
     print(f"[ dev ] pnpm dev  PID={frontend.pid}  :{FRONTEND_PORT}  → logs/frontend.log")
     print()
-    print(f"  proxy    http://localhost:28314  (tunnel entry)")
+    print("  proxy    http://localhost:28314  (tunnel entry)")
     print(f"  backend  http://localhost:{BACKEND_PORT}  (direct)")
     print(f"  logs:    docker compose -f {DEV_COMPOSE} logs -f")
 

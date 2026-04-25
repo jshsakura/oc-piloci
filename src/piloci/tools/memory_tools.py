@@ -31,8 +31,7 @@ RECALL_DESC = (
 )
 
 LIST_PROJECTS_DESC = (
-    "List available projects for organizing memories. Cached 5min unless "
-    "refresh=true."
+    "List available projects for organizing memories. Cached 5min unless " "refresh=true."
 )
 
 WHOAMI_DESC = (
@@ -49,42 +48,71 @@ _EXCERPT_LEN = 80
 
 
 class MemoryInput(BaseModel):
-    content: Annotated[str, Field(
-        description="The memory content to save. Ignored for forget action.",
-        max_length=200_000,
-    )]
-    action: Annotated[Literal["save", "forget"], Field(
-        description="'save' to add a memory, 'forget' to remove by id",
-    )] = "save"
-    tags: Annotated[list[str] | None, Field(
-        description="Optional tags (save action only). 1-3 normalized tags.",
-    )] = None
-    memory_id: Annotated[str | None, Field(
-        description="Required for forget action. Get id from recall first.",
-    )] = None
+    content: Annotated[
+        str,
+        Field(
+            description="The memory content to save. Ignored for forget action.",
+            max_length=200_000,
+        ),
+    ]
+    action: Annotated[
+        Literal["save", "forget"],
+        Field(
+            description="'save' to add a memory, 'forget' to remove by id",
+        ),
+    ] = "save"
+    tags: Annotated[
+        list[str] | None,
+        Field(
+            description="Optional tags (save action only). 1-3 normalized tags.",
+        ),
+    ] = None
+    memory_id: Annotated[
+        str | None,
+        Field(
+            description="Required for forget action. Get id from recall first.",
+        ),
+    ] = None
+
+
 class RecallInput(BaseModel):
-    query: Annotated[str | None, Field(
-        description="Search query. Required unless fetch_ids provided.",
-        max_length=1_000,
-    )] = None
-    fetch_ids: Annotated[list[str] | None, Field(
-        description="Get full content for these memory IDs. Skip search.",
-        max_length=20,
-    )] = None
-    to_file: Annotated[bool, Field(
-        description="Save results as markdown file. Returns file path only.",
-    )] = False
-    include_profile: Annotated[bool, Field(
-        description="Include profile summary in results.",
-    )] = True
+    query: Annotated[
+        str | None,
+        Field(
+            description="Search query. Required unless fetch_ids provided.",
+            max_length=1_000,
+        ),
+    ] = None
+    fetch_ids: Annotated[
+        list[str] | None,
+        Field(
+            description="Get full content for these memory IDs. Skip search.",
+            max_length=20,
+        ),
+    ] = None
+    to_file: Annotated[
+        bool,
+        Field(
+            description="Save results as markdown file. Returns file path only.",
+        ),
+    ] = False
+    include_profile: Annotated[
+        bool,
+        Field(
+            description="Include profile summary in results.",
+        ),
+    ] = True
     tags: Annotated[list[str] | None, Field(description="Filter by tags")] = None
     limit: Annotated[int, Field(description="Max results (preview mode)", ge=1, le=50)] = 5
 
 
 class ListProjectsInput(BaseModel):
-    refresh: Annotated[bool, Field(
-        description="Force re-fetch from DB instead of 5-min cache",
-    )] = False
+    refresh: Annotated[
+        bool,
+        Field(
+            description="Force re-fetch from DB instead of 5-min cache",
+        ),
+    ] = False
 
 
 class WhoAmIInput(BaseModel):
@@ -172,9 +200,7 @@ def _format_recall_markdown(
     return "\n".join(parts)
 
 
-async def _get_profile(
-    profile_fn: Any, user_id: str, project_id: str
-) -> dict[str, Any] | None:
+async def _get_profile(profile_fn: Any, user_id: str, project_id: str) -> dict[str, Any] | None:
     if profile_fn is None:
         return None
     try:
@@ -219,7 +245,9 @@ async def handle_recall(
     )
 
     if args.to_file and export_dir is not None:
-        profile = await _get_profile(profile_fn, user_id, project_id) if args.include_profile else None
+        profile = (
+            await _get_profile(profile_fn, user_id, project_id) if args.include_profile else None
+        )
         md_content = _format_recall_markdown(results, profile)
         out_dir = export_dir / project_id
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -234,7 +262,11 @@ async def handle_recall(
             "previews": [_preview(r) for r in results],
         }
 
-    response = {"memories": [_preview(r) for r in results], "mode": "preview", "total": len(results)}
+    response = {
+        "memories": [_preview(r) for r in results],
+        "mode": "preview",
+        "total": len(results),
+    }
     if args.include_profile:
         profile = await _get_profile(profile_fn, user_id, project_id)
         if profile:

@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Gemma-based curator: raw transcripts → wiki-grade memories.
 
 Key components:

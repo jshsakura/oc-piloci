@@ -1,7 +1,6 @@
 """Tests for EmbeddingCache (LRU)."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from piloci.storage.cache import EmbeddingCache
 

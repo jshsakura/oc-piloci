@@ -8,7 +8,6 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import override
 
-
 DEFAULT_JWT_SECRET_FILE = Path("/run/secrets/jwt_secret")
 DEFAULT_SESSION_SECRET_FILE = Path("/run/secrets/session_secret")
 
@@ -150,7 +149,9 @@ class Settings(BaseSettings):
     ) -> str:
         if configured_file is not None:
             if not configured_file.is_file():
-                raise FileNotFoundError(f"{secret_name}_FILE points to missing file: {configured_file}")
+                raise FileNotFoundError(
+                    f"{secret_name}_FILE points to missing file: {configured_file}"
+                )
             return _read_secret_file(configured_file)
 
         if not _looks_like_placeholder(current_value):

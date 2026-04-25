@@ -18,20 +18,22 @@ logger = logging.getLogger(__name__)
 VECTOR_SIZE = 384  # bge-small-en-v1.5
 TABLE_NAME = "piloci_memories"
 
-_SCHEMA = pa.schema([
-    pa.field("memory_id", pa.string(), nullable=False),
-    pa.field("user_id", pa.string(), nullable=False),
-    pa.field("project_id", pa.string(), nullable=False),
-    pa.field("content", pa.string()),
-    pa.field("tags", pa.list_(pa.string())),
-    pa.field("metadata", pa.string()),  # JSON-encoded
-    pa.field("created_at", pa.int64()),
-    pa.field("updated_at", pa.int64()),
-    pa.field("vector", pa.list_(pa.float32(), VECTOR_SIZE)),
-])
+_SCHEMA = pa.schema(
+    [
+        pa.field("memory_id", pa.string(), nullable=False),
+        pa.field("user_id", pa.string(), nullable=False),
+        pa.field("project_id", pa.string(), nullable=False),
+        pa.field("content", pa.string()),
+        pa.field("tags", pa.list_(pa.string())),
+        pa.field("metadata", pa.string()),  # JSON-encoded
+        pa.field("created_at", pa.int64()),
+        pa.field("updated_at", pa.int64()),
+        pa.field("vector", pa.list_(pa.float32(), VECTOR_SIZE)),
+    ]
+)
 
 # Allow UUID format plus simple slug IDs like "dev-user", "dev-project"
-_SAFE_ID_RE = re.compile(r'^[A-Za-z0-9_\-]+$')
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 
 def _safe_id(value: str) -> str:
@@ -72,6 +74,7 @@ class MemoryStore:
     async def _get_db(self):
         if self._db is None:
             import lancedb
+
             path = str(self._settings.lancedb_path)
             self._settings.lancedb_path.mkdir(parents=True, exist_ok=True)
             self._db = await lancedb.connect_async(path)
@@ -80,9 +83,7 @@ class MemoryStore:
     async def _get_table(self):
         if self._table is None:
             db = await self._get_db()
-            self._table = await db.create_table(
-                TABLE_NAME, schema=_SCHEMA, exist_ok=True
-            )
+            self._table = await db.create_table(TABLE_NAME, schema=_SCHEMA, exist_ok=True)
         return self._table
 
     async def ensure_collection(self) -> None:
@@ -190,11 +191,18 @@ class MemoryStore:
             results.append(d)
         return results
 
-    async def get(
-        self, user_id: str, project_id: str, memory_id: str
-    ) -> dict[str, Any] | None:
+    async def get(self, user_id: str, project_id: str, memory_id: str) -> dict[str, Any] | None:
         tbl = await self._get_table()
-        _SCALAR_COLS = ["memory_id", "user_id", "project_id", "content", "tags", "metadata", "created_at", "updated_at"]
+        _SCALAR_COLS = [
+            "memory_id",
+            "user_id",
+            "project_id",
+            "content",
+            "tags",
+            "metadata",
+            "created_at",
+            "updated_at",
+        ]
         where = self._memory_filter_sql(user_id, project_id, memory_id)
         with get_runtime_profiler().track("lancedb.get"):
             rows = await tbl.query().where(where).select(_SCALAR_COLS).limit(1).to_list()
@@ -217,9 +225,25 @@ class MemoryStore:
                 safe_tag = tag.replace("'", "''")
                 where += f" AND list_contains(tags, '{safe_tag}')"
 
-        _SCALAR_COLS = ["memory_id", "user_id", "project_id", "content", "tags", "metadata", "created_at", "updated_at"]
+        _SCALAR_COLS = [
+            "memory_id",
+            "user_id",
+            "project_id",
+            "content",
+            "tags",
+            "metadata",
+            "created_at",
+            "updated_at",
+        ]
         with get_runtime_profiler().track("lancedb.list"):
-            rows = await tbl.query().where(where).select(_SCALAR_COLS).limit(limit).offset(offset).to_list()
+            rows = (
+                await tbl.query()
+                .where(where)
+                .select(_SCALAR_COLS)
+                .limit(limit)
+                .offset(offset)
+                .to_list()
+            )
         return [_row_to_dict(r) for r in rows]
 
     async def update(

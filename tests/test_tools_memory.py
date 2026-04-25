@@ -1,4 +1,5 @@
 """Tests for v0.3 MCP tools: memory, recall, listProjects, whoAmI."""
+
 from pathlib import Path
 
 import pytest
@@ -211,8 +212,12 @@ async def test_list_projects():
 async def test_whoami():
     auth = {"email": "a@b.com", "scope": "project"}
     result = await handle_whoami(
-        WhoAmIInput(), USER, PROJECT, auth_payload=auth,
-        session_id="sess-1", client_info={"name": "claude-code"},
+        WhoAmIInput(),
+        USER,
+        PROJECT,
+        auth_payload=auth,
+        session_id="sess-1",
+        client_info={"name": "claude-code"},
     )
     assert result["userId"] == USER
     assert result["email"] == "a@b.com"

@@ -77,6 +77,7 @@ class TestGetQrBase64:
     def test_data_uri_format_when_qrcode_available(self) -> None:
         try:
             import qrcode  # noqa: F401
+
             secret = generate_totp_secret()
             result = get_qr_base64(secret, "test@example.com")
             assert result.startswith("data:image/png;base64,")

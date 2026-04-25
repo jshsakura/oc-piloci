@@ -11,8 +11,9 @@ from urllib.parse import urlencode
 import httpx
 
 if TYPE_CHECKING:
-    from piloci.db.models import User
     from sqlalchemy.ext.asyncio import AsyncSession
+
+    from piloci.db.models import User
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -66,7 +67,8 @@ async def get_userinfo(access_token: str) -> dict[str, Any]:
 
 async def upsert_google_user(db: AsyncSession, userinfo: dict[str, Any]) -> User:
     """구글 유저 정보로 DB upsert 후 User 반환."""
-    from sqlalchemy import select, or_
+    from sqlalchemy import or_, select
+
     from piloci.db.models import User
 
     email: str = userinfo.get("email", "")

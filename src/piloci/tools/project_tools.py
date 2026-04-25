@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Project management MCP tools (user-token only)."""
 
 import logging
@@ -29,7 +30,9 @@ class ListProjectsInput(BaseModel):
 class CreateProjectInput(BaseModel):
     slug: Annotated[
         str,
-        Field(description="URL-safe identifier: alphanumeric and hyphens, max 50 chars", max_length=50),
+        Field(
+            description="URL-safe identifier: alphanumeric and hyphens, max 50 chars", max_length=50
+        ),
     ]
     name: Annotated[str, Field(description="Human-readable project name")]
     description: Annotated[str | None, Field(description="Optional project description")] = None
@@ -38,7 +41,9 @@ class CreateProjectInput(BaseModel):
     @classmethod
     def validate_slug(cls, v: str) -> str:
         if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9\-]*$", v):
-            raise ValueError("slug must start with alphanumeric and contain only alphanumerics and hyphens")
+            raise ValueError(
+                "slug must start with alphanumeric and contain only alphanumerics and hyphens"
+            )
         return v
 
 
@@ -142,8 +147,7 @@ async def handle_delete_project(
         # Match by slug or id, and enforce ownership
         row = await db_session.execute(
             text(
-                "SELECT id FROM projects"
-                " WHERE user_id = :uid AND (slug = :proj OR id = :proj)"
+                "SELECT id FROM projects" " WHERE user_id = :uid AND (slug = :proj OR id = :proj)"
             ),
             {"uid": user_id, "proj": args.project},
         )

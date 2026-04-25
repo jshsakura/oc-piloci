@@ -5,20 +5,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 import orjson
+from sqlalchemy import delete
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
-from sqlalchemy import delete
 
 from piloci.auth.jwt_utils import create_token
-from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
-from piloci.curator.vault import (
-    ensure_project_vault,
-    export_project_vault_zip,
-    invalidate_project_vault_cache,
-    load_cached_project_vault,
-)
-from piloci.utils.logging import get_runtime_profiler
 from piloci.auth.local import (
     AccountLockedError,
     EmailExistsError,
@@ -36,7 +28,15 @@ from piloci.auth.local import (
 )
 from piloci.auth.session import get_session_store
 from piloci.config import get_settings
+from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
+from piloci.curator.vault import (
+    ensure_project_vault,
+    export_project_vault_zip,
+    invalidate_project_vault_cache,
+    load_cached_project_vault,
+)
 from piloci.db.session import async_session
+from piloci.utils.logging import get_runtime_profiler
 
 
 def _json(data: Any, status: int = 200) -> Response:
@@ -223,6 +223,7 @@ def _require_user(request: Request) -> dict[str, Any] | None:
 
 async def _get_user_project_by_slug(user_id: str, slug: str) -> dict[str, Any] | None:
     from sqlalchemy import select
+
     from piloci.db.models import Project
 
     async with async_session() as db:
@@ -250,6 +251,7 @@ async def route_list_projects(request: Request) -> Response:
         return _json({"error": "Unauthorized"}, 401)
 
     from sqlalchemy import select
+
     from piloci.db.models import Project
 
     async with async_session() as db:
@@ -297,6 +299,7 @@ async def route_create_project(request: Request) -> Response:
             return _json({"error": "slug must be lowercase alphanumeric with hyphens"}, 422)
 
     from sqlalchemy.exc import IntegrityError
+
     from piloci.db.models import Project
 
     now = datetime.now(timezone.utc)
@@ -337,7 +340,8 @@ async def route_delete_project(request: Request) -> Response:
     if not body.get("confirm"):
         return _json({"error": "confirm:true required"}, 422)
 
-    from sqlalchemy import select, delete
+    from sqlalchemy import delete, select
+
     from piloci.db.models import Project
 
     async with async_session() as db:
@@ -440,6 +444,7 @@ async def route_create_token(request: Request) -> Response:
 
     if project_id:
         from sqlalchemy import select
+
         from piloci.db.models import Project
 
         async with async_session() as db:
@@ -464,6 +469,7 @@ async def route_create_token(request: Request) -> Response:
 
     # Store hash in api_tokens table
     import hashlib
+
     from piloci.db.models import ApiToken
 
     token_hash = hashlib.sha256(jwt_token.encode()).hexdigest()
@@ -491,6 +497,7 @@ async def route_list_tokens(request: Request) -> Response:
         return _json({"error": "Unauthorized"}, 401)
 
     from sqlalchemy import select
+
     from piloci.db.models import ApiToken
 
     async with async_session() as db:
@@ -527,6 +534,7 @@ async def route_revoke_token(request: Request) -> Response:
     token_id = request.path_params.get("id")
 
     from sqlalchemy import select, update
+
     from piloci.db.models import ApiToken
 
     async with async_session() as db:
@@ -556,6 +564,7 @@ async def route_list_audit(request: Request) -> Response:
     action_filter = request.query_params.get("action")
 
     from sqlalchemy import select
+
     from piloci.db.models import AuditLog
 
     async with async_session() as db:
@@ -593,8 +602,9 @@ async def route_2fa_enable(request: Request) -> Response:
         return _json({"error": "Unauthorized"}, 401)
 
     from sqlalchemy import select
-    from piloci.db.models import User
+
     from piloci.auth.totp import generate_totp_secret, get_qr_base64
+    from piloci.db.models import User
 
     async with async_session() as db:
         result = await db.execute(select(User).where(User.id == user["sub"]))
@@ -630,8 +640,9 @@ async def route_2fa_confirm(request: Request) -> Response:
         return _json({"error": "code is required"}, 400)
 
     from sqlalchemy import select
+
+    from piloci.auth.totp import generate_backup_codes, hash_backup_codes, verify_totp
     from piloci.db.models import User
-    from piloci.auth.totp import verify_totp, generate_backup_codes, hash_backup_codes
 
     async with async_session() as db:
         result = await db.execute(select(User).where(User.id == user["sub"]))
@@ -675,9 +686,10 @@ async def route_2fa_disable(request: Request) -> Response:
         return _json({"error": "password and code are required"}, 400)
 
     from sqlalchemy import select
-    from piloci.db.models import User
+
     from piloci.auth.password import verify_password
     from piloci.auth.totp import verify_totp
+    from piloci.db.models import User
 
     async with async_session() as db:
         result = await db.execute(select(User).where(User.id == user["sub"]))
@@ -744,8 +756,9 @@ async def route_change_password(request: Request) -> Response:
         )
 
     from sqlalchemy import select
+
+    from piloci.auth.password import hash_password, verify_password
     from piloci.db.models import User
-    from piloci.auth.password import verify_password, hash_password
 
     async with async_session() as db:
         result = await db.execute(select(User).where(User.id == user["sub"]))
@@ -772,6 +785,7 @@ async def route_google_auth(request: Request) -> Response:
         return _json({"error": "Google OAuth is not configured"}, 503)
 
     from starlette.responses import RedirectResponse
+
     from piloci.auth.oauth import build_auth_url, generate_state
 
     state = generate_state()

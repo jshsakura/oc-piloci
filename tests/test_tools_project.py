@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from piloci.tools.project_tools import (
     CreateProjectInput,
@@ -29,8 +30,15 @@ async def test_list_projects_no_db_returns_empty_list() -> None:
 
 @pytest.mark.asyncio
 async def test_list_projects_with_db_returns_rows() -> None:
-    mock_row = {"id": "p1", "slug": "my-proj", "name": "My Project", "description": None,
-                "created_at": "2026-01-01", "memory_count": 0, "bytes_used": 0}
+    mock_row = {
+        "id": "p1",
+        "slug": "my-proj",
+        "name": "My Project",
+        "description": None,
+        "created_at": "2026-01-01",
+        "memory_count": 0,
+        "bytes_used": 0,
+    }
 
     mock_result = MagicMock()
     mock_result.mappings.return_value.all.return_value = [mock_row]

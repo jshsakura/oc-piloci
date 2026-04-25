@@ -51,8 +51,16 @@ async def test_route_readyz_reports_ok(monkeypatch):
 
     monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(ingest_queue_maxsize=10))
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db_session)))
-    monkeypatch.setattr(routes, "get_session_store", lambda settings: SimpleNamespace(ping=AsyncMock(return_value=True)))
-    monkeypatch.setattr(routes, "get_ingest_queue", lambda maxsize=None: SimpleNamespace(qsize=lambda: 2, maxsize=10))
+    monkeypatch.setattr(
+        routes,
+        "get_session_store",
+        lambda settings: SimpleNamespace(ping=AsyncMock(return_value=True)),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_ingest_queue",
+        lambda maxsize=None: SimpleNamespace(qsize=lambda: 2, maxsize=10),
+    )
 
     response = await routes.route_readyz(request)
     payload = orjson.loads(response.body)
@@ -81,7 +89,9 @@ async def test_route_readyz_reports_degraded_with_explicit_causes(monkeypatch):
         "get_session_store",
         lambda settings: SimpleNamespace(ping=AsyncMock(side_effect=RuntimeError("redis offline"))),
     )
-    monkeypatch.setattr(routes, "get_ingest_queue", lambda maxsize=None: SimpleNamespace(qsize=lambda: 4, maxsize=4))
+    monkeypatch.setattr(
+        routes, "get_ingest_queue", lambda maxsize=None: SimpleNamespace(qsize=lambda: 4, maxsize=4)
+    )
 
     response = await routes.route_readyz(request)
     payload = orjson.loads(response.body)

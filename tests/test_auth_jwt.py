@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import time
 import uuid
-from datetime import datetime, timezone, timedelta
-from unittest.mock import patch
 
 import pytest
 from jose import jwt
 
-from piloci.auth.jwt_utils import create_token, verify_token, decode_token_unsafe
+from piloci.auth.jwt_utils import create_token, decode_token_unsafe, verify_token
 from piloci.config import Settings
 
 
@@ -76,9 +74,7 @@ class TestCreateAndVerifyToken:
             settings=settings,
             token_id=_token_id(),
         )
-        bad_settings = _make_settings(
-            jwt_secret="another-very-long-dev-secret-at-least-32chars"
-        )
+        bad_settings = _make_settings(jwt_secret="another-very-long-dev-secret-at-least-32chars")
         with pytest.raises(ValueError):
             verify_token(token, bad_settings)
 

@@ -1,5 +1,6 @@
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from piloci.config import Settings
 from piloci.storage.lancedb_store import MemoryStore
@@ -32,6 +33,7 @@ def mock_store():
 async def mock_embed():
     async def _embed(text: str) -> list[float]:
         return [0.1] * 384
+
     return _embed
 
 

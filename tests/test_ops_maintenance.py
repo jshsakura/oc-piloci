@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import importlib
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
-import importlib
-import uuid
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from piloci.config import Settings
 from piloci.db.models import AuditLog, Project, RawSession, User
@@ -110,7 +115,9 @@ async def _seed_user_project(session: AsyncSession) -> tuple[User, Project]:
 
 
 @pytest.mark.asyncio
-async def test_cleanup_retention_deletes_old_processed_raw_sessions_and_audit_logs(session: AsyncSession, engine):
+async def test_cleanup_retention_deletes_old_processed_raw_sessions_and_audit_logs(
+    session: AsyncSession, engine
+):
     _eng, settings_obj = engine
     user, project = await _seed_user_project(session)
     old_time = _now() - timedelta(days=30)

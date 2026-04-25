@@ -57,7 +57,9 @@ async def test_process_unfinished_respects_bounded_queue(monkeypatch):
         SimpleNamespace(ingest_id="i2", user_id="u2", project_id="p2"),
     ]
     db = MagicMock()
-    db.execute = AsyncMock(return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows)))
+    db.execute = AsyncMock(
+        return_value=SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
+    )
 
     monkeypatch.setattr(worker_module, "async_session", MagicMock(return_value=_session_cm(db)))
 
@@ -84,7 +86,9 @@ async def test_profile_refresh_cycle_respects_limit_and_pause(monkeypatch):
     monkeypatch.setattr(profile_module.asyncio, "sleep", sleep)
 
     settings = _settings(curator_profile_project_limit=2, curator_profile_pause_ms=25)
-    processed = await profile_module._run_profile_refresh_cycle(settings, MagicMock(), asyncio.Event())
+    processed = await profile_module._run_profile_refresh_cycle(
+        settings, MagicMock(), asyncio.Event()
+    )
 
     assert processed == 2
     assert refresh.await_count == 2

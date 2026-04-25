@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Shared asyncio queue between /api/ingest and the curator worker."""
 
 import asyncio

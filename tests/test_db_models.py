@@ -5,15 +5,15 @@ from datetime import datetime, timezone
 
 import orjson
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from piloci.db.models import ApiToken, AuditLog, Base, PasswordResetToken, Project, User
+from piloci.db.models import ApiToken, AuditLog, PasswordResetToken, Project, User
 from piloci.db.session import init_db
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 async def engine():
@@ -64,14 +64,13 @@ def _make_user(
 # init_db — table creation
 # ---------------------------------------------------------------------------
 
+
 async def test_init_db_creates_tables(engine):
     """All expected tables should be present after init_db()."""
-    from sqlalchemy import inspect, text
+    from sqlalchemy import inspect
 
     async with engine.connect() as conn:
-        table_names = await conn.run_sync(
-            lambda sync_conn: inspect(sync_conn).get_table_names()
-        )
+        table_names = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
 
     expected = {
         "users",
@@ -80,14 +79,13 @@ async def test_init_db_creates_tables(engine):
         "projects",
         "api_tokens",
     }
-    assert expected.issubset(set(table_names)), (
-        f"Missing tables: {expected - set(table_names)}"
-    )
+    assert expected.issubset(set(table_names)), f"Missing tables: {expected - set(table_names)}"
 
 
 # ---------------------------------------------------------------------------
 # User CRUD
 # ---------------------------------------------------------------------------
+
 
 async def test_create_and_query_user(session: AsyncSession):
     user = _make_user()
@@ -122,6 +120,7 @@ async def test_user_email_unique_constraint(session: AsyncSession):
 # PasswordResetToken
 # ---------------------------------------------------------------------------
 
+
 async def test_password_reset_token(session: AsyncSession):
     user = _make_user()
     session.add(user)
@@ -146,6 +145,7 @@ async def test_password_reset_token(session: AsyncSession):
 # ---------------------------------------------------------------------------
 # AuditLog
 # ---------------------------------------------------------------------------
+
 
 async def test_audit_log_with_json_metadata(session: AsyncSession):
     user = _make_user()
@@ -189,6 +189,7 @@ async def test_audit_log_nullable_user(session: AsyncSession):
 # ---------------------------------------------------------------------------
 # Project CRUD (with User FK)
 # ---------------------------------------------------------------------------
+
 
 async def test_create_project(session: AsyncSession):
     user = _make_user()
@@ -251,6 +252,7 @@ async def test_project_slug_unique_per_user(session: AsyncSession):
 # ---------------------------------------------------------------------------
 # ApiToken CRUD (with User + Project FK)
 # ---------------------------------------------------------------------------
+
 
 async def test_create_api_token(session: AsyncSession):
     user = _make_user()
@@ -315,7 +317,6 @@ async def test_api_token_null_project(session: AsyncSession):
 
 async def test_cascade_delete_user_removes_project_and_token(session: AsyncSession):
     """Deleting a user must cascade-delete projects and api_tokens."""
-    from sqlalchemy import select
 
     user = _make_user()
     session.add(user)

@@ -12,6 +12,7 @@ from piloci.auth.session import SessionStore
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
+
     from piloci.config import Settings
     from piloci.db.models import User
 
@@ -63,9 +64,7 @@ _MAX_LOGIN_ATTEMPTS = 5
 
 def _validate_password(password: str) -> None:
     if len(password) < _MIN_PASSWORD_LEN:
-        raise WeakPasswordError(
-            f"Password must be at least {_MIN_PASSWORD_LEN} characters long."
-        )
+        raise WeakPasswordError(f"Password must be at least {_MIN_PASSWORD_LEN} characters long.")
     if not _RE_UPPERCASE.search(password):
         raise WeakPasswordError("Password must contain at least one uppercase letter.")
     if not _RE_LOWERCASE.search(password):
@@ -93,13 +92,12 @@ async def signup(
         WeakPasswordError: if the password does not meet policy requirements.
     """
     from sqlalchemy import select
-    from piloci.db.models import User, AuditLog  # type: ignore[attr-defined]
+
+    from piloci.db.models import AuditLog, User  # type: ignore[attr-defined]
 
     _validate_password(password)
 
-    result = await db_session.execute(
-        select(User).where(User.email == email)
-    )
+    result = await db_session.execute(select(User).where(User.email == email))
     if result.scalar_one_or_none() is not None:
         raise EmailExistsError(f"Email already registered: {email}")
 
@@ -141,7 +139,8 @@ async def login(
         InvalidCredentialsError: if credentials are wrong.
     """
     from sqlalchemy import select
-    from piloci.db.models import User, AuditLog  # type: ignore[attr-defined]
+
+    from piloci.db.models import AuditLog, User  # type: ignore[attr-defined]
 
     fails = await redis_session.get_login_fails(email)
     if fails >= _MAX_LOGIN_ATTEMPTS:
@@ -150,9 +149,7 @@ async def login(
             "Please wait 15 minutes before trying again."
         )
 
-    result = await db_session.execute(
-        select(User).where(User.email == email)
-    )
+    result = await db_session.execute(select(User).where(User.email == email))
     user: User | None = result.scalar_one_or_none()
 
     if user is None or not verify_password(password, user.password_hash or ""):
@@ -177,6 +174,7 @@ async def login(
         if not totp_code:
             raise TOTPRequiredError("2FA code required")
         from piloci.auth.totp import verify_totp
+
         if not verify_totp(user.totp_secret, totp_code):
             new_count = await redis_session.record_login_fail(email)
             audit = AuditLog(
@@ -248,7 +246,8 @@ async def create_reset_token(
     The token hash is stored in DB; the raw token is only returned once.
     """
     from sqlalchemy import select
-    from piloci.db.models import User, PasswordResetToken
+
+    from piloci.db.models import PasswordResetToken, User
 
     result = await db_session.execute(select(User).where(User.email == email))
     user: User | None = result.scalar_one_or_none()
@@ -294,8 +293,9 @@ async def reset_password(
         TokenExpiredError: token expired
         WeakPasswordError: new password doesn't meet policy
     """
-    from sqlalchemy import select, update
-    from piloci.db.models import User, PasswordResetToken, AuditLog
+    from sqlalchemy import select
+
+    from piloci.db.models import AuditLog, PasswordResetToken, User
 
     _validate_password(new_password)
 

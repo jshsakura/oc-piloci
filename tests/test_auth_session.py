@@ -1,7 +1,8 @@
 """Tests for SessionStore using a mock Redis."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import orjson
 import pytest
@@ -83,11 +84,13 @@ async def test_enforce_session_limit_evicts_oldest_when_over_limit():
     redis = AsyncMock()
     redis.scard = AsyncMock(return_value=3)
     redis.smembers = AsyncMock(return_value={"sid-old", "sid-mid", "sid-new"})
-    redis.get = AsyncMock(side_effect=lambda key: {
-        "session:sid-old": orjson.dumps({"created_at": "2026-01-01T00:00:00+00:00"}),
-        "session:sid-mid": orjson.dumps({"created_at": "2026-01-02T00:00:00+00:00"}),
-        "session:sid-new": orjson.dumps({"created_at": "2026-01-03T00:00:00+00:00"}),
-    }[key])
+    redis.get = AsyncMock(
+        side_effect=lambda key: {
+            "session:sid-old": orjson.dumps({"created_at": "2026-01-01T00:00:00+00:00"}),
+            "session:sid-mid": orjson.dumps({"created_at": "2026-01-02T00:00:00+00:00"}),
+            "session:sid-new": orjson.dumps({"created_at": "2026-01-03T00:00:00+00:00"}),
+        }[key]
+    )
     redis.delete = AsyncMock()
     redis.srem = AsyncMock()
 
@@ -104,7 +107,14 @@ async def test_enforce_session_limit_evicts_oldest_when_over_limit():
 async def test_get_session_returns_parsed_data():
     settings = _make_settings()
     redis = AsyncMock()
-    payload = orjson.dumps({"user_id": "u1", "ip": "127.0.0.1", "created_at": "2026-01-01T00:00:00+00:00", "user_agent": ""})
+    payload = orjson.dumps(
+        {
+            "user_id": "u1",
+            "ip": "127.0.0.1",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "user_agent": "",
+        }
+    )
     redis.get = AsyncMock(return_value=payload)
 
     store = SessionStore(redis=redis, settings=settings)

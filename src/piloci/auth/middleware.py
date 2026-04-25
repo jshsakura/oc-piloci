@@ -7,11 +7,12 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from piloci.auth.jwt_utils import verify_token, decode_token_unsafe
+from piloci.auth.jwt_utils import decode_token_unsafe, verify_token
 from piloci.auth.session import get_session_store
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
+
     from piloci.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -34,7 +35,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # 1. Try Bearer JWT
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
-            token = auth_header[len("Bearer "):]
+            token = auth_header[len("Bearer ") :]
             try:
                 user = verify_token(token, self._settings)
             except ValueError:

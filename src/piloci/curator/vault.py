@@ -10,7 +10,6 @@ from typing import Any
 
 import orjson
 
-
 _WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -48,7 +47,9 @@ def _coerce_tags(memory: dict[str, Any]) -> list[str]:
     return [str(tag).strip() for tag in tags if str(tag).strip()]
 
 
-def _frontmatter(title: str, memory_id: str, created_at: str, updated_at: str, tags: list[str]) -> str:
+def _frontmatter(
+    title: str, memory_id: str, created_at: str, updated_at: str, tags: list[str]
+) -> str:
     lines = [
         "---",
         f'title: "{title.replace(chr(34), chr(39))}"',
@@ -61,10 +62,12 @@ def _frontmatter(title: str, memory_id: str, created_at: str, updated_at: str, t
         lines.extend([f"  - {tag}" for tag in tags])
     else:
         lines.append("  - inbox")
-    lines.extend([
-        "source: piloci",
-        "---",
-    ])
+    lines.extend(
+        [
+            "source: piloci",
+            "---",
+        ]
+    )
     return "\n".join(lines)
 
 

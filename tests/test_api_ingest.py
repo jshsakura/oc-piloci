@@ -65,7 +65,9 @@ async def test_route_ingest_returns_429_when_queue_is_full(monkeypatch):
         "async_session",
         MagicMock(side_effect=[_session_cm(write_session), _session_cm(cleanup_session)]),
     )
-    monkeypatch.setattr(routes, "get_ingest_queue", lambda maxsize=None: SimpleNamespace(qsize=lambda: 1, maxsize=1))
+    monkeypatch.setattr(
+        routes, "get_ingest_queue", lambda maxsize=None: SimpleNamespace(qsize=lambda: 1, maxsize=1)
+    )
     monkeypatch.setattr(routes, "try_enqueue_job", lambda job, maxsize=None: False)
 
     response = await routes.route_ingest(request)
@@ -101,7 +103,9 @@ async def test_route_ingest_returns_202_when_enqueued(monkeypatch):
 
     monkeypatch.setattr(routes, "get_settings", lambda: settings)
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(write_session)))
-    monkeypatch.setattr(routes, "get_ingest_queue", lambda maxsize=None: SimpleNamespace(qsize=lambda: 1, maxsize=4))
+    monkeypatch.setattr(
+        routes, "get_ingest_queue", lambda maxsize=None: SimpleNamespace(qsize=lambda: 1, maxsize=4)
+    )
     monkeypatch.setattr(routes, "try_enqueue_job", lambda job, maxsize=None: True)
 
     response = await routes.route_ingest(request)

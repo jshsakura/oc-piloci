@@ -2,16 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Index,
-    Integer,
-    Text,
-    UniqueConstraint,
-    text,
-)
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -51,9 +42,7 @@ class User(Base):
     password_reset_tokens: Mapped[list[PasswordResetToken]] = relationship(
         "PasswordResetToken", back_populates="user", cascade="all, delete-orphan"
     )
-    audit_logs: Mapped[list[AuditLog]] = relationship(
-        "AuditLog", back_populates="user"
-    )
+    audit_logs: Mapped[list[AuditLog]] = relationship("AuditLog", back_populates="user")
 
 
 class PasswordResetToken(Base):

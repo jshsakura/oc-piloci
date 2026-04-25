@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import pytest
-
-from piloci.auth.password import hash_password, verify_password, needs_rehash
+from piloci.auth.password import hash_password, needs_rehash, verify_password
 
 
 def test_hash_returns_string():

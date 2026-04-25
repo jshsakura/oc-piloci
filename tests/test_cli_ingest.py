@@ -1,10 +1,9 @@
 """Tests for piloci-ingest CLI adapters (parse only, no HTTP)."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-
-import pytest
 
 
 def test_load_claude_code(tmp_path: Path):
@@ -12,8 +11,7 @@ def test_load_claude_code(tmp_path: Path):
 
     transcript_file = tmp_path / "transcript.jsonl"
     transcript_file.write_text(
-        '{"role":"user","content":"hi"}\n'
-        '{"role":"assistant","content":"hello"}\n'
+        '{"role":"user","content":"hi"}\n' '{"role":"assistant","content":"hello"}\n'
     )
     stdin_data = {"session_id": "sess-1", "transcript_path": str(transcript_file)}
     session_id, transcript = _load_claude_code(stdin_data)
@@ -61,10 +59,14 @@ def test_load_opencode(tmp_path: Path, monkeypatch):
     storage = tmp_path / ".local/share/opencode/storage"
     storage.mkdir(parents=True)
     session_file = storage / "session-abc.json"
-    session_file.write_text(json.dumps({
-        "id": "oc-session-1",
-        "messages": [{"role": "user", "content": "hello oc"}],
-    }))
+    session_file.write_text(
+        json.dumps(
+            {
+                "id": "oc-session-1",
+                "messages": [{"role": "user", "content": "hello oc"}],
+            }
+        )
+    )
     monkeypatch.setenv("HOME", str(tmp_path))
     # pathlib's Path.home() reads from HOME on POSIX
     session_id, transcript = _load_opencode(None)

@@ -1,4 +1,5 @@
 """Integration tests for LanceDB MemoryStore using a real temporary database."""
+
 from __future__ import annotations
 
 import uuid
@@ -24,6 +25,7 @@ def _reset_runtime_profiler_fixture():
 # ensure_collection
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_ensure_collection_idempotent(lancedb_store):
     # Calling twice should not raise
@@ -33,6 +35,7 @@ async def test_ensure_collection_idempotent(lancedb_store):
 # ---------------------------------------------------------------------------
 # save
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_save_returns_uuid(lancedb_store):
@@ -59,16 +62,18 @@ async def test_save_with_metadata(lancedb_store):
 
 
 def test_row_to_dict_parses_metadata_bytes():
-    record = _row_to_dict({
-        "memory_id": "mem-1",
-        "user_id": _USER,
-        "project_id": _PROJECT,
-        "content": "meta bytes",
-        "tags": ["meta"],
-        "metadata": b'{"key":"val"}',
-        "created_at": 1,
-        "updated_at": 2,
-    })
+    record = _row_to_dict(
+        {
+            "memory_id": "mem-1",
+            "user_id": _USER,
+            "project_id": _PROJECT,
+            "content": "meta bytes",
+            "tags": ["meta"],
+            "metadata": b'{"key":"val"}',
+            "created_at": 1,
+            "updated_at": 2,
+        }
+    )
 
     assert record["metadata"] == {"key": "val"}
 
@@ -76,6 +81,7 @@ def test_row_to_dict_parses_metadata_bytes():
 # ---------------------------------------------------------------------------
 # get
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_get_returns_none_when_missing(lancedb_store):
@@ -110,6 +116,7 @@ async def test_get_enforces_user_isolation(lancedb_store):
 # ---------------------------------------------------------------------------
 # list
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_list_returns_only_project_memories(lancedb_store):
@@ -148,6 +155,7 @@ async def test_list_pagination(lancedb_store):
 # ---------------------------------------------------------------------------
 # update
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_update_returns_false_when_missing(lancedb_store):
@@ -210,7 +218,9 @@ async def test_update_metadata_merges_existing_metadata(lancedb_store):
 async def test_update_with_new_vector(lancedb_store):
     mid = await lancedb_store.save(_USER, _PROJECT, "vec", _VECTOR)
     new_vec = [0.9] * VECTOR_SIZE
-    result = await lancedb_store.update(_USER, _PROJECT, mid, content="updated vec", new_vector=new_vec)
+    result = await lancedb_store.update(
+        _USER, _PROJECT, mid, content="updated vec", new_vector=new_vec
+    )
     assert result is True
     record = await lancedb_store.get(_USER, _PROJECT, mid)
     assert record is not None
@@ -220,6 +230,7 @@ async def test_update_with_new_vector(lancedb_store):
 # ---------------------------------------------------------------------------
 # delete
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_delete_returns_false_when_missing(lancedb_store):
@@ -265,6 +276,7 @@ async def test_delete_enforces_isolation(lancedb_store):
 # clear_project
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_clear_project_removes_all(lancedb_store):
     for _ in range(3):
@@ -293,6 +305,7 @@ async def test_clear_project_does_not_touch_other_projects(lancedb_store):
 # ---------------------------------------------------------------------------
 # search
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_search_returns_results(lancedb_store):

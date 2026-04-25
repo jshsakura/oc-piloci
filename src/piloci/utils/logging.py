@@ -1,6 +1,7 @@
 from __future__ import annotations
-import resource
+
 import logging
+import resource
 import sys
 import threading
 import time
@@ -13,7 +14,6 @@ import orjson
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
-
 
 _WINDOW_SIZE = 200
 
@@ -132,9 +132,7 @@ def configure_logging(level: str = "INFO", fmt: str = "text") -> None:
     if fmt == "json":
         handler.setFormatter(JSONFormatter())
     else:
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)-8s %(name)s  %(message)s")
-        )
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)-8s %(name)s  %(message)s"))
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)

@@ -5,7 +5,11 @@ import pytest
 
 from piloci.config import Settings
 from piloci.mcp.session_state import McpSessionTracker, record_tool_call
-from piloci.notify.telegram import format_session_summary, send_session_summary, should_send_session_summary
+from piloci.notify.telegram import (
+    format_session_summary,
+    send_session_summary,
+    should_send_session_summary,
+)
 
 
 def make_settings(

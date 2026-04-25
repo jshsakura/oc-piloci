@@ -31,7 +31,9 @@ async def test_embed_texts_uses_dedicated_executor(monkeypatch):
 
     loop = asyncio.get_running_loop()
     monkeypatch.setattr(loop, "run_in_executor", fake_run_in_executor)
-    monkeypatch.setattr(embed_module, "_embed_sync", lambda texts, model, cache_dir: [[0.1] for _ in texts])
+    monkeypatch.setattr(
+        embed_module, "_embed_sync", lambda texts, model, cache_dir: [[0.1] for _ in texts]
+    )
 
     vectors = await embed_module.embed_texts(
         ["hello"],
@@ -78,7 +80,9 @@ async def test_embed_texts_cache_hit_skips_profiler_metric(monkeypatch):
     from piloci.storage import embed as embed_module
     from piloci.utils.logging import get_runtime_profiler
 
-    monkeypatch.setattr(embed_module, "_embed_sync", lambda texts, model, cache_dir: [[0.1] for _ in texts])
+    monkeypatch.setattr(
+        embed_module, "_embed_sync", lambda texts, model, cache_dir: [[0.1] for _ in texts]
+    )
 
     await embed_module.embed_texts(["hello"], executor_workers=1, max_concurrency=1, lru_size=10)
     assert get_runtime_profiler().snapshot()["metrics"]["embed_texts"]["count"] == 1
@@ -98,6 +102,8 @@ async def test_embed_texts_failure_still_records_profiler_metric(monkeypatch):
     monkeypatch.setattr(embed_module, "_embed_sync", boom)
 
     with pytest.raises(RuntimeError, match="embed failed"):
-        await embed_module.embed_texts(["hello"], executor_workers=1, max_concurrency=1, lru_size=10)
+        await embed_module.embed_texts(
+            ["hello"], executor_workers=1, max_concurrency=1, lru_size=10
+        )
 
     assert get_runtime_profiler().snapshot()["metrics"]["embed_texts"]["count"] == 1

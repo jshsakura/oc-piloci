@@ -1,10 +1,9 @@
 """Tests for structured logging utilities."""
+
 from __future__ import annotations
 
 import json
 import logging
-
-import pytest
 
 from piloci.utils.logging import JSONFormatter, configure_logging
 
@@ -45,6 +44,7 @@ def test_json_formatter_with_exc_info():
         raise ValueError("boom")
     except ValueError:
         import sys
+
         exc_info = sys.exc_info()
 
     record = _make_record("error happened")

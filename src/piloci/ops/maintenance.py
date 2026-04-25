@@ -11,6 +11,8 @@ from piloci.db.models import AuditLog, RawSession
 from piloci.db.session import async_session
 
 logger = logging.getLogger(__name__)
+
+
 async def cleanup_retention(settings: Settings) -> dict[str, int]:
     now = datetime.now(timezone.utc)
     raw_cutoff = now - timedelta(days=settings.raw_session_retention_days)
@@ -21,10 +23,14 @@ async def cleanup_retention(settings: Settings) -> dict[str, int]:
         audit_filter = AuditLog.created_at < audit_cutoff
 
         deleted_raw = int(
-            (await db.execute(select(func.count()).select_from(RawSession).where(raw_filter))).scalar_one()
+            (
+                await db.execute(select(func.count()).select_from(RawSession).where(raw_filter))
+            ).scalar_one()
         )
         deleted_audit = int(
-            (await db.execute(select(func.count()).select_from(AuditLog).where(audit_filter))).scalar_one()
+            (
+                await db.execute(select(func.count()).select_from(AuditLog).where(audit_filter))
+            ).scalar_one()
         )
 
         if deleted_raw:

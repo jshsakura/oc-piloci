@@ -1,8 +1,7 @@
+import tomllib
 from importlib import metadata
 from pathlib import Path
 from typing import cast
-import tomllib
-
 
 _DISTRIBUTION_NAME = "oc-piloci"
 

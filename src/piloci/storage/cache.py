@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+
 class EmbeddingCache:
     """Simple LRU cache for text embeddings."""
 
