@@ -74,6 +74,7 @@ export default function LandingPage() {
 
   const features = t.landing.sections.features.list;
   const capabilities = t.landing.sections.capabilities.list;
+  const curation = t.landing.sections.curation;
   const stats = t.landing.stats;
 
   const featureIcons = [Fingerprint, Code2, Zap, ShieldCheck, BrainCircuit, Network, Lock, Plug];
@@ -261,7 +262,11 @@ export default function LandingPage() {
       <section className="border-t bg-muted py-20">
         <div className="mx-auto max-w-6xl px-4">
           <h2 className="mb-3 text-center text-2xl font-bold">{t.landing.sections.features.title}</h2>
-          <p className="mb-12 text-center text-muted-foreground">{t.landing.sections.features.subtitle}</p>
+          <div className="mx-auto mb-12 max-w-3xl space-y-3 text-center text-muted-foreground">
+            {t.landing.sections.features.subtitle.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
             {features.map((f, i) => {
               const Icon = featureIcons[i] ?? Fingerprint;
@@ -276,6 +281,80 @@ export default function LandingPage() {
               );
             })}
           </div>
+        </div>
+      </section>
+
+      {/* Quiet curator */}
+      <section className="border-t bg-background py-20">
+        <div className="mx-auto grid max-w-6xl gap-10 px-4 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+          <div>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.28em] text-primary">
+              {curation.eyebrow}
+            </p>
+            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
+              {curation.title}
+            </h2>
+            <div className="mt-6 space-y-4 text-muted-foreground">
+              {curation.paragraphs.map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+            </div>
+            <div className="mt-8 grid gap-3 sm:grid-cols-3">
+              {curation.stages.map((stage, index) => (
+                <div key={stage.label} className="rounded-xl border bg-card p-4">
+                  <p className="mb-3 flex size-7 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary">
+                    {index + 1}
+                  </p>
+                  <h3 className="font-semibold">{stage.label}</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">{stage.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <Card className="overflow-hidden border-primary/20 bg-card/80 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+            <CardContent className="p-6 sm:p-8">
+              <div className="mb-6 flex items-start justify-between gap-4">
+                <div>
+                  <div className="mb-3 flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <Network className="size-5" />
+                  </div>
+                  <h3 className="text-xl font-bold">{curation.graphTitle}</h3>
+                  <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                    {curation.graphDesc}
+                  </p>
+                </div>
+              </div>
+
+              <div className="relative min-h-[300px] overflow-hidden rounded-3xl border bg-muted/40 p-6">
+                <div className="absolute left-[18%] top-[16%] h-px w-[36%] rotate-[18deg] bg-primary/25" />
+                <div className="absolute right-[18%] top-[22%] h-px w-[30%] -rotate-[32deg] bg-primary/20" />
+                <div className="absolute bottom-[30%] left-[26%] h-px w-[42%] -rotate-[18deg] bg-primary/20" />
+                <div className="absolute bottom-[24%] right-[20%] h-px w-[34%] rotate-[28deg] bg-primary/25" />
+
+                <div className="absolute left-6 top-8 rounded-2xl border bg-background/95 px-4 py-3 shadow-sm">
+                  <p className="text-xs font-semibold text-primary">Project</p>
+                  <p className="text-sm font-medium">piLoci</p>
+                </div>
+                <div className="absolute right-8 top-10 rounded-2xl border bg-background/95 px-4 py-3 shadow-sm">
+                  <p className="text-xs font-semibold text-primary">Decision</p>
+                  <p className="text-sm font-medium">local first</p>
+                </div>
+                <div className="absolute left-[34%] top-[42%] rounded-2xl border border-primary/30 bg-primary px-5 py-4 text-primary-foreground shadow-lg">
+                  <p className="text-xs font-semibold opacity-80">Curated Memory</p>
+                  <p className="text-sm font-semibold">quiet context</p>
+                </div>
+                <div className="absolute bottom-10 left-10 rounded-2xl border bg-background/95 px-4 py-3 shadow-sm">
+                  <p className="text-xs font-semibold text-primary">Constraint</p>
+                  <p className="text-sm font-medium">Pi 5 budget</p>
+                </div>
+                <div className="absolute bottom-8 right-8 rounded-2xl border bg-background/95 px-4 py-3 shadow-sm">
+                  <p className="text-xs font-semibold text-primary">Preference</p>
+                  <p className="text-sm font-medium">no cloud leak</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </section>
 
