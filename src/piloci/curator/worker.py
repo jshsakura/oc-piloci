@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 """Background worker: drain ingest queue → Gemma extraction → save memories."""
 
 import asyncio
@@ -11,9 +12,10 @@ from sqlalchemy import select, update
 from piloci.config import Settings
 from piloci.curator.gemma import chat_json
 from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
+from piloci.curator.vault import invalidate_project_vault_cache
 from piloci.db.models import RawSession
 from piloci.db.session import async_session
-from piloci.storage.embed import embed_one
+from piloci.storage.embed import embed_texts
 from piloci.storage.lancedb_store import MemoryStore
 
 logger = logging.getLogger(__name__)
@@ -127,7 +129,7 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
             await db.commit()
         return
 
-    saved_count = 0
+    prepared: list[tuple[str, list[str]]] = []
     for mem in memories:
         raw_content = mem.get("content")
         content = raw_content.strip() if isinstance(raw_content, str) else ""
@@ -138,16 +140,24 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
         category = mem.get("category")
         if category:
             tags = list(dict.fromkeys([*tags, str(category)]))
+        prepared.append((content, tags[:5]))
 
+    vectors = (
+        await embed_texts(
+            [content for content, _ in prepared],
+            model=settings.embed_model,
+            cache_dir=settings.embed_cache_dir,
+            lru_size=settings.embed_lru_size,
+            executor_workers=settings.embed_executor_workers,
+            max_concurrency=settings.embed_max_concurrency,
+        )
+        if prepared
+        else []
+    )
+
+    saved_count = 0
+    for (content, tags), vector in zip(prepared, vectors, strict=True):
         try:
-            vector = await embed_one(
-                content,
-                model=settings.embed_model,
-                cache_dir=settings.embed_cache_dir,
-                lru_size=settings.embed_lru_size,
-                executor_workers=settings.embed_executor_workers,
-                max_concurrency=settings.embed_max_concurrency,
-            )
             if await _is_duplicate(store, job.user_id, job.project_id, vector):
                 logger.debug("Skipping duplicate memory: %s", content[:60])
                 continue
@@ -173,9 +183,18 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
         )
         await db.commit()
 
+    if saved_count > 0:
+        await invalidate_project_vault_cache(
+            settings.vault_dir,
+            job.user_id,
+            job.project_id,
+        )
+
     logger.info(
         "Processed ingest %s: extracted %d memories from %d transcript lines",
-        job.ingest_id, saved_count, len(transcript),
+        job.ingest_id,
+        saved_count,
+        len(transcript),
     )
 
 
@@ -186,7 +205,9 @@ async def run_worker(settings: Settings, store: MemoryStore, stop_event: asyncio
 
     while not stop_event.is_set():
         try:
-            job = await asyncio.wait_for(queue.get(), timeout=settings.curator_queue_poll_timeout_sec)
+            job = await asyncio.wait_for(
+                queue.get(), timeout=settings.curator_queue_poll_timeout_sec
+            )
         except asyncio.TimeoutError:
             continue
         try:
@@ -203,15 +224,18 @@ async def process_unfinished(settings: Settings, store: MemoryStore) -> int:
     """On startup, re-queue any raw_sessions that were never processed."""
     async with async_session() as db:
         rows = (
-            await db.execute(
-                select(RawSession).where(
-                    RawSession.processed_at.is_(None),
-                    RawSession.error.is_(None),
+            (
+                await db.execute(
+                    select(RawSession).where(
+                        RawSession.processed_at.is_(None),
+                        RawSession.error.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
-    queue = get_ingest_queue(settings.ingest_queue_maxsize)
     requeued = 0
     for row in rows:
         if row.project_id is None:

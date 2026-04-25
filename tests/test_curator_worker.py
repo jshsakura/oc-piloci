@@ -1,13 +1,27 @@
 """Tests for Gemma curator worker with mocked Gemma responses."""
+
 from __future__ import annotations
 
-import asyncio
-import json
+from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from piloci.curator.queue import IngestJob, get_ingest_queue, reset_ingest_queue, try_enqueue_job
+
+
+class _FakeAsyncSession:
+    def __init__(self) -> None:
+        self.get = AsyncMock()
+        self.execute = AsyncMock()
+        self.commit = AsyncMock()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
 
 
 @pytest.fixture(autouse=True)
@@ -40,9 +54,13 @@ def test_queue_maxsize_applied_on_first_init():
 
 def test_try_enqueue_job_returns_false_when_full():
     queue = get_ingest_queue(maxsize=1)
-    assert try_enqueue_job(IngestJob(ingest_id="i1", user_id="u", project_id="p"), maxsize=1) is True
+    assert (
+        try_enqueue_job(IngestJob(ingest_id="i1", user_id="u", project_id="p"), maxsize=1) is True
+    )
     assert queue.qsize() == 1
-    assert try_enqueue_job(IngestJob(ingest_id="i2", user_id="u", project_id="p"), maxsize=1) is False
+    assert (
+        try_enqueue_job(IngestJob(ingest_id="i2", user_id="u", project_id="p"), maxsize=1) is False
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +69,7 @@ def test_try_enqueue_job_returns_false_when_full():
 
 
 @pytest.mark.asyncio
-async def test_extract_memories_parses_gemma_output():
+async def test_extract_memories_parses_gemma_output(settings):
     from piloci.curator import worker as w
 
     gemma_payload = {
@@ -62,11 +80,7 @@ async def test_extract_memories_parses_gemma_output():
     }
 
     with patch.object(w, "chat_json", AsyncMock(return_value=gemma_payload)):
-        settings = type("S", (), {
-            "gemma_endpoint": "x",
-            "gemma_model": "x",
-        })()
-        transcript = [{"role": "user", "content": "I like dark mode"}]
+        transcript: list[dict[str, Any]] = [{"role": "user", "content": "I like dark mode"}]
         result = await w._extract_memories(transcript, settings)
 
     assert len(result) == 2  # extractor returns raw list; caller filters empties
@@ -77,7 +91,7 @@ def test_shorten_transcript_truncates_large_input():
     from piloci.curator.worker import _shorten_transcript
 
     long_msg = "x" * 20_000
-    transcript = [{"role": "user", "content": long_msg}]
+    transcript: list[dict[str, Any]] = [{"role": "user", "content": long_msg}]
     result = _shorten_transcript(transcript, max_chars=1000)
     assert "truncated" in result
     assert len(result) <= 1100  # allow small overhead
@@ -86,7 +100,7 @@ def test_shorten_transcript_truncates_large_input():
 def test_shorten_transcript_handles_list_content():
     from piloci.curator.worker import _shorten_transcript
 
-    transcript = [
+    transcript: list[dict[str, Any]] = [
         {"role": "assistant", "content": [{"type": "text", "text": "hello"}, {"text": "world"}]}
     ]
     result = _shorten_transcript(transcript)
@@ -124,3 +138,80 @@ async def test_is_duplicate_returns_false_when_empty():
     store = AsyncMock()
     store.search.return_value = []
     assert await _is_duplicate(store, "u", "p", [0.1] * 384) is False
+
+
+@pytest.mark.asyncio
+async def test_process_job_batches_embedding_and_saves(settings, mock_store):
+    from piloci.curator import worker as w
+
+    job = IngestJob(ingest_id="i1", user_id="u1", project_id="p1")
+    fake_db = _FakeAsyncSession()
+    fake_db.get.return_value = SimpleNamespace(
+        transcript_json='[{"role": "user", "content": "hello"}]'
+    )
+
+    with (
+        patch.object(
+            w,
+            "_extract_memories",
+            AsyncMock(
+                return_value=[
+                    {"content": " first memory ", "tags": ["a"], "category": "fact"},
+                    {"content": "second memory", "tags": ["b"], "category": "decision"},
+                    {"content": "   ", "tags": [], "category": "fact"},
+                ]
+            ),
+        ),
+        patch.object(
+            w, "embed_texts", AsyncMock(return_value=[[0.1] * 384, [0.2] * 384])
+        ) as embed_mock,
+        patch.object(w, "_is_duplicate", AsyncMock(side_effect=[False, False])),
+        patch.object(w, "async_session", return_value=fake_db),
+        patch.object(w, "invalidate_project_vault_cache", AsyncMock()) as invalidate_mock,
+    ):
+        await w._process_job(job, settings, mock_store)
+
+    embed_mock.assert_awaited_once()
+    await_args = embed_mock.await_args
+    assert await_args is not None
+    assert await_args.args[0] == ["first memory", "second memory"]
+    assert mock_store.save.await_count == 2
+    first_call = mock_store.save.await_args_list[0].kwargs
+    second_call = mock_store.save.await_args_list[1].kwargs
+    assert first_call["content"] == "first memory"
+    assert first_call["tags"] == ["a", "fact"]
+    assert second_call["content"] == "second memory"
+    assert second_call["tags"] == ["b", "decision"]
+    invalidate_mock.assert_awaited_once_with(settings.vault_dir, "u1", "p1")
+
+
+@pytest.mark.asyncio
+async def test_process_job_skips_duplicate_but_invalidates_after_save(settings, mock_store):
+    from piloci.curator import worker as w
+
+    job = IngestJob(ingest_id="i2", user_id="u1", project_id="p1")
+    fake_db = _FakeAsyncSession()
+    fake_db.get.return_value = SimpleNamespace(
+        transcript_json='[{"role": "user", "content": "hello"}]'
+    )
+
+    with (
+        patch.object(
+            w,
+            "_extract_memories",
+            AsyncMock(
+                return_value=[
+                    {"content": "keep me", "tags": [], "category": "fact"},
+                    {"content": "drop me", "tags": [], "category": "fact"},
+                ]
+            ),
+        ),
+        patch.object(w, "embed_texts", AsyncMock(return_value=[[0.1] * 384, [0.2] * 384])),
+        patch.object(w, "_is_duplicate", AsyncMock(side_effect=[False, True])),
+        patch.object(w, "async_session", return_value=fake_db),
+        patch.object(w, "invalidate_project_vault_cache", AsyncMock()) as invalidate_mock,
+    ):
+        await w._process_job(job, settings, mock_store)
+
+    assert mock_store.save.await_count == 1
+    invalidate_mock.assert_awaited_once_with(settings.vault_dir, "u1", "p1")
