@@ -2,6 +2,9 @@
 
 ## 2026-04-25
 
+- Added the narrow v0.3 memory-create/UI speed slice: `src/piloci/api/routes.py` now exposes project-scoped `POST /api/memories` using the existing embed/store/cache-invalidation path, and `web/app/projects/page.tsx` adds number-based quick note selection over the already-loaded workspace notes.
+- Added route-level coverage for successful REST memory creation plus project-scope and blank-content rejection in `tests/test_api_ingest.py`; revalidated with `uv run pytest tests/test_api_ingest.py -v --no-cov`, `uv run ruff check src/piloci/api/routes.py tests/test_api_ingest.py`, and `pnpm build` in `web/`.
+
 - Optimized curator ingest persistence in `src/piloci/curator/worker.py` and `src/piloci/storage/lancedb_store.py`: in-job vector duplicates are now filtered before LanceDB search, and accepted memories are written through one `save_many(...)` batch upsert instead of per-memory saves.
 - Added regression coverage for batched curator saves, in-batch duplicate skipping, and LanceDB `save_many` profiling; revalidated the slice with `uv run pytest tests/test_curator_worker.py tests/test_storage_lancedb.py -v --no-cov` (`38 passed`) plus `ruff check` on touched files.
 
