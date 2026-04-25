@@ -22,6 +22,49 @@ import {
 } from "@/components/ui/form";
 import type { User } from "@/lib/types";
 
+function MailIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="20" height="16" x="2" y="4" rx="2" /><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+    </svg>
+  );
+}
+function LockIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </svg>
+  );
+}
+function UserIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+    </svg>
+  );
+}
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+    </svg>
+  );
+}
+function EyeIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0" /><circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+function EyeOffIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49" /><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242" /><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143" /><path d="m2 2 20 20" />
+    </svg>
+  );
+}
+
 const signupSchema = z
   .object({
     name: z.string().min(2, "이름은 2자 이상이어야 합니다"),
@@ -56,6 +99,8 @@ export default function SignupPage() {
   const { setUser } = useAuthStore();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
@@ -79,97 +124,183 @@ export default function SignupPage() {
 
   return (
     <AuthLayout>
-      <div className="mb-8 text-center">
-        <h2 className="text-2xl font-bold">회원가입</h2>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {"piLoci 계정을 만드세요".split("AI").map((part, i, arr) => (
-            <span key={i}>
-              {part}
-              {i < arr.length - 1 && (
-                <span className="bg-clip-text text-transparent animate-[rainbow_4s_linear_infinite] bg-[linear-gradient(90deg,#f87171,#fb923c,#fbbf24,#a3e635,#34d399,#22d3ee,#818cf8,#c084fc,#f87171)] bg-[length:200%_100%]">
-                  AI
-                </span>
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
+        <div className="mb-8 text-center">
+          <h2 className="text-2xl font-bold">회원가입</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            {"piLoci 계정을 만드세요".split("AI").map((part, i, arr) => (
+              <span key={i}>
+                {part}
+                {i < arr.length - 1 && (
+                  <span className="bg-clip-text text-transparent animate-[rainbow_4s_linear_infinite] bg-[linear-gradient(90deg,#f87171,#fb923c,#fbbf24,#a3e635,#34d399,#22d3ee,#818cf8,#c084fc,#f87171)] bg-[length:200%_100%]">
+                    AI
+                  </span>
+                )}
+              </span>
+            ))}
+          </p>
+        </div>
+
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-4">
+            <FormField
+              control={form.control}
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-1.5">
+                    <UserIcon className="size-3.5" />
+                    이름
+                  </FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input type="text" autoComplete="name" placeholder="홍길동" {...field} />
+                      {field.value && (
+                        <button
+                          type="button"
+                          onClick={() => form.setValue("name", "", { shouldValidate: false })}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          <XIcon className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
               )}
-            </span>
-          ))}
-        </p>
-      </div>
+            />
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-1.5">
+                    <MailIcon className="size-3.5" />
+                    이메일
+                  </FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input type="email" autoComplete="email" placeholder="you@example.com" {...field} />
+                      {field.value && (
+                        <button
+                          type="button"
+                          onClick={() => form.setValue("email", "", { shouldValidate: false })}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          <XIcon className="size-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-1.5">
+                    <LockIcon className="size-3.5" />
+                    비밀번호
+                  </FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="••••••••••••"
+                        {...field}
+                      />
+                      <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                        {field.value && (
+                          <button
+                            type="button"
+                            onClick={() => form.setValue("password", "", { shouldValidate: false })}
+                            className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            <XIcon className="size-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          {showPassword ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </FormControl>
+                  <FormDescription>12자 이상, 대소문자 + 숫자 포함</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="confirmPassword"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-1.5">
+                    <LockIcon className="size-3.5" />
+                    비밀번호 확인
+                  </FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <Input
+                        type={showConfirm ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="••••••••••••"
+                        {...field}
+                      />
+                      <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                        {field.value && (
+                          <button
+                            type="button"
+                            onClick={() => form.setValue("confirmPassword", "", { shouldValidate: false })}
+                            className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                          >
+                            <XIcon className="size-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirm(!showConfirm)}
+                          className="rounded p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+                        >
+                          {showConfirm ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-4">
-          <FormField
-            control={form.control}
-            name="name"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>이름</FormLabel>
-                <FormControl>
-                  <Input type="text" autoComplete="name" placeholder="홍길동" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
+            {serverError && (
+              <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                {serverError}
+              </div>
             )}
-          />
-          <FormField
-            control={form.control}
-            name="email"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>이메일</FormLabel>
-                <FormControl>
-                  <Input type="email" autoComplete="email" placeholder="you@example.com" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="password"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>비밀번호</FormLabel>
-                <FormControl>
-                  <Input type="password" autoComplete="new-password" placeholder="••••••••••••" {...field} />
-                </FormControl>
-                <FormDescription>12자 이상, 대소문자 + 숫자 포함</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="confirmPassword"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>비밀번호 확인</FormLabel>
-                <FormControl>
-                  <Input type="password" autoComplete="new-password" placeholder="••••••••••••" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
 
-          {serverError && (
-            <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
-              {serverError}
-            </div>
-          )}
+            <Button type="submit" disabled={isPending} className="w-full">
+              {isPending ? "가입 중..." : "가입하기"}
+            </Button>
+          </form>
+        </Form>
 
-          <Button type="submit" disabled={isPending} className="w-full">
-            {isPending ? "가입 중..." : "가입하기"}
-          </Button>
-        </form>
-      </Form>
-
-      <div className="mt-6 text-center">
-        <p className="text-sm text-muted-foreground">
-          이미 계정이 있으신가요?{" "}
-          <Link href="/login" className="text-primary underline underline-offset-4">
-            로그인
-          </Link>
-        </p>
+        <div className="mt-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            이미 계정이 있으신가요?{" "}
+            <Link href="/login" className="text-primary underline underline-offset-4">
+              로그인
+            </Link>
+          </p>
+        </div>
       </div>
     </AuthLayout>
   );

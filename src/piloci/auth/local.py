@@ -217,3 +217,123 @@ async def login(
     await db_session.commit()
 
     return user, session_id
+
+
+# ---------------------------------------------------------------------------
+# Password reset
+# ---------------------------------------------------------------------------
+
+
+class TokenExpiredError(AuthError):
+    """Raised when a password reset token has expired."""
+
+
+class TokenUsedError(AuthError):
+    """Raised when a password reset token has already been used."""
+
+
+class TokenInvalidError(AuthError):
+    """Raised when a password reset token is invalid or not found."""
+
+
+async def create_reset_token(
+    email: str,
+    db_session: AsyncSession,
+) -> str | None:
+    """Generate a password reset token for the given email.
+
+    Returns:
+        The raw (plaintext) token string if user exists, None otherwise.
+
+    The token hash is stored in DB; the raw token is only returned once.
+    """
+    from sqlalchemy import select
+    from piloci.db.models import User, PasswordResetToken
+
+    result = await db_session.execute(select(User).where(User.email == email))
+    user: User | None = result.scalar_one_or_none()
+    if user is None:
+        return None
+
+    raw_token = str(uuid.uuid4())
+    hashed_token = hash_password(raw_token)
+    now = datetime.now(timezone.utc)
+
+    result = await db_session.execute(
+        select(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used == False,  # noqa: E712
+        )
+    )
+    for old_token in result.scalars().all():
+        old_token.used = True
+
+    reset_token = PasswordResetToken(
+        token_hash=hashed_token,
+        user_id=user.id,
+        expires_at=now + __import__("datetime").timedelta(hours=1),
+        used=False,
+        created_at=now,
+    )
+    db_session.add(reset_token)
+    await db_session.commit()
+
+    return raw_token
+
+
+async def reset_password(
+    token: str,
+    new_password: str,
+    db_session: AsyncSession,
+) -> User:
+    """Validate a reset token and update the user's password.
+
+    Raises:
+        TokenInvalidError: token not found
+        TokenUsedError: token already used
+        TokenExpiredError: token expired
+        WeakPasswordError: new password doesn't meet policy
+    """
+    from sqlalchemy import select, update
+    from piloci.db.models import User, PasswordResetToken, AuditLog
+
+    _validate_password(new_password)
+
+    result = await db_session.execute(
+        select(PasswordResetToken).where(PasswordResetToken.used == False)  # noqa: E712
+    )
+    matched: PasswordResetToken | None = None
+    for candidate in result.scalars().all():
+        if verify_password(token, candidate.token_hash):
+            matched = candidate
+            break
+
+    if matched is None:
+        raise TokenInvalidError("Invalid or expired reset token")
+
+    if matched.used:
+        raise TokenUsedError("Reset token has already been used")
+
+    now = datetime.now(timezone.utc)
+    if matched.expires_at < now:
+        raise TokenExpiredError("Reset token has expired")
+
+    result = await db_session.execute(select(User).where(User.id == matched.user_id))
+    user: User | None = result.scalar_one_or_none()
+    if user is None:
+        raise TokenInvalidError("User not found")
+
+    user.password_hash = hash_password(new_password)
+    matched.used = True
+
+    audit = AuditLog(
+        user_id=user.id,
+        action="password_reset",
+        meta_data=orjson.dumps({"method": "token"}).decode(),
+        created_at=now,
+    )
+    db_session.add(audit)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    return user

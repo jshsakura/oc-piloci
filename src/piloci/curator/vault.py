@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import io
 import re
+import shutil
+import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
+
+import orjson
 
 
 _WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
@@ -158,3 +164,79 @@ def build_project_vault(project: dict[str, Any], memories: list[dict[str, Any]])
             "edges": edges,
         },
     }
+
+
+def _vault_project_dir(vault_dir: Path, project_slug: str) -> Path:
+    return vault_dir / project_slug
+
+
+def _vault_json_path(vault_dir: Path, project_slug: str) -> Path:
+    return _vault_project_dir(vault_dir, project_slug) / "vault.json"
+
+
+def load_cached_project_vault(vault_dir: Path, project_slug: str) -> dict[str, Any] | None:
+    path = _vault_json_path(vault_dir, project_slug)
+    if not path.is_file():
+        return None
+    return orjson.loads(path.read_bytes())
+
+
+def build_and_cache_project_vault(
+    project: dict[str, Any], memories: list[dict[str, Any]], vault_dir: Path
+) -> dict[str, Any]:
+    workspace = build_project_vault(project, memories)
+    project_dir = _vault_project_dir(vault_dir, project["slug"])
+    project_dir.mkdir(parents=True, exist_ok=True)
+    _vault_json_path(vault_dir, project["slug"]).write_bytes(orjson.dumps(workspace))
+    return workspace
+
+
+def ensure_project_vault(
+    project: dict[str, Any],
+    memories: list[dict[str, Any]],
+    vault_dir: Path,
+    force: bool = False,
+) -> dict[str, Any]:
+    if not force:
+        cached = load_cached_project_vault(vault_dir, project["slug"])
+        if cached is not None:
+            return cached
+    return build_and_cache_project_vault(project, memories, vault_dir)
+
+
+async def invalidate_project_vault_cache(
+    vault_dir: Path,
+    user_id: str,
+    project_id: str,
+    project_slug: str | None = None,
+) -> None:
+    slug = project_slug
+    if not slug:
+        from sqlalchemy import select
+
+        from piloci.db.models import Project
+        from piloci.db.session import async_session
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(Project.slug).where(Project.id == project_id, Project.user_id == user_id)
+            )
+            slug = result.scalar_one_or_none()
+    if not slug:
+        return
+    shutil.rmtree(_vault_project_dir(vault_dir, slug), ignore_errors=True)
+
+
+def export_project_vault_zip(project: dict[str, Any], workspace: dict[str, Any]) -> bytes:
+    buffer = io.BytesIO()
+    root = workspace.get("root") or f"vaults/{project['slug']}"
+    notes = workspace.get("notes") or []
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f"{root}/vault.json", orjson.dumps(workspace, option=orjson.OPT_INDENT_2))
+        for note in notes:
+            note_path = note.get("path")
+            markdown = note.get("markdown")
+            if not note_path or not isinstance(markdown, str):
+                continue
+            archive.writestr(f"{root}/{note_path}", markdown)
+    return buffer.getvalue()

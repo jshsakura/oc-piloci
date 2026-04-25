@@ -1,15 +1,17 @@
 """Google OAuth 2.0 helper — httpx 기반, authlib 불필요."""
+
 from __future__ import annotations
 
 import secrets
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import httpx
 
 if TYPE_CHECKING:
+    from piloci.db.models import User
     from sqlalchemy.ext.asyncio import AsyncSession
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -36,7 +38,7 @@ async def exchange_code(
     client_id: str,
     client_secret: str,
     redirect_uri: str,
-) -> dict:
+) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.post(
             GOOGLE_TOKEN_URL,
@@ -52,7 +54,7 @@ async def exchange_code(
     return resp.json()
 
 
-async def get_userinfo(access_token: str) -> dict:
+async def get_userinfo(access_token: str) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.get(
             GOOGLE_USERINFO_URL,
@@ -62,7 +64,7 @@ async def get_userinfo(access_token: str) -> dict:
     return resp.json()
 
 
-async def upsert_google_user(db: AsyncSession, userinfo: dict) -> "object":
+async def upsert_google_user(db: AsyncSession, userinfo: dict[str, Any]) -> User:
     """구글 유저 정보로 DB upsert 후 User 반환."""
     from sqlalchemy import select, or_
     from piloci.db.models import User

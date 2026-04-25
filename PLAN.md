@@ -1741,14 +1741,21 @@ Phase 1-8은 원본 계획 유지. 다음 Phase 추가:
 - [ ] `tests/test_data_portability.py`
 
 **Phase 11: Vault 캐시 + Obsidian 내보내기**
-- [ ] `build_project_vault()` 결과를 `/data/vaults/{slug}/vault.json`에 캐시
-- [ ] memory save/forget 시 캐시 무효화 이벤트 (debounce)
-- [ ] `GET /api/vault/{slug}/export` — 캐시에서 Obsidian 마크다운 .zip 생성
-- [ ] Web UI graph 엔드포인트, 캐시된 vault JSON 직접 반환
-- [ ] `tests/test_vault_cache.py`
+- [x] `build_project_vault()` 결과를 `/data/vaults/{slug}/vault.json`에 캐시
+- [x] memory save/forget 시 캐시 무효화 이벤트 (debounce 없는 즉시 무효화)
+- [x] `GET /api/vault/{slug}/export` — 캐시에서 Obsidian 마크다운 .zip 생성
+- [x] Web UI graph 엔드포인트, 캐시된 vault JSON 직접 반환
+- [x] `tests/test_vault_cache.py`
+
+**Phase 11 진행 메모 (2026-04-25)**
+- `src/piloci/curator/vault.py`에 vault JSON 캐시/로드/무효화/zip export helper 추가
+- `GET /api/projects/slug/{slug}/workspace`는 기본적으로 `/data/vaults/{slug}/vault.json`을 우선 사용하고, `refresh=true`일 때만 재빌드함
+- `GET /api/vault/{slug}/export`는 캐시된 vault를 Obsidian형 markdown + `vault.json`이 들어있는 zip으로 내려줌
+- vault 캐시는 REST 메모리 수정/삭제/clear, MCP memory save/forget, curator ingest 저장 시 무효화됨
+- 관련 회귀 검증: `uv run pytest tests/test_curator_vault.py tests/test_vault_cache.py tests/test_tools_memory.py tests/test_main_projects_cache.py tests/test_notify_telegram.py -v --no-cov` → `32 passed`
 
 **Phase 12: 성능 개선**
-- [ ] Batch embedding API
+- [x] Batch embedding API
 - [ ] EmbeddingCache O(1) 갱신
 - [ ] Gemma 세마포어 분리 (ingest / profile)
 - [x] listProjects 캐시 구현
@@ -1759,7 +1766,10 @@ Phase 1-8은 원본 계획 유지. 다음 Phase 추가:
 - MCP `listProjects`는 실제 5분 사용자별 인메모리 캐시로 구현됨 (`src/piloci/main.py::_ProjectsCache`)
 - `refresh=true`면 캐시를 우회하고 DB에서 다시 읽음
 - 죽은 MCP 스키마 필드였던 `container_tag`는 `MemoryInput`/`RecallInput`에서 제거되어 툴 스키마 토큰을 줄임
-- 관련 회귀 검증: `uv run pytest tests/test_tools_memory.py tests/test_main_projects_cache.py tests/test_notify_telegram.py -v --no-cov` → `24 passed`
+- curator ingest 경로는 `src/piloci/curator/worker.py`에서 `embed_one()` 루프 대신 `embed_texts()` 1회 배치 호출을 사용하도록 변경됨
+- 중복 검사와 `store.save()`는 그대로 개별 처리해 동작 리스크는 낮추고, executor hop/임베딩 호출 수만 줄였음
+- `tests/test_curator_worker.py`에 다건 배치 임베딩 + duplicate skip + vault invalidation 회귀가 추가됨
+- 관련 회귀 검증: `uv run pytest tests/test_curator_worker.py tests/test_curator_vault.py tests/test_vault_cache.py tests/test_tools_memory.py tests/test_main_projects_cache.py tests/test_notify_telegram.py -q --no-cov` → `43 passed`
 
 **Phase 13: 레거시 정리**
 - [ ] `src/piloci/tools/project_tools.py` 제거 (사용되지 않음)

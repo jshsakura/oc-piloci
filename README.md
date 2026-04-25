@@ -8,7 +8,7 @@ piLoci combines a Python MCP server, web dashboard, SQLite auth data, LanceDB ve
 
 > **Current status**: alpha, package version `0.1.0`
 >
-> Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, Google OAuth option, 2FA option, audit logs, transcript ingest pipeline, vault workspace MVP, low-token recall flow, and thresholded Telegram session alerts are implemented.
+> Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, Google OAuth option, 2FA option, audit logs, transcript ingest pipeline, cached vault workspace/export flow, low-token recall flow, batched curator embeddings, and thresholded Telegram session alerts are implemented.
 
 ## Overview
 
@@ -54,6 +54,7 @@ piLoci already exposes an Obsidian-friendly workspace today. It can generate mar
 ### What works now
 
 - Workspace API returns notes and graph data
+- Vault JSON is cached on disk and can be exported as an Obsidian-style zip
 - Fetch markdown notes and write them into an Obsidian vault via a small script
 - Memories are curated and surfaced as Obsidian-like notes
 
@@ -71,6 +72,12 @@ The most realistic near-term workflow:
 2. Call `GET /api/projects/slug/{slug}/workspace`
 3. Write each `workspace.notes[].markdown` into its `workspace.notes[].path`
 4. Open that directory as an Obsidian vault — or sync it into an existing one
+
+If you want a ready-made archive instead of scripting the file writes yourself, use:
+
+```bash
+curl -OJ http://localhost:8314/api/vault/my-project/export
+```
 
 ## Usage scenarios
 
@@ -125,7 +132,9 @@ Clone the repo, run the setup, then deploy with Docker Compose as described in t
 - Transcript ingest endpoint + `piloci-ingest` CLI for client session capture
 - Vault workspace API that turns memories into markdown notes, tags, links, and graph data
 - In-browser project workspace viewer for generated notes and relationships
+- Persistent vault JSON cache plus downloadable Obsidian-style zip export
 - Low-token recall flow: preview by default, full fetch by ID, large-result markdown export
+- Batched curator embeddings on ingest to reduce repeated executor hops
 - Thresholded Telegram session summaries with zero extra LLM cost
 - Real 5-minute MCP `listProjects` cache to avoid repeated SQLite hits
 
@@ -133,7 +142,6 @@ Clone the repo, run the setup, then deploy with Docker Compose as described in t
 
 - Cloudflare Tunnel production setup for a real public hostname (`PLAN.md` marks this as manual)
 - ADR refresh for the LanceDB transition
-- Real on-disk vault export / sync for a physical Obsidian vault directory
 - Two-way sync from Obsidian edits back into piLoci memories
 
 ## Functional Highlights
@@ -141,11 +149,13 @@ Clone the repo, run the setup, then deploy with Docker Compose as described in t
 - **Project-scoped memory isolation**: every memory operation is scoped by user and project so different projects do not leak context into each other.
 - **MCP-native memory surface**: piLoci exposes `memory`, `recall`, `listProjects`, and `whoAmI` so compatible clients can save and retrieve long-term context directly.
 - **Low-token recall by default**: `recall` now returns previews first, supports `fetch_ids` for selective full loads, and can export large results to markdown files instead of dumping long payloads back into the model context.
+- **Cheaper curator ingest path**: extracted memories are now embedded with one `embed_texts(...)` batch per ingest job instead of one embedding call per memory item, while keeping dedup/search/save semantics unchanged.
 - **Zero-token session alerts**: MCP session summaries can be pushed to Telegram from backend-only metadata when a session is long enough or memory activity is meaningful.
 - **Cheap project discovery**: MCP `listProjects` now uses a real 5-minute per-user cache, with `refresh=true` available when the caller explicitly wants a fresh DB read.
 - **Transcript ingest pipeline**: `piloci-ingest` can collect session transcripts from Claude Code, OpenCode, and Codex-style histories and send them to `/api/ingest` for queued processing.
 - **Obsidian-style workspace generation**: piLoci can derive markdown notes with YAML frontmatter, tags, wikilinks, and graph relationships from stored memories.
 - **Workspace API + browser UI**: `GET /api/projects/slug/{slug}/workspace` returns notes and graph data, and the web app already lets you browse the generated workspace without a separate export step.
+- **Cached vault + export path**: generated workspace data now persists under `/data/vaults/{slug}/vault.json`, and `GET /api/vault/{slug}/export` returns an Obsidian-style zip with markdown notes plus the vault JSON snapshot.
 - **Local-first deployment model**: SQLite, LanceDB, and Redis stay under your control, with no required hosted memory backend.
 
 ## Recent optimization wins
@@ -154,6 +164,8 @@ Clone the repo, run the setup, then deploy with Docker Compose as described in t
 - **Dead MCP schema noise removed** — the unused `container_tag` parameter was removed from memory/recall schemas to cut misleading tokens.
 - **Meaningful sessions only** — Telegram notifications are gated by duration or memory activity thresholds, so trivial sessions stay silent.
 - **Project listing is finally as cheap as documented** — `listProjects` now really is cached for 5 minutes unless the caller opts into refresh.
+- **Vault work is no longer rebuilt from scratch every read** — workspace JSON is cached on disk and reusable for both the web UI and Obsidian-style exports.
+- **Curator ingest now batches embeddings** — the worker collapses one job's extracted memories into a single embedding batch before per-item duplicate checks and saves.
 
 ## Phase Roadmap
 

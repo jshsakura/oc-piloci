@@ -2,6 +2,15 @@
 
 ## 2026-04-25
 
+- Optimized curator ingest embedding in `src/piloci/curator/worker.py`: extracted memories are now normalized first and embedded with a single `embed_texts(...)` batch call instead of `embed_one()` per memory, while duplicate checks and `store.save()` remain per-item for low-risk behavior.
+- Cleaned the remaining basedpyright warnings in touched backend files (`src/piloci/auth/oauth.py`, `src/piloci/api/routes.py`, `src/piloci/mcp/server.py`) and revalidated the slice with required hygiene commands (`black`, `ruff`, targeted pytest).
+- Expanded `tests/test_curator_worker.py` with multi-memory ingest coverage for batched embeddings, duplicate skipping, and vault-cache invalidation; targeted regressions now pass with `43 passed`.
+
+- Implemented the Phase 11 vault/export slice: `src/piloci/curator/vault.py` now supports cached vault JSON persistence under `vault_dir`, cache loads, cache invalidation, and Obsidian-style zip export containing both markdown notes and `vault.json`.
+- `src/piloci/api/routes.py` now serves cached workspace data from `GET /api/projects/slug/{slug}/workspace` by default, supports `refresh=true` rebuilds, and adds `GET /api/vault/{slug}/export` for downloadable Obsidian-style vault archives.
+- Wired vault cache invalidation across REST memory mutations, MCP memory save/forget, project deletion, and curator ingest saves so cached graph/note output stays aligned with LanceDB-backed memories.
+- Added `tests/test_vault_cache.py` for cache save/load, invalidate, workspace cache-hit behavior, and zip export shape; revalidated the combined backend slice with targeted regressions (`32 passed`).
+
 - Enforced patch-only release hygiene: `src/piloci/version.py` now derives `__version__` from package metadata with a pyproject fallback for source-tree runs, removing the duplicate hardcoded version that could drift from `[project].version`.
 - Added `tests/test_version.py` to assert the imported package version matches `pyproject.toml`, and documented the `+0.0.1` default bump policy in `README.md`, `README.ko.md`, and `CLAUDE.md`.
 

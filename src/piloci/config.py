@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     raw_session_retention_days: int = 14
     maintenance_interval_sec: int = 3600
     export_dir: Path = Path("/data/exports")
+    vault_dir: Path = Path("/data/vaults")
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     telegram_min_duration_sec: int = 300

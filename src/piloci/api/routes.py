@@ -6,23 +6,32 @@ from typing import Any
 
 import orjson
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 from starlette.routing import Route
 from sqlalchemy import delete
 
 from piloci.auth.jwt_utils import create_token
 from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
-from piloci.curator.vault import build_project_vault
+from piloci.curator.vault import (
+    ensure_project_vault,
+    export_project_vault_zip,
+    invalidate_project_vault_cache,
+    load_cached_project_vault,
+)
 from piloci.utils.logging import get_runtime_profiler
 from piloci.auth.local import (
     AccountLockedError,
-    AuthError,
     EmailExistsError,
     InvalidCredentialsError,
     InvalidTOTPError,
+    TokenExpiredError,
+    TokenInvalidError,
+    TokenUsedError,
     TOTPRequiredError,
     WeakPasswordError,
+    create_reset_token,
     login,
+    reset_password,
     signup,
 )
 from piloci.auth.session import get_session_store
@@ -32,6 +41,10 @@ from piloci.db.session import async_session
 
 def _json(data: Any, status: int = 200) -> Response:
     return Response(orjson.dumps(data), status_code=status, media_type="application/json")
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _ip(request: Request) -> str:
@@ -73,7 +86,9 @@ async def route_signup(request: Request) -> Response:
     settings = get_settings()
     try:
         async with async_session() as db:
-            user = await signup(email=email, password=password, name=name, db_session=db, settings=settings)
+            user = await signup(
+                email=email, password=password, name=name, db_session=db, settings=settings
+            )
         return _json({"user_id": user.id, "email": user.email}, 201)
     except EmailExistsError:
         return _json({"error": "Email already registered"}, 409)
@@ -149,12 +164,60 @@ async def route_logout(request: Request) -> Response:
     return response
 
 
+async def route_forgot_password(request: Request) -> Response:
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "Invalid JSON"}, 400)
+
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        return _json({"error": "email is required"}, 400)
+
+    try:
+        async with async_session() as db:
+            token = await create_reset_token(email=email, db_session=db)
+        if token is None:
+            return _json({"message": "If that email exists, a reset token has been generated"}, 200)
+        return _json({"token": token}, 200)
+    except Exception:
+        return _json({"message": "If that email exists, a reset token has been generated"}, 200)
+
+
+async def route_reset_password(request: Request) -> Response:
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "Invalid JSON"}, 400)
+
+    token = body.get("token") or ""
+    new_password = body.get("new_password") or ""
+
+    if not token or not new_password:
+        return _json({"error": "token and new_password are required"}, 400)
+
+    try:
+        async with async_session() as db:
+            await reset_password(token=token, new_password=new_password, db_session=db)
+        return _json({"message": "Password has been reset successfully"}, 200)
+    except TokenInvalidError:
+        return _json({"error": "Invalid reset token"}, 400)
+    except TokenUsedError:
+        return _json({"error": "Reset token has already been used"}, 400)
+    except TokenExpiredError:
+        return _json({"error": "Reset token has expired"}, 400)
+    except WeakPasswordError as e:
+        return _json({"error": str(e)}, 422)
+    except Exception:
+        return _json({"error": "Internal server error"}, 500)
+
+
 # ---------------------------------------------------------------------------
 # Project API routes (require auth)
 # ---------------------------------------------------------------------------
 
 
-def _require_user(request: Request) -> dict | None:
+def _require_user(request: Request) -> dict[str, Any] | None:
     return getattr(request.state, "user", None)
 
 
@@ -195,11 +258,19 @@ async def route_list_projects(request: Request) -> Response:
         )
         projects = result.scalars().all()
 
-    return _json([
-        {"id": p.id, "slug": p.slug, "name": p.name, "description": p.description,
-         "memory_count": p.memory_count, "created_at": p.created_at.isoformat()}
-        for p in projects
-    ])
+    return _json(
+        [
+            {
+                "id": p.id,
+                "slug": p.slug,
+                "name": p.name,
+                "description": p.description,
+                "memory_count": p.memory_count,
+                "created_at": p.created_at.isoformat(),
+            }
+            for p in projects
+        ]
+    )
 
 
 async def route_create_project(request: Request) -> Response:
@@ -220,11 +291,11 @@ async def route_create_project(request: Request) -> Response:
         return _json({"error": "slug and name are required"}, 400)
 
     import re
-    if not re.match(r'^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$', slug) and len(slug) > 1:
-        if not re.match(r'^[a-z0-9]$', slug):
+
+    if not re.match(r"^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$", slug) and len(slug) > 1:
+        if not re.match(r"^[a-z0-9]$", slug):
             return _json({"error": "slug must be lowercase alphanumeric with hyphens"}, 422)
 
-    from sqlalchemy import select
     from sqlalchemy.exc import IntegrityError
     from piloci.db.models import Project
 
@@ -256,6 +327,8 @@ async def route_delete_project(request: Request) -> Response:
         return _json({"error": "Unauthorized"}, 401)
 
     project_id = request.path_params.get("id")
+    if not isinstance(project_id, str) or not project_id:
+        return _json({"error": "project id required"}, 400)
     try:
         body = orjson.loads(await request.body())
     except Exception:
@@ -276,6 +349,13 @@ async def route_delete_project(request: Request) -> Response:
             return _json({"error": "Not found"}, 404)
         await db.execute(delete(Project).where(Project.id == project_id))
 
+    await invalidate_project_vault_cache(
+        get_settings().vault_dir,
+        user["sub"],
+        project_id,
+        project.slug,
+    )
+
     return _json({"deleted": True})
 
 
@@ -293,10 +373,40 @@ async def route_project_workspace(request: Request) -> Response:
     if project is None:
         return _json({"error": "Not found"}, 404)
 
-    store = request.app.state.store
-    memories = await store.list(user_id=user_id, project_id=project["id"], limit=200, offset=0)
-    workspace = build_project_vault(project, memories)
+    settings = get_settings()
+    refresh = _truthy(request.query_params.get("refresh"))
+    workspace = None if refresh else load_cached_project_vault(settings.vault_dir, project["slug"])
+    if workspace is None:
+        store = request.app.state.store
+        memories = await store.list(user_id=user_id, project_id=project["id"], limit=200, offset=0)
+        workspace = ensure_project_vault(project, memories, settings.vault_dir, force=True)
     return _json({"project": project, "workspace": workspace})
+
+
+async def route_vault_export(request: Request) -> Response:
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    slug = (request.path_params.get("slug") or "").strip().lower()
+    if not slug:
+        return _json({"error": "project slug required"}, 400)
+
+    user_id = user["sub"]
+    project = await _get_user_project_by_slug(user_id, slug)
+    if project is None:
+        return _json({"error": "Not found"}, 404)
+
+    settings = get_settings()
+    refresh = _truthy(request.query_params.get("refresh"))
+    workspace = None if refresh else load_cached_project_vault(settings.vault_dir, project["slug"])
+    if workspace is None:
+        store = request.app.state.store
+        memories = await store.list(user_id=user_id, project_id=project["id"], limit=200, offset=0)
+        workspace = ensure_project_vault(project, memories, settings.vault_dir, force=True)
+    archive = export_project_vault_zip(project, workspace)
+    headers = {"Content-Disposition": f'attachment; filename="{project["slug"]}-vault.zip"'}
+    return Response(archive, media_type="application/zip", headers=headers)
 
 
 # ---------------------------------------------------------------------------
@@ -360,15 +470,17 @@ async def route_create_token(request: Request) -> Response:
     now = datetime.now(timezone.utc)
 
     async with async_session() as db:
-        db.add(ApiToken(
-            token_id=token_id,
-            user_id=user["sub"],
-            project_id=project_id,
-            name=token_name,
-            token_hash=token_hash,
-            scope=scope,
-            created_at=now,
-        ))
+        db.add(
+            ApiToken(
+                token_id=token_id,
+                user_id=user["sub"],
+                project_id=project_id,
+                name=token_name,
+                token_hash=token_hash,
+                scope=scope,
+                created_at=now,
+            )
+        )
 
     return _json({"token": jwt_token, "token_id": token_id, "name": token_name}, 201)
 
@@ -383,19 +495,28 @@ async def route_list_tokens(request: Request) -> Response:
 
     async with async_session() as db:
         result = await db.execute(
-            select(ApiToken).where(
+            select(ApiToken)
+            .where(
                 ApiToken.user_id == user["sub"],
                 ApiToken.revoked == False,  # noqa: E712
-            ).order_by(ApiToken.created_at.desc())
+            )
+            .order_by(ApiToken.created_at.desc())
         )
         tokens = result.scalars().all()
 
-    return _json([
-        {"token_id": t.token_id, "name": t.name, "scope": t.scope,
-         "project_id": t.project_id, "created_at": t.created_at.isoformat(),
-         "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None}
-        for t in tokens
-    ])
+    return _json(
+        [
+            {
+                "token_id": t.token_id,
+                "name": t.name,
+                "scope": t.scope,
+                "project_id": t.project_id,
+                "created_at": t.created_at.isoformat(),
+                "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None,
+            }
+            for t in tokens
+        ]
+    )
 
 
 async def route_revoke_token(request: Request) -> Response:
@@ -415,9 +536,7 @@ async def route_revoke_token(request: Request) -> Response:
         token = result.scalar_one_or_none()
         if not token:
             return _json({"error": "Not found"}, 404)
-        await db.execute(
-            update(ApiToken).where(ApiToken.token_id == token_id).values(revoked=True)
-        )
+        await db.execute(update(ApiToken).where(ApiToken.token_id == token_id).values(revoked=True))
 
     return _json({"revoked": True})
 
@@ -447,11 +566,19 @@ async def route_list_audit(request: Request) -> Response:
         result = await db.execute(q)
         logs = result.scalars().all()
 
-    return _json([{
-        "id": l.id, "action": l.action, "ip_address": l.ip_address,
-        "user_agent": l.user_agent, "meta_data": l.meta_data,
-        "created_at": l.created_at.isoformat()
-    } for l in logs])
+    return _json(
+        [
+            {
+                "id": log.id,
+                "action": log.action,
+                "ip_address": log.ip_address,
+                "user_agent": log.user_agent,
+                "meta_data": log.meta_data,
+                "created_at": log.created_at.isoformat(),
+            }
+            for log in logs
+        ]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -514,7 +641,10 @@ async def route_2fa_confirm(request: Request) -> Response:
         if not db_user.totp_secret or db_user.totp_enabled:
             return _json({"error": "2FA setup not initiated or already confirmed"}, 400)
 
-        if not verify_totp(db_user.totp_secret, code):
+        secret = db_user.totp_secret
+        if secret is None:
+            return _json({"error": "2FA secret missing"}, 400)
+        if not verify_totp(secret, code):
             return _json({"error": "Invalid TOTP code"}, 422)
 
         backup_codes = generate_backup_codes(10)
@@ -560,7 +690,11 @@ async def route_2fa_disable(request: Request) -> Response:
         if not verify_password(password, db_user.password_hash or ""):
             return _json({"error": "Invalid password"}, 401)
 
-        if not verify_totp(db_user.totp_secret, code):
+        secret = db_user.totp_secret
+        if secret is None:
+            return _json({"error": "2FA secret missing"}, 400)
+
+        if not verify_totp(secret, code):
             return _json({"error": "Invalid TOTP code"}, 422)
 
         db_user.totp_secret = None
@@ -569,7 +703,6 @@ async def route_2fa_disable(request: Request) -> Response:
         await db.commit()
 
     return _json({"disabled": True})
-
 
 
 # ---------------------------------------------------------------------------
@@ -599,8 +732,16 @@ async def route_change_password(request: Request) -> Response:
 
     # 비밀번호 정책 검증 (12자, 대소문자, 숫자)
     import re
-    if len(new_pw) < 12 or not re.search(r"[A-Z]", new_pw) or not re.search(r"[a-z]", new_pw) or not re.search(r"\d", new_pw):
-        return _json({"error": "Password must be 12+ chars with uppercase, lowercase, and digit"}, 422)
+
+    if (
+        len(new_pw) < 12
+        or not re.search(r"[A-Z]", new_pw)
+        or not re.search(r"[a-z]", new_pw)
+        or not re.search(r"\d", new_pw)
+    ):
+        return _json(
+            {"error": "Password must be 12+ chars with uppercase, lowercase, and digit"}, 422
+        )
 
     from sqlalchemy import select
     from piloci.db.models import User
@@ -638,7 +779,7 @@ async def route_google_auth(request: Request) -> Response:
     redirect_uri = f"{base_url}/auth/google/callback"
 
     # state를 Redis에 5분 저장 (CSRF 방어)
-    store = get_session_store()
+    store = get_session_store(settings)
     await store._redis.setex(f"{_OAUTH_STATE_PREFIX}{state}", 300, "1")  # noqa: SLF001
 
     url = build_auth_url(settings.google_client_id, redirect_uri, state)
@@ -661,7 +802,7 @@ async def route_google_callback(request: Request) -> Response:
         return RedirectResponse("/login?error=oauth_cancelled", status_code=302)
 
     # state 검증
-    store = get_session_store()
+    store = get_session_store(settings)
     state_key = f"{_OAUTH_STATE_PREFIX}{state}"
     valid = await store._redis.get(state_key)  # noqa: SLF001
     if not valid:
@@ -673,7 +814,10 @@ async def route_google_callback(request: Request) -> Response:
 
     try:
         from piloci.auth.oauth import exchange_code, get_userinfo, upsert_google_user
-        tokens = await exchange_code(code, settings.google_client_id, settings.google_client_secret, redirect_uri)
+
+        tokens = await exchange_code(
+            code, settings.google_client_id, settings.google_client_secret, redirect_uri
+        )
         userinfo = await get_userinfo(tokens["access_token"])
     except Exception:
         return RedirectResponse("/login?error=oauth_failed", status_code=302)
@@ -827,6 +971,7 @@ async def route_update_memory(request: Request) -> Response:
     content = body.get("content")
     if content is not None:
         from piloci.storage.embed import embed_one
+
         settings = get_settings()
         new_vector = await embed_one(
             content,
@@ -845,6 +990,8 @@ async def route_update_memory(request: Request) -> Response:
         tags=body.get("tags"),
         metadata=body.get("metadata"),
     )
+    if updated:
+        await invalidate_project_vault_cache(get_settings().vault_dir, user_id, project_id)
     return _json({"updated": updated})
 
 
@@ -861,6 +1008,7 @@ async def route_delete_memory(request: Request) -> Response:
     deleted = await store.delete(user_id=user_id, project_id=project_id, memory_id=memory_id)
     if not deleted:
         return _json({"error": "not found"}, 404)
+    await invalidate_project_vault_cache(get_settings().vault_dir, user_id, project_id)
     return _json({"deleted": True})
 
 
@@ -880,6 +1028,8 @@ async def route_clear_memories(request: Request) -> Response:
         return _json({"error": "confirm: true required"}, 400)
     store = request.app.state.store
     count = await store.clear_project(user_id=user_id, project_id=project_id)
+    if count > 0:
+        await invalidate_project_vault_cache(get_settings().vault_dir, user_id, project_id)
     return _json({"cleared": True, "count": count})
 
 
@@ -905,6 +1055,7 @@ async def route_readyz(request: Request) -> Response:
     try:
         async with async_session() as db:
             from sqlalchemy import text
+
             await db.execute(text("SELECT 1"))
         checks["db"] = {"status": "ok"}
     except Exception as e:
@@ -966,9 +1117,12 @@ def get_routes() -> list[Route]:
         Route("/auth/signup", route_signup, methods=["POST"]),
         Route("/auth/login", route_login, methods=["POST"]),
         Route("/auth/logout", route_logout, methods=["POST"]),
+        Route("/auth/forgot-password", route_forgot_password, methods=["POST"]),
+        Route("/auth/reset-password", route_reset_password, methods=["POST"]),
         Route("/api/projects", route_list_projects, methods=["GET"]),
         Route("/api/projects", route_create_project, methods=["POST"]),
         Route("/api/projects/slug/{slug}/workspace", route_project_workspace, methods=["GET"]),
+        Route("/api/vault/{slug}/export", route_vault_export, methods=["GET"]),
         Route("/api/projects/{id}", route_delete_project, methods=["DELETE"]),
         Route("/api/tokens", route_list_tokens, methods=["GET"]),
         Route("/api/tokens", route_create_token, methods=["POST"]),
