@@ -166,11 +166,11 @@ const copy = {
           content: 'piLoci는 라즈베리파이와 같은 저전력 환경에서도 작동하도록 토큰, I/O, LLM 호출을 아끼는 MCP 기반 셀프 호스트 메모리 서버입니다.',
         },
         features: {
-          title: '조용히 돕는 우렁각시처럼, 필요한 기억만 정성껏 차립니다',
+          title: '당신의 뒤에서 조용히 맥락을 읽는 비서',
           subtitle: [
-            '대화는 자연스럽게 흘려보내고, 백엔드는 뒤에서 저장할 가치가 있는 맥락을 고릅니다.',
+            '대화는 자연스럽게 나누세요. 백엔드 비서가 저장할 가치가 있는 맥락을 알아서 추립니다.',
             '임베딩은 LRU 캐시와 배치 처리로 아껴 쓰고, 검색은 excerpt부터 보여준 뒤 필요한 전문만 꺼냅니다.',
-            'Vault JSON은 디스크에 보관해 그래프와 export를 매번 새로 만들지 않고, 정리된 포스트잇 묶음처럼 빠르게 펼칩니다.',
+            'Vault JSON은 디스크에 보관해 그래프와 export를 매번 새로 만들지 않고, 정리된 필기장처럼 바로 펼칩니다.',
           ],
           list: [
             { title: '맥락 격리', desc: '프로젝트별 메모리 분리. 맥락 섞임 방지.' },
@@ -204,11 +204,11 @@ const copy = {
           ]
         },
         curation: {
-          title: '마구 붙은 포스트잇을 한 장씩 정리하는 큐레이터',
-          eyebrow: 'Quiet Curator',
+          title: '대화 속 맥락을 묵묵히 정리해 두는 비서',
+          eyebrow: 'Silent Analyst',
           paragraphs: [
-            'piLoci는 사용자가 저장 버튼을 누르길 기다리는 메모장이 아닙니다. 대화 중 마구 붙은 포스트잇 같은 흔적을 뒤에서 보존합니다.',
-            'curator는 그중 오래 남길 한 장을 떼어내고, 중복된 조각은 합치고, 프로젝트 맥락은 노트와 태그로 다시 붙입니다.',
+            'piLoci는 사용자가 저장 버튼을 누르길 기다리는 메모장이 아닙니다. 대화 속에서 중요한 맥락을 놓치지 않고 뒤에서 조용히 필기합니다.',
+            '비서는 대화에서 오래 남을 결정과 제약을 추려내고, 겹치는 내용은 합치고, 프로젝트 맥락을 노트와 태그로 정리해 둡니다.',
           ],
           stages: [
             { label: '대화 원문', desc: 'RawSession에 흐름을 남깁니다.' },
@@ -464,11 +464,11 @@ const copy = {
           content: 'piLoci is a self-hosted MCP memory server designed for low-power environments like Raspberry Pi — saving tokens, I/O, and LLM calls.',
         },
         features: {
-          title: 'Like a quiet house fairy, piLoci prepares the right memory before you ask',
+          title: 'A quiet analyst behind you, reading context so you don\'t have to',
           subtitle: [
             'Conversation stays natural while the backend quietly decides which context deserves long-term memory.',
             'Embeddings are reused through LRU cache and batched ingest, while search returns excerpts first and loads full text only when needed.',
-            'Vault JSON stays cached on disk, so graph and export views open like a sorted stack of post-it notes instead of a fresh rebuild.',
+            'Vault JSON stays cached on disk, so graph and export views open like a well-kept notebook instead of a fresh rebuild.',
           ],
           list: [
             { title: 'Context Isolation', desc: 'Per-project memory separation. No context mixing.' },
@@ -502,11 +502,11 @@ const copy = {
           ]
         },
         curation: {
-          title: 'A curator sorting the messy post-it wall',
-          eyebrow: 'Quiet Curator',
+          title: 'A silent analyst organizing the context you leave behind',
+          eyebrow: 'Silent Analyst',
           paragraphs: [
-            'piLoci is not a notebook waiting for manual save clicks. It preserves the messy post-it trail that appears while people work and talk.',
-            'The curator peels off what should last, folds duplicates together, and pins project context back as notes and tags.',
+            'piLoci is not a notebook waiting for manual save clicks. It quietly takes notes on important context while people work and talk.',
+            'The analyst picks out decisions and constraints worth keeping, merges overlapping points, and organizes project context into notes and tags.',
           ],
           stages: [
             { label: 'Raw session', desc: 'Preserve the working trail.' },
