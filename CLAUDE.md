@@ -36,6 +36,14 @@
 - import sort: isort (profile=black)
 - pre-commit 실행 후 커밋
 
+## Frontend Copy & Product Voice
+
+- 기능 설명을 `-`, em dash, 긴 쉼표로 이어붙여 나열하지 말 것
+- 프론트 카피는 단락과 시각적 그룹으로 흐름을 만들 것
+- 기술 최적화는 기능명 나열보다 사용자 경험으로 번역할 것
+- piLoci의 핵심 비유는 “뒤에서 조용히 돕는 자동 기억 큐레이터”로 유지할 것
+- 그래프/워크스페이스 표현은 “마구 붙은 포스트잇을 큐레이터가 한 장씩 떼어 정리하는” 놀라움으로 설계할 것
+
 ## Version Bumps & Release
 
 - 버전은 `pyproject.toml`의 `[project].version` 단일 소스 기준으로 관리

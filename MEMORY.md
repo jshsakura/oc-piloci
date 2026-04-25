@@ -2,6 +2,14 @@
 
 ## 2026-04-25
 
+- Added a preview-first workspace path for the project vault: `GET /api/projects/slug/{slug}/workspace/preview` reuses the cached vault when available, returns graph/stats plus the first five note previews, and drops heavy markdown from the default project workspace payload.
+- `web/lib/api.ts` now points the project page at the preview endpoint, `web/lib/types.ts` marks markdown as optional, and `web/components/VaultNoteDetail.tsx` falls back to excerpts with a preview notice when full markdown is not included.
+- Added preview coverage in `tests/test_vault_cache.py`; revalidated with LSP error diagnostics on touched backend/frontend files, `uv run pytest tests/test_vault_cache.py -v --no-cov` (`8 passed`), `uv run black`, `uv run ruff check`, and `pnpm build` in `web/`.
+
+- Reframed the landing page around piLoci as a quiet automatic memory curator: `web/lib/copy.ts` now uses paragraph-based Korean/English copy for the 우렁각시/quiet house fairy metaphor, and `web/app/page.tsx` renders a dedicated curation section with a static memory graph preview instead of a dash-joined feature sentence.
+- Added `CLAUDE.md` frontend copy rules so future product copy avoids dash-heavy feature lists, translates technical optimizations into user experience, and keeps the “뒤에서 조용히 돕는 자동 기억 큐레이터” metaphor plus the graph/workspace direction of a curator peeling messy post-it notes off the wall and organizing them one by one. Revalidated with `pnpm build` in `web/` and LSP error diagnostics on `web/app/page.tsx`.
+- Researched future graph UI direction: keep the current landing preview dependency-free, prefer React Flow for a polished interactive curated-memory graph, and reserve Sigma.js/WebGL for large workspace graphs if React Flow hits node-count limits.
+
 - Added the narrow v0.3 memory-create/UI speed slice: `src/piloci/api/routes.py` now exposes project-scoped `POST /api/memories` using the existing embed/store/cache-invalidation path, and `web/app/projects/page.tsx` adds number-based quick note selection over the already-loaded workspace notes.
 - Added route-level coverage for successful REST memory creation plus project-scope and blank-content rejection in `tests/test_api_ingest.py`; revalidated with `uv run pytest tests/test_api_ingest.py -v --no-cov`, `uv run ruff check src/piloci/api/routes.py tests/test_api_ingest.py`, and `pnpm build` in `web/`.
 
