@@ -100,6 +100,31 @@ function ProjectDetailContent() {
             </Card>
           ) : (
             <div className="space-y-3">
+              <Card className="border-dashed bg-muted/30">
+                <CardContent className="space-y-3 p-3">
+                  <div>
+                    <p className="text-sm font-medium">빠른 선택</p>
+                    <p className="text-xs text-muted-foreground">
+                      번호를 누르면 해당 노트로 바로 이동합니다.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {notes.map((note, index) => (
+                      <Button
+                        key={note.memory_id}
+                        type="button"
+                        variant={note.memory_id === selectedNote?.memory_id ? "default" : "outline"}
+                        size="sm"
+                        className="h-8 min-w-8 px-2"
+                        aria-label={`${index + 1}번 노트 선택: ${note.title}`}
+                        onClick={() => setSelectedNoteId(note.memory_id)}
+                      >
+                        {index + 1}
+                      </Button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
               {notes.map((note) => (
                 <VaultNoteCard
                   key={note.memory_id}
