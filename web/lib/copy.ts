@@ -166,8 +166,12 @@ const copy = {
           content: 'piLoci는 라즈베리파이와 같은 저전력 환경에서도 작동하도록 토큰, I/O, LLM 호출을 아끼는 MCP 기반 셀프 호스트 메모리 서버입니다.',
         },
         features: {
-          title: '아키나 다운힐의 AE86처럼, 무게는 줄이고 속도는 빠르게',
-          subtitle: '임베딩은 LRU 캐시와 배치 처리로 재사용하고, 검색 결과는 excerpt만 먼저 반환합니다. Vault JSON도 디스크에 캐시해 그래프와 export를 매번 다시 만들지 않습니다.',
+          title: '조용히 돕는 우렁각시처럼, 필요한 기억만 정성껏 차립니다',
+          subtitle: [
+            '대화는 자연스럽게 흘려보내고, 백엔드는 뒤에서 저장할 가치가 있는 맥락을 고릅니다.',
+            '임베딩은 LRU 캐시와 배치 처리로 아껴 쓰고, 검색은 excerpt부터 보여준 뒤 필요한 전문만 꺼냅니다.',
+            'Vault JSON은 디스크에 보관해 그래프와 export를 매번 새로 만들지 않고, 정리된 포스트잇 묶음처럼 빠르게 펼칩니다.',
+          ],
           list: [
             { title: '맥락 격리', desc: '프로젝트별 메모리 분리. 맥락 섞임 방지.' },
             { title: 'AST 기반 추출', desc: 'Tree-sitter로 코드 구조를 정밀하게 보존.' },
@@ -198,6 +202,21 @@ const copy = {
             { name: 'recall', desc: '기본은 preview만 반환하고, 필요할 때만 선택적으로 전문이나 markdown export를 가져옵니다.' },
             { name: 'listProjects', desc: '5분 캐시된 프로젝트 목록을 빠르게 가져오고, 필요하면 refresh=true로 강제 갱신합니다.' },
           ]
+        },
+        curation: {
+          title: '마구 붙은 포스트잇을 한 장씩 정리하는 큐레이터',
+          eyebrow: 'Quiet Curator',
+          paragraphs: [
+            'piLoci는 사용자가 저장 버튼을 누르길 기다리는 메모장이 아닙니다. 대화 중 마구 붙은 포스트잇 같은 흔적을 뒤에서 보존합니다.',
+            'curator는 그중 오래 남길 한 장을 떼어내고, 중복된 조각은 합치고, 프로젝트 맥락은 노트와 태그로 다시 붙입니다.',
+          ],
+          stages: [
+            { label: '대화 원문', desc: 'RawSession에 흐름을 남깁니다.' },
+            { label: '자동 선별', desc: 'curator가 오래 남길 내용을 고릅니다.' },
+            { label: '기억 그래프', desc: '노트와 태그를 연결된 지식으로 보여줍니다.' },
+          ],
+          graphTitle: 'Memory Graph Preview',
+          graphDesc: '프로젝트의 결정, 제약, 취향, 작업 흔적이 하나의 별자리처럼 연결됩니다.',
         },
         pricing: {
           title: '투명한 오픈소스, 완전한 자유',
@@ -445,8 +464,12 @@ const copy = {
           content: 'piLoci is a self-hosted MCP memory server designed for low-power environments like Raspberry Pi — saving tokens, I/O, and LLM calls.',
         },
         features: {
-          title: 'Like an AE86 on Akina Downhill — Less Weight, More Speed',
-          subtitle: 'Embeddings reuse via LRU cache plus batched ingest, search returns excerpts first, and vault JSON is cached on disk so graph/export paths do not rebuild every time.',
+          title: 'Like a quiet house fairy, piLoci prepares the right memory before you ask',
+          subtitle: [
+            'Conversation stays natural while the backend quietly decides which context deserves long-term memory.',
+            'Embeddings are reused through LRU cache and batched ingest, while search returns excerpts first and loads full text only when needed.',
+            'Vault JSON stays cached on disk, so graph and export views open like a sorted stack of post-it notes instead of a fresh rebuild.',
+          ],
           list: [
             { title: 'Context Isolation', desc: 'Per-project memory separation. No context mixing.' },
             { title: 'AST-based Extraction', desc: 'Precise code structure preservation via Tree-sitter.' },
@@ -477,6 +500,21 @@ const copy = {
             { name: 'recall', desc: 'Preview matches first, then selectively fetch full content or export large results to markdown.' },
             { name: 'listProjects', desc: 'Fetch the 5-minute cached project list quickly, or force a refresh when needed.' },
           ]
+        },
+        curation: {
+          title: 'A curator sorting the messy post-it wall',
+          eyebrow: 'Quiet Curator',
+          paragraphs: [
+            'piLoci is not a notebook waiting for manual save clicks. It preserves the messy post-it trail that appears while people work and talk.',
+            'The curator peels off what should last, folds duplicates together, and pins project context back as notes and tags.',
+          ],
+          stages: [
+            { label: 'Raw session', desc: 'Preserve the working trail.' },
+            { label: 'Auto curation', desc: 'Promote what should last.' },
+            { label: 'Memory graph', desc: 'Reveal connected knowledge.' },
+          ],
+          graphTitle: 'Memory Graph Preview',
+          graphDesc: 'Decisions, constraints, preferences, and work traces become a constellation of project memory.',
         },
         pricing: {
           title: 'Transparent Open Source, Total Freedom',

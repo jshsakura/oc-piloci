@@ -32,7 +32,7 @@ export const api = {
   createProject: (slug: string, name: string, description?: string) =>
     request("/api/projects", { method: "POST", body: JSON.stringify({ slug, name, description }) }),
   projectWorkspace: (slug: string) =>
-    request<import("./types").ProjectWorkspace>(`/api/projects/slug/${slug}/workspace`),
+    request<import("./types").ProjectWorkspace>(`/api/projects/slug/${slug}/workspace/preview`),
   deleteProject: (id: string) =>
     request(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ confirm: true }) }),
 

@@ -37,8 +37,13 @@ export function VaultNoteDetail({ note }: VaultNoteDetailProps) {
           {note.path}
         </div>
         <pre className="max-h-[400px] overflow-y-auto whitespace-pre-wrap break-words rounded-md border bg-muted/50 p-4 text-sm">
-          {note.markdown}
+          {note.markdown ?? note.excerpt}
         </pre>
+        {!note.markdown && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            빠른 워크스페이스 프리뷰입니다. 전문은 vault export나 전체 workspace에서 확인할 수 있습니다.
+          </p>
+        )}
 
         {note.links.length > 0 && (
           <>

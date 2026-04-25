@@ -53,7 +53,7 @@ export interface VaultNote {
   tags: string[];
   links: string[];
   excerpt: string;
-  markdown: string;
+  markdown?: string;
 }
 
 export interface GraphNode {
@@ -86,5 +86,7 @@ export interface ProjectWorkspace {
       nodes: GraphNode[];
       edges: GraphEdge[];
     };
+    preview?: boolean;
+    note_limit?: number;
   };
 }
