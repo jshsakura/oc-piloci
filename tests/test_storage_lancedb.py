@@ -61,6 +61,30 @@ async def test_save_with_metadata(lancedb_store):
     assert record["metadata"]["key"] == "val"
 
 
+@pytest.mark.asyncio
+async def test_save_many_inserts_batch_with_single_profile_sample(lancedb_store):
+    ids = await lancedb_store.save_many(
+        _USER,
+        _PROJECT,
+        [
+            {"content": "first", "vector": _VECTOR, "tags": ["a"]},
+            {"content": "second", "vector": [0.2] * VECTOR_SIZE, "metadata": {"source": "test"}},
+        ],
+    )
+
+    assert len(ids) == 2
+    assert ids[0] != ids[1]
+    first = await lancedb_store.get(_USER, _PROJECT, ids[0])
+    second = await lancedb_store.get(_USER, _PROJECT, ids[1])
+    assert first is not None
+    assert second is not None
+    assert first["content"] == "first"
+    assert first["tags"] == ["a"]
+    assert second["content"] == "second"
+    assert second["metadata"] == {"source": "test"}
+    assert get_runtime_profiler().snapshot()["metrics"]["lancedb.save"]["count"] == 1
+
+
 def test_row_to_dict_parses_metadata_bytes():
     record = _row_to_dict(
         {

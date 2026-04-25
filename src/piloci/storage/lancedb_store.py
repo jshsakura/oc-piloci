@@ -4,7 +4,7 @@ import logging
 import re
 import time
 import uuid
-from typing import Any
+from typing import Any, NotRequired, TypedDict
 
 import orjson
 import pyarrow as pa
@@ -34,6 +34,13 @@ _SCHEMA = pa.schema(
 
 # Allow UUID format plus simple slug IDs like "dev-user", "dev-project"
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+
+class MemoryWrite(TypedDict):
+    content: str
+    vector: list[float]
+    tags: NotRequired[list[str]]
+    metadata: NotRequired[dict[str, Any]]
 
 
 def _safe_id(value: str) -> str:
@@ -132,28 +139,57 @@ class MemoryStore:
         tags: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> str:
+        memory_ids = await self.save_many(
+            user_id=user_id,
+            project_id=project_id,
+            memories=[
+                {
+                    "content": content,
+                    "vector": vector,
+                    "tags": tags or [],
+                    "metadata": metadata or {},
+                }
+            ],
+        )
+        return memory_ids[0]
+
+    async def save_many(
+        self,
+        user_id: str,
+        project_id: str,
+        memories: list[MemoryWrite],
+    ) -> list[str]:
+        if not memories:
+            return []
+
         tbl = await self._get_table()
-        memory_id = str(uuid.uuid4())
         now = int(time.time())
-        row = {
-            "memory_id": memory_id,
-            "user_id": user_id,
-            "project_id": project_id,
-            "content": content,
-            "tags": tags or [],
-            "metadata": orjson.dumps(metadata or {}).decode(),
-            "created_at": now,
-            "updated_at": now,
-            "vector": vector,
-        }
+        memory_ids: list[str] = []
+        rows = []
+        for memory in memories:
+            memory_id = str(uuid.uuid4())
+            memory_ids.append(memory_id)
+            rows.append(
+                {
+                    "memory_id": memory_id,
+                    "user_id": user_id,
+                    "project_id": project_id,
+                    "content": memory["content"],
+                    "tags": memory.get("tags", []),
+                    "metadata": orjson.dumps(memory.get("metadata", {})).decode(),
+                    "created_at": now,
+                    "updated_at": now,
+                    "vector": memory["vector"],
+                }
+            )
         with get_runtime_profiler().track("lancedb.save"):
             await (
                 tbl.merge_insert("memory_id")
                 .when_matched_update_all()
                 .when_not_matched_insert_all()
-                .execute([row])
+                .execute(rows)
             )
-        return memory_id
+        return memory_ids
 
     async def search(
         self,
