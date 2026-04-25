@@ -82,7 +82,7 @@ export default function LandingPage() {
   const engIcons = [Database, HardDrive, Microchip, MemoryStick, FileJson, Globe];
 
   return (
-    <div className="min-h-screen bg-background landing-pattern">
+    <div className="bg-background landing-pattern">
       {/* Nav */}
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
