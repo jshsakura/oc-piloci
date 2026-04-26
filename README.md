@@ -105,11 +105,12 @@ piLoci combines a Python-based MCP-enabled API server with a lightweight fronten
 
 ## Getting started
 
-Clone the repo, run the setup, then deploy with Docker Compose as described in the [Deploy with Docker](#deploy-with-docker) section below. It runs locally on Raspberry Pi 5 with optional public exposure via Cloudflare Tunnel. See [PLAN.md](./PLAN.md) for the phased plan and current status.
+Pull the published image from Docker Hub, download the compose files, then deploy with Docker Compose as described in the [Deploy with Docker](#deploy-with-docker) section below. It runs locally on Raspberry Pi 5 with optional public exposure via Cloudflare Tunnel. See [PLAN.md](./PLAN.md) for the phased plan and current status.
 
 ## Quick Links
 
 - **[piloci.jshsakura.com](https://piloci.jshsakura.com/)** — live product site
+- **[Docker Hub: jshsakura/piloci](https://hub.docker.com/r/jshsakura/piloci)** — primary container image
 - [README.ko.md](./README.ko.md) — 한국어 문서
 - [PLAN.md](./PLAN.md) — source of truth for architecture and implementation phases
 - [docs/](./docs/) — additional documentation
@@ -209,7 +210,31 @@ The current plan in `PLAN.md` points toward:
 - Raspberry Pi 5 or any arm64/amd64 Linux host
 - Docker Engine + Docker Compose v2
 
-### First deploy
+### First deploy from Docker Hub
+
+```bash
+mkdir -p ~/app/piloci
+cd ~/app/piloci
+
+curl -fsSLo docker-compose.yml https://raw.githubusercontent.com/jshsakura/piloci/main/docker-compose.yml
+curl -fsSLo .env.example https://raw.githubusercontent.com/jshsakura/piloci/main/.env.example
+mkdir -p deploy
+curl -fsSLo deploy/setup.sh https://raw.githubusercontent.com/jshsakura/piloci/main/deploy/setup.sh
+chmod +x deploy/setup.sh
+
+./deploy/setup.sh
+nano .env
+docker pull jshsakura/piloci:latest
+docker compose pull
+docker compose up -d
+docker compose logs -f piloci
+```
+
+Docker Hub image page: <https://hub.docker.com/r/jshsakura/piloci>
+
+### Repo-based deploy
+
+If you want the full source tree locally, clone the repo and use the same compose flow:
 
 ```bash
 git clone https://github.com/jshsakura/piloci.git
@@ -217,6 +242,7 @@ cd piloci
 
 ./deploy/setup.sh
 nano .env
+docker pull jshsakura/piloci:latest
 docker compose pull
 docker compose up -d
 docker compose logs -f piloci
@@ -296,6 +322,7 @@ Retention / low-spec ops knobs:
 ### Updating an existing deployment
 
 ```bash
+docker pull jshsakura/piloci:latest
 docker compose pull
 docker compose up -d
 ```

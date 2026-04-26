@@ -98,11 +98,12 @@ piLoci는 MCP가 활성화된 Python 기반 API 서버와 가벼운 프론트엔
 
 ## 시작하기
 
-저장소를 복제하고 설정을 실행한 후, 아래 [Docker로 배포](#docker로-배포) 섹션의 안내에 따라 Docker Compose로 배포합니다. Raspberry Pi 5에서 로컬로 구동되며 Cloudflare Tunnel을 통해 외부에 노출하는 옵션도 있습니다. 단계별 계획과 현재 상태는 [PLAN.md](./PLAN.md)를 참조하세요.
+Docker Hub 이미지를 기준으로 compose 파일을 내려받고 설정을 실행한 후, 아래 [Docker로 배포](#docker로-배포) 섹션의 안내에 따라 Docker Compose로 배포합니다. Raspberry Pi 5에서 로컬로 구동되며 Cloudflare Tunnel을 통해 외부에 노출하는 옵션도 있습니다. 단계별 계획과 현재 상태는 [PLAN.md](./PLAN.md)를 참조하세요.
 
 ## 빠른 링크
 
 - **[piloci.jshsakura.com](https://piloci.jshsakura.com/)** — 라이브 제품 사이트
+- **[Docker Hub: jshsakura/piloci](https://hub.docker.com/r/jshsakura/piloci)** — 기본 배포 이미지
 - [README.md](./README.md) — English documentation
 - [PLAN.md](./PLAN.md) — 아키텍처 및 구현 단계의 단일 소스
 - [docs/](./docs/) — 추가 문서
@@ -182,7 +183,31 @@ piLoci는 MCP가 활성화된 Python 기반 API 서버와 가벼운 프론트엔
 - Raspberry Pi 5 또는 arm64/amd64 Linux 호스트
 - Docker Engine + Docker Compose v2
 
-### 첫 배포
+### Docker Hub 기준 첫 배포
+
+```bash
+mkdir -p ~/app/piloci
+cd ~/app/piloci
+
+curl -fsSLo docker-compose.yml https://raw.githubusercontent.com/jshsakura/piloci/main/docker-compose.yml
+curl -fsSLo .env.example https://raw.githubusercontent.com/jshsakura/piloci/main/.env.example
+mkdir -p deploy
+curl -fsSLo deploy/setup.sh https://raw.githubusercontent.com/jshsakura/piloci/main/deploy/setup.sh
+chmod +x deploy/setup.sh
+
+./deploy/setup.sh
+nano .env
+docker pull jshsakura/piloci:latest
+docker compose pull
+docker compose up -d
+docker compose logs -f piloci
+```
+
+Docker Hub 이미지 주소: <https://hub.docker.com/r/jshsakura/piloci>
+
+### 저장소 클론 기반 배포
+
+소스 트리까지 함께 받아서 운영하려면, 저장소를 클론한 뒤 같은 compose 흐름으로 진행하면 됩니다.
 
 ```bash
 git clone https://github.com/jshsakura/piloci.git
@@ -190,6 +215,7 @@ cd piloci
 
 ./deploy/setup.sh
 nano .env
+docker pull jshsakura/piloci:latest
 docker compose pull
 docker compose up -d
 docker compose logs -f piloci
@@ -267,6 +293,7 @@ LOG_FORMAT=json
 ### 기존 배포 업데이트
 
 ```bash
+docker pull jshsakura/piloci:latest
 docker compose pull
 docker compose up -d
 ```
