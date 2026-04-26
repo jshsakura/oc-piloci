@@ -10,6 +10,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
+from piloci.api.ratelimit import RATE_LOGIN, RATE_PASSWORD_RESET, RATE_SIGNUP, limiter
 from piloci.auth.jwt_utils import create_token
 from piloci.auth.local import (
     AccountLockedError,
@@ -1226,15 +1227,20 @@ async def route_profilez(request: Request) -> Response:
 
 
 def get_routes() -> list[Route]:
+    signup_limited = limiter.limit(RATE_SIGNUP)(route_signup)
+    login_limited = limiter.limit(RATE_LOGIN)(route_login)
+    forgot_password_limited = limiter.limit(RATE_PASSWORD_RESET)(route_forgot_password)
+    reset_password_limited = limiter.limit(RATE_PASSWORD_RESET)(route_reset_password)
+
     return [
         Route("/healthz", route_healthz),
         Route("/readyz", route_readyz),
         Route("/profilez", route_profilez),
-        Route("/auth/signup", route_signup, methods=["POST"]),
-        Route("/auth/login", route_login, methods=["POST"]),
+        Route("/auth/signup", signup_limited, methods=["POST"]),
+        Route("/auth/login", login_limited, methods=["POST"]),
         Route("/auth/logout", route_logout, methods=["POST"]),
-        Route("/auth/forgot-password", route_forgot_password, methods=["POST"]),
-        Route("/auth/reset-password", route_reset_password, methods=["POST"]),
+        Route("/auth/forgot-password", forgot_password_limited, methods=["POST"]),
+        Route("/auth/reset-password", reset_password_limited, methods=["POST"]),
         Route("/api/projects", route_list_projects, methods=["GET"]),
         Route("/api/projects", route_create_project, methods=["POST"]),
         Route(
