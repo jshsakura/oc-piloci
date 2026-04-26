@@ -134,6 +134,16 @@ body {
   background-size: 24px 24px;
 }
 
+.section-pattern {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 8px,
+    color-mix(in oklch, var(--foreground) 4%, transparent) 8px,
+    color-mix(in oklch, var(--foreground) 4%, transparent) 9px
+  );
+}
+
 @keyframes rainbow {
   0% { background-position: 0% 50%; }
   100% { background-position: 200% 50%; }

@@ -259,7 +259,7 @@ export default function LandingPage() {
       </section>
 
       {/* Features */}
-      <section className="border-t bg-muted py-20">
+      <section className="border-t bg-muted section-pattern py-20">
         <div className="mx-auto max-w-6xl px-4">
           <h2 className="mb-3 text-center text-2xl font-bold">{t.landing.sections.features.title}</h2>
           <div className="mx-auto mb-12 max-w-3xl space-y-3 text-center text-muted-foreground">
@@ -386,7 +386,7 @@ export default function LandingPage() {
       </section>
 
       {/* Capabilities */}
-      <section className="bg-muted py-20">
+      <section className="bg-muted section-pattern py-20">
         <div className="mx-auto max-w-6xl px-4">
           <h2 className="mb-4 text-center text-2xl font-bold">{t.landing.sections.capabilities.title}</h2>
           <p className="mb-12 text-center text-muted-foreground">{t.landing.sections.capabilities.desc}</p>
