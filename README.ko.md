@@ -195,11 +195,34 @@ docker compose up -d
 docker compose logs -f piloci
 ```
 
-`deploy/setup.sh`가 Compose에서 사용하는 로컬 시크릿 파일을 생성합니다:
+`deploy/setup.sh`는 `.env.example`을 `.env`로 복사한 뒤 `JWT_SECRET`과
+`SESSION_SECRET` 값을 자동 생성해 넣습니다.
 
-- `secrets/jwt_secret`
-- `secrets/session_secret`
-- (선택) `secrets/tunnel_token`
+기본 `.env` 형태는 최대한 단순하게 유지합니다:
+
+```env
+JWT_SECRET=32바이트-16진수-값으로-교체
+SESSION_SECRET=32바이트-16진수-값으로-교체
+
+DATABASE_URL=sqlite+aiosqlite:////data/piloci.db
+LANCEDB_PATH=/data/lancedb
+REDIS_URL=redis://redis:6379/0
+
+HOST=0.0.0.0
+PORT=8314
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+
+# 선택 OAuth 공급자
+# KAKAO_CLIENT_ID=
+# KAKAO_CLIENT_SECRET=
+# NAVER_CLIENT_ID=
+# NAVER_CLIENT_SECRET=
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# GITHUB_CLIENT_ID=
+# GITHUB_CLIENT_SECRET=
+```
 
 앱은 첫 시작 시 SQLite와 LanceDB를 자동 초기화하므로 별도의 데이터베이스 부트스트랩 단계가 없습니다.
 
@@ -208,13 +231,15 @@ docker compose logs -f piloci
 - `DATABASE_URL` — 기본값: `/data` 하위 SQLite
 - `REDIS_URL` — 기본값: 번들 Redis
 - `LANCEDB_PATH` — 기본값: `/data/lancedb`
-- `JWT_SECRET` / `SESSION_SECRET` — 네이티브 또는 로컬 비Docker 실행 시에만
-- `JWT_SECRET_FILE` / `SESSION_SECRET_FILE` — Docker Compose 프로덕션용
+- `JWT_SECRET` / `SESSION_SECRET` — Docker Compose를 포함한 모든 배포 경로에서 필수
 
 선택 기능:
 
 - `SMTP_*` — 이메일 인증 및 비밀번호 재설정
+- `KAKAO_CLIENT_ID`, `KAKAO_CLIENT_SECRET` — Kakao OAuth 로그인
+- `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` — Naver OAuth 로그인
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — Google OAuth 로그인
+- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — GitHub OAuth 로그인
 - `WORKERS`, `LOG_LEVEL`, `LOG_FORMAT` — 런타임 튜닝
 
 보존 / 저사양 운영 설정:
@@ -240,9 +265,10 @@ docker compose pull
 docker compose up -d
 ```
 
-### Cloudflare Tunnel 없이
+### 리버스 프록시 / 터널
 
-Cloudflare Tunnel을 원하지 않으면 `docker-compose.yml`에서 `cloudflared` 서비스를 제거하고 포트 `8314`를 자체 리버스 프록시로 노출하세요.
+포트 `8314`는 사용 중인 리버스 프록시 또는 터널에서 노출하세요. Cloudflare Tunnel,
+Caddy, nginx 같은 엣지 구성은 `docker-compose.yml` 밖에서 관리합니다.
 
 ## 개발
 

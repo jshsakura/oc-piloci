@@ -60,7 +60,7 @@ Qdrant's jemalloc dependency crashes on Raspberry Pi 5 due to 16 KB page size (S
 - Sessions: JWT + Redis-backed
 - Multi-factor: optional Google OAuth and TOTP 2FA
 - Isolation: all queries scoped by `(user_id, project_id)`
-- Docker: non-root, read-only rootfs, secrets via files
+- Docker: non-root, read-only rootfs, runtime secrets from environment variables
 - Audit: all sensitive operations logged
 
 ## Deployment

@@ -222,11 +222,34 @@ docker compose up -d
 docker compose logs -f piloci
 ```
 
-`deploy/setup.sh` creates the local secret files used by Compose:
+`deploy/setup.sh` copies `.env.example` to `.env` and replaces `JWT_SECRET` and
+`SESSION_SECRET` with generated values.
 
-- `secrets/jwt_secret`
-- `secrets/session_secret`
-- optionally `secrets/tunnel_token`
+The default `.env` shape is intentionally simple:
+
+```env
+JWT_SECRET=replace-with-32-byte-hex
+SESSION_SECRET=replace-with-32-byte-hex
+
+DATABASE_URL=sqlite+aiosqlite:////data/piloci.db
+LANCEDB_PATH=/data/lancedb
+REDIS_URL=redis://redis:6379/0
+
+HOST=0.0.0.0
+PORT=8314
+LOG_LEVEL=INFO
+LOG_FORMAT=json
+
+# Optional OAuth providers
+# KAKAO_CLIENT_ID=
+# KAKAO_CLIENT_SECRET=
+# NAVER_CLIENT_ID=
+# NAVER_CLIENT_SECRET=
+# GOOGLE_CLIENT_ID=
+# GOOGLE_CLIENT_SECRET=
+# GITHUB_CLIENT_ID=
+# GITHUB_CLIENT_SECRET=
+```
 
 The app auto-initializes SQLite and LanceDB on first startup, so there is no separate database bootstrap step.
 
@@ -235,13 +258,15 @@ The app auto-initializes SQLite and LanceDB on first startup, so there is no sep
 - `DATABASE_URL` — defaults to SQLite under `/data`
 - `REDIS_URL` — defaults to bundled Redis
 - `LANCEDB_PATH` — defaults to `/data/lancedb`
-- `JWT_SECRET` / `SESSION_SECRET` — only for native or local non-Docker runs
-- `JWT_SECRET_FILE` / `SESSION_SECRET_FILE` — used by Docker Compose production
+- `JWT_SECRET` / `SESSION_SECRET` — required for every deployment path, including Docker Compose
 
 Optional features:
 
 - `SMTP_*` — email verification and password reset
+- `KAKAO_CLIENT_ID`, `KAKAO_CLIENT_SECRET` — Kakao OAuth login
+- `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` — Naver OAuth login
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` — Google OAuth login
+- `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` — GitHub OAuth login
 - `WORKERS`, `LOG_LEVEL`, `LOG_FORMAT` — runtime tuning
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` — optional MCP session summary alerts
 - `TELEGRAM_MIN_DURATION_SEC`, `TELEGRAM_MIN_MEMORY_OPS`, `TELEGRAM_TIMEOUT_SEC` — alert thresholds and timeout
@@ -269,9 +294,10 @@ docker compose pull
 docker compose up -d
 ```
 
-### Without Cloudflare Tunnel
+### Reverse proxy / tunnel
 
-If you do not want Cloudflare Tunnel, remove the `cloudflared` service from `docker-compose.yml` and expose port `8314` through your own reverse proxy.
+Expose port `8314` through your own reverse proxy or tunnel. Cloudflare Tunnel,
+Caddy, nginx, and similar edge services are managed outside `docker-compose.yml`.
 
 ## Development
 
