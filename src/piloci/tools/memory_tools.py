@@ -286,7 +286,7 @@ async def handle_list_projects(
 async def handle_whoami(
     args: WhoAmIInput,
     user_id: str,
-    project_id: str,
+    project_id: str | None,
     auth_payload: dict[str, Any] | None,
     session_id: str | None,
     client_info: dict[str, Any] | None,

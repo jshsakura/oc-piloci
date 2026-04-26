@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from mcp.server import Server
 from mcp.server.sse import SseServerTransport
@@ -30,17 +29,18 @@ def create_sse_app(mcp_server: Server, *, debug: bool = False, prefix: str = "")
 
     async def handle_sse(request: Request) -> Response | None:
         # Extract and verify JWT from Authorization header
-        auth_payload: dict[str, Any] | None = None
         auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            token = auth_header[7:]
-            try:
-                settings = get_settings()
-                auth_payload = verify_token(token, settings)
-            except ValueError as e:
-                logger.warning("MCP SSE auth failed: %s", e)
-                # Return 401 — SSE endpoint requires valid token
-                return Response("Unauthorized", status_code=401)
+        if not auth_header.startswith("Bearer "):
+            logger.warning("MCP SSE missing bearer auth header")
+            return Response("Unauthorized", status_code=401)
+
+        token = auth_header[7:]
+        try:
+            settings = get_settings()
+            auth_payload = verify_token(token, settings)
+        except ValueError as e:
+            logger.warning("MCP SSE auth failed: %s", e)
+            return Response("Unauthorized", status_code=401)
 
         token_ctx = mcp_auth_ctx.set(auth_payload)
         session_ctx = mcp_session_ctx.set(build_session_tracker(auth_payload))

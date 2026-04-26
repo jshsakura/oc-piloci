@@ -37,9 +37,6 @@ from piloci.tools.memory_tools import (
 
 logger = logging.getLogger(__name__)
 
-_DEV_USER_ID = "dev-user"
-_DEV_PROJECT_ID = "dev-project"
-
 
 def _make_tool(name: str, description: str, model: type) -> types.Tool:
     schema = model.model_json_schema()
@@ -167,19 +164,24 @@ def create_mcp_server(
             max_concurrency=settings.embed_max_concurrency,
         )
 
-    def _get_identity() -> tuple[str, str, dict[str, Any] | None, str | None]:
+    def _get_identity() -> tuple[str, str | None, dict[str, Any], str | None]:
         """Extract (user_id, project_id, auth_payload, session_id)."""
         from piloci.mcp.session_state import mcp_auth_ctx
 
         auth = mcp_auth_ctx.get()
-        if auth:
-            return (
-                auth["sub"],
-                auth.get("project_id") or _DEV_PROJECT_ID,
-                auth,
-                auth.get("jti"),
-            )
-        return (_DEV_USER_ID, _DEV_PROJECT_ID, None, None)
+        if not auth:
+            raise PermissionError("MCP authentication required")
+        return (
+            auth["sub"],
+            auth.get("project_id"),
+            auth,
+            auth.get("jti"),
+        )
+
+    def _require_project_id(project_id: str | None) -> str:
+        if not project_id:
+            raise ValueError("This MCP action requires a project-scoped token")
+        return project_id
 
     # -----------------------------------------------------------------------
     # Tools
@@ -195,22 +197,24 @@ def create_mcp_server(
 
         if name == "memory":
             args = MemoryInput.model_validate(arguments)
-            result = await handle_memory(args, user_id, project_id, store, _embed)
+            required_project_id = _require_project_id(project_id)
+            result = await handle_memory(args, user_id, required_project_id, store, _embed)
             if result.get("success"):
                 from piloci.curator.vault import invalidate_project_vault_cache
 
                 await invalidate_project_vault_cache(
                     get_settings().vault_dir,
                     user_id,
-                    project_id,
-                    ((auth_payload or {}).get("project_slug") if auth_payload else None),
+                    required_project_id,
+                    auth_payload.get("project_slug"),
                 )
         elif name == "recall":
             args = RecallInput.model_validate(arguments)
+            required_project_id = _require_project_id(project_id)
             result = await handle_recall(
                 args,
                 user_id,
-                project_id,
+                required_project_id,
                 store,
                 _embed,
                 profile_fn=profile_fn,
@@ -256,7 +260,8 @@ def create_mcp_server(
         user_id, project_id, _, _ = _get_identity()
 
         if uri_str == RESOURCE_PROFILE:
-            profile = await profile_fn(user_id, project_id) if profile_fn else None
+            required_project_id = _require_project_id(project_id)
+            profile = await profile_fn(user_id, required_project_id) if profile_fn else None
             return orjson.dumps(profile or {"static": [], "dynamic": []}).decode()
 
         if uri_str == RESOURCE_PROJECTS:
@@ -264,7 +269,8 @@ def create_mcp_server(
             return orjson.dumps({"projects": projects}).decode()
 
         if uri_str == RESOURCE_RECENT:
-            memories = await recent_fn(user_id, project_id, 20) if recent_fn else []
+            required_project_id = _require_project_id(project_id)
+            memories = await recent_fn(user_id, required_project_id, 20) if recent_fn else []
             return orjson.dumps({"memories": memories}).decode()
 
         raise ValueError(f"Unknown resource: {uri_str}")
@@ -303,7 +309,8 @@ def create_mcp_server(
         if isinstance(include_recent, str):
             include_recent = include_recent.lower() == "true"
 
-        profile = await profile_fn(user_id, project_id) if profile_fn else None
+        required_project_id = _require_project_id(project_id)
+        profile = await profile_fn(user_id, required_project_id) if profile_fn else None
         text = _build_context_text(profile, include_recent=include_recent)
 
         return types.GetPromptResult(
