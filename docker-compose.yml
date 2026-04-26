@@ -7,12 +7,13 @@
 #   3. docker compose up -d
 #
 # Architecture:
-#   cloudflared → piloci:8314 ← redis:6379
-#                  └── SQLite + LanceDB on /data volume
+#   (optional) cloudflared → piloci:8314 ← redis:6379
+#                            └── SQLite + LanceDB on /data volume
 #
 # Customization:
 #   - Copy .env.example → .env and edit
-#   - Remove cloudflared service if not using Cloudflare Tunnel
+#   - Enable Cloudflare Tunnel: docker compose --profile tunnel up -d
+#   - Otherwise expose piloci port directly (add `ports:` to piloci service)
 #   - Adjust Redis memory limit as needed
 # ──────────────────────────────────────────────────────────────
 services:
@@ -70,6 +71,7 @@ services:
   cloudflared:
     image: cloudflare/cloudflared:latest
     restart: unless-stopped
+    profiles: ["tunnel"]
     command: tunnel --no-autoupdate run
     environment:
       - TUNNEL_TOKEN_FILE=/run/secrets/tunnel_token
