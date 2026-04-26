@@ -10,6 +10,7 @@ import { VaultNoteDetail } from "@/components/VaultNoteDetail";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import RoutePending from "@/components/RoutePending";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const MCP_SNIPPET = `{
@@ -46,7 +47,14 @@ function ProjectDetailContent() {
     }
   }, [notes, selectedNoteId]);
 
-  if (!slug) return null;
+  if (!slug) {
+    return (
+      <RoutePending
+        title="프로젝트 위치 확인 중"
+        description="열어야 할 프로젝트를 찾는 중이며, 정보가 없으면 대시보드로 돌아갑니다."
+      />
+    );
+  }
 
   const selectedNote = notes.find((n) => n.memory_id === selectedNoteId) ?? notes[0] ?? null;
   const stats = data?.workspace.stats;

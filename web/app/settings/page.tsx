@@ -9,6 +9,7 @@ import { useAuthStore } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import RoutePending from "@/components/RoutePending";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
@@ -27,7 +28,7 @@ const MCP_EXAMPLE = `{
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, hasHydrated } = useAuthStore();
 
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -50,10 +51,26 @@ export default function SettingsPage() {
   const [copiedMcp, setCopiedMcp] = useState(false);
 
   useEffect(() => {
-    if (!user) router.replace("/login");
-  }, [user, router]);
+    if (hasHydrated && !user) router.replace("/login");
+  }, [hasHydrated, user, router]);
 
-  if (!user) return null;
+  if (!hasHydrated) {
+    return (
+      <AppShell>
+        <RoutePending title="설정 불러오는 중" description="세션이 복원되면 계정 및 보안 설정을 이어서 표시합니다." />
+      </AppShell>
+    );
+  }
+
+  if (!user) {
+    return (
+      <RoutePending
+        fullScreen
+        title="로그인 화면으로 이동 중"
+        description="설정 페이지는 로그인 후에만 볼 수 있어 로그인 화면으로 이동합니다."
+      />
+    );
+  }
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();

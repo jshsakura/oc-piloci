@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import type { AuditLog } from "@/lib/types";
 import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
+import RoutePending from "@/components/RoutePending";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -61,15 +62,31 @@ function ActionBadge({ action }: { action: string }) {
 
 export default function AuditPage() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, hasHydrated } = useAuthStore();
   const [actionFilter, setActionFilter] = useState("all");
   const [offset, setOffset] = useState(0);
 
   useEffect(() => {
-    if (!user) router.replace("/login");
-  }, [user, router]);
+    if (hasHydrated && !user) router.replace("/login");
+  }, [hasHydrated, user, router]);
 
-  if (!user) return null;
+  if (!hasHydrated) {
+    return (
+      <AppShell>
+        <RoutePending title="감사 로그 준비 중" description="로그인 상태와 필터 설정을 복원한 뒤 감사 로그를 표시합니다." />
+      </AppShell>
+    );
+  }
+
+  if (!user) {
+    return (
+      <RoutePending
+        fullScreen
+        title="로그인 화면으로 이동 중"
+        description="감사 로그는 보호된 화면이라 로그인 페이지로 이동합니다."
+      />
+    );
+  }
 
   const actionParam = actionFilter === "all" ? undefined : actionFilter;
 

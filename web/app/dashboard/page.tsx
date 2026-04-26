@@ -11,6 +11,7 @@ import { api } from "@/lib/api";
 import type { Project } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import RoutePending from "@/components/RoutePending";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -18,7 +19,7 @@ import { Label } from "@/components/ui/label";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, hasHydrated } = useAuthStore();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [newSlug, setNewSlug] = useState("");
@@ -27,10 +28,26 @@ export default function DashboardPage() {
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
-    if (!user) router.replace("/login");
-  }, [router, user]);
+    if (hasHydrated && !user) router.replace("/login");
+  }, [hasHydrated, router, user]);
 
-  if (!user) return null;
+  if (!hasHydrated) {
+    return (
+      <AppShell>
+        <RoutePending title="세션 확인 중" description="대시보드에 필요한 계정 정보를 불러오고 있습니다." />
+      </AppShell>
+    );
+  }
+
+  if (!user) {
+    return (
+      <RoutePending
+        fullScreen
+        title="로그인 화면으로 이동 중"
+        description="인증 상태를 확인했고, 로그인 페이지로 안전하게 전환하고 있습니다."
+      />
+    );
+  }
 
   const { data: projects, isLoading, isError } = useQuery({
     queryKey: ["projects"],
