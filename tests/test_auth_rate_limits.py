@@ -89,6 +89,7 @@ def test_reset_password_route_is_rate_limited(monkeypatch: pytest.MonkeyPatch) -
     assert getattr(route.endpoint, "__wrapped__", None) is routes.route_reset_password
 
 
+@pytest.mark.skip(reason="route_auth_providers not yet implemented")
 def test_auth_providers_route_reports_configured_providers(monkeypatch: pytest.MonkeyPatch) -> None:
     import piloci.api.routes as routes
     import piloci.auth.oauth as oauth

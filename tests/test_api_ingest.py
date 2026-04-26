@@ -79,7 +79,9 @@ async def test_route_ingest_returns_429_when_queue_is_full(monkeypatch):
         user={"sub": "user-1"},
     )
 
-    settings = SimpleNamespace(ingest_queue_maxsize=1, ingest_retry_after_sec=9)
+    settings = SimpleNamespace(
+        ingest_queue_maxsize=1, ingest_retry_after_sec=9, ingest_max_body_bytes=10 * 1024 * 1024
+    )
     write_session = _db_session()
     cleanup_session = _db_session()
 
@@ -122,7 +124,9 @@ async def test_route_ingest_returns_202_when_enqueued(monkeypatch):
         user={"sub": "user-1"},
     )
 
-    settings = SimpleNamespace(ingest_queue_maxsize=4, ingest_retry_after_sec=5)
+    settings = SimpleNamespace(
+        ingest_queue_maxsize=4, ingest_retry_after_sec=5, ingest_max_body_bytes=10 * 1024 * 1024
+    )
     write_session = _db_session()
 
     monkeypatch.setattr(routes, "get_settings", lambda: settings)
