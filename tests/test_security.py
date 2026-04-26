@@ -9,6 +9,17 @@ from starlette.testclient import TestClient
 
 from piloci.api.security import SecurityHeadersMiddleware
 
+_EXPECTED_CSP = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com data:",
+        "img-src 'self' data: https:",
+        "connect-src 'self' https: wss:",
+    ]
+)
+
 _REQUIRED_HEADERS = [
     "X-Content-Type-Options",
     "X-Frame-Options",
@@ -68,7 +79,7 @@ def test_hsts_value(client: TestClient) -> None:
 
 def test_csp_value(client: TestClient) -> None:
     response = client.get("/")
-    assert response.headers["Content-Security-Policy"] == "default-src 'self'; script-src 'self'"
+    assert response.headers["Content-Security-Policy"] == _EXPECTED_CSP
 
 
 def test_healthz_also_has_security_headers(client: TestClient) -> None:
