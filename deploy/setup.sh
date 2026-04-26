@@ -2,14 +2,13 @@
 # ──────────────────────────────────────────────────────────────
 # piLoci — First Deploy Setup Script
 #
-# Creates secrets, .env, and data directories for production
-# deployment via docker-compose.
+# Creates `.env` and fills in runtime secrets for production deployment.
 #
 # Usage:
 #   chmod +x deploy/setup.sh
 #   ./deploy/setup.sh
 #
-# Safe to re-run — skips existing secrets, only creates missing ones.
+# Safe to re-run — keeps an existing `.env` untouched.
 # ──────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -28,47 +27,7 @@ ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error() { echo -e "${RED}[ERROR]${NC} $*" >&2; exit 1; }
 
-# ── 1. Secrets ────────────────────────────────────────────────
-info "Setting up Docker secrets..."
-
-SECRETS_DIR="$PROJECT_ROOT/secrets"
-mkdir -p "$SECRETS_DIR"
-chmod 700 "$SECRETS_DIR"
-
-generate_secret() {
-    local path="$SECRETS_DIR/$1"
-    if [ -f "$path" ] && [ -s "$path" ]; then
-        warn "Secret $1 already exists — skipping (delete to regenerate)"
-        return 0
-    fi
-    python3 -c "import secrets; print(secrets.token_hex(32))" > "$path"
-    chmod 600 "$path"
-    ok "Generated $1"
-}
-
-generate_secret jwt_secret
-generate_secret session_secret
-
-# Cloudflare tunnel token — requires manual input
-if [ ! -f "$SECRETS_DIR/tunnel_token" ] || [ ! -s "$SECRETS_DIR/tunnel_token" ]; then
-    echo ""
-    warn "tunnel_token not set."
-    echo -e "  If using Cloudflare Tunnel, paste your token below."
-    echo -e "  Press Enter to skip (tunnel won't start)."
-    echo -ne "  ${CYAN}Tunnel token:${NC} "
-    read -r token
-    if [ -n "$token" ]; then
-        echo "$token" > "$SECRETS_DIR/tunnel_token"
-        chmod 600 "$SECRETS_DIR/tunnel_token"
-        ok "Saved tunnel_token"
-    else
-        warn "Skipped tunnel_token — cloudflared won't start"
-    fi
-else
-    ok "tunnel_token already exists — skipping"
-fi
-
-# ── 2. .env file ─────────────────────────────────────────────
+# ── 1. .env file ─────────────────────────────────────────────
 info "Setting up .env..."
 
 ENV_FILE="$PROJECT_ROOT/.env"
@@ -81,12 +40,34 @@ else
         error ".env.example not found — cannot create .env"
     fi
     cp "$ENV_EXAMPLE" "$ENV_FILE"
+    JWT_SECRET_VALUE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+    SESSION_SECRET_VALUE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+    python3 - "$ENV_FILE" "$JWT_SECRET_VALUE" "$SESSION_SECRET_VALUE" <<'PY'
+from pathlib import Path
+import sys
+
+env_path = Path(sys.argv[1])
+jwt_secret = sys.argv[2]
+session_secret = sys.argv[3]
+content = env_path.read_text(encoding="utf-8")
+content = content.replace(
+    "JWT_SECRET=change-me-generate-with-secrets-token-hex-32",
+    f"JWT_SECRET={jwt_secret}",
+    1,
+)
+content = content.replace(
+    "SESSION_SECRET=change-me-generate-with-secrets-token-hex-32",
+    f"SESSION_SECRET={session_secret}",
+    1,
+)
+env_path.write_text(content, encoding="utf-8")
+PY
     ok "Created .env from .env.example"
-    warn "JWT/SESSION secrets are loaded from Docker secrets by compose"
-    warn "Edit .env to configure SMTP, OAuth, etc. as needed"
+    ok "Generated JWT_SECRET and SESSION_SECRET in .env"
+    warn "Edit .env to configure SMTP, OAuth, reverse proxy, etc. as needed"
 fi
 
-# ── 3. Data directories (Docker volumes are auto-created,
+# ── 2. Data directories (Docker volumes are auto-created,
 #       but bind-mount dirs need manual creation) ──────────────
 info "Checking data directories..."
 
@@ -96,7 +77,7 @@ info "Checking data directories..."
 
 ok "Using Docker named volumes (auto-created by compose)"
 
-# ── 4. Verify requirements ───────────────────────────────────
+# ── 3. Verify requirements ───────────────────────────────────
 info "Verifying requirements..."
 
 command -v docker >/dev/null 2>&1 || error "docker not found — install Docker first"
@@ -104,16 +85,11 @@ command -v docker compose >/dev/null 2>&1 || error "docker compose not found —
 
 ok "Docker & Docker Compose found"
 
-# ── 5. Summary ───────────────────────────────────────────────
+# ── 4. Summary ───────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${GREEN}  Setup complete!${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo -e "  Secrets:  $SECRETS_DIR/"
-ls -la "$SECRETS_DIR" | tail -n +2 | while read -r line; do
-    echo -e "            $(echo "$line" | awk '{print $NF}') $(echo "$line" | awk '{print $1}')"
-done
 echo ""
 echo -e "  Env file: $ENV_FILE"
 echo ""

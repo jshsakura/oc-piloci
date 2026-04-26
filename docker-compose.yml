@@ -2,19 +2,16 @@
 # piLoci — Production Docker Compose
 #
 # Quick start:
-#   1. ./deploy/setup.sh          # generate secrets, .env
+#   1. ./deploy/setup.sh          # generate .env with runtime secrets
 #   2. docker compose pull
 #   3. docker compose up -d
 #
 # Architecture:
-#   (optional) cloudflared → piloci:8314 ← redis:6379
-#                            └── SQLite + LanceDB on /data volume
+#   piloci:8314 ← redis:6379
+#   └── SQLite + LanceDB on /data volume
 #
-# Customization:
-#   - Copy .env.example → .env and edit
-#   - Enable Cloudflare Tunnel: docker compose --profile tunnel up -d
-#   - Otherwise expose piloci port directly (add `ports:` to piloci service)
-#   - Adjust Redis memory limit as needed
+# Reverse proxy (Cloudflare Tunnel, nginx, Caddy, etc.) is
+# managed outside this compose file.
 # ──────────────────────────────────────────────────────────────
 services:
   piloci:
@@ -33,11 +30,8 @@ services:
       - LANCEDB_PATH=/data/lancedb
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
-      - JWT_SECRET_FILE=/run/secrets/jwt_secret
-      - SESSION_SECRET_FILE=/run/secrets/session_secret
     env_file:
       - .env
-    secrets: [jwt_secret, session_secret]
     volumes:
       - piloci_data:/data
     depends_on:
@@ -67,25 +61,6 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    profiles: ["tunnel"]
-    command: tunnel --no-autoupdate run
-    environment:
-      - TUNNEL_TOKEN_FILE=/run/secrets/tunnel_token
-    secrets: [tunnel_token]
-    networks: [piloci_internal]
-    depends_on: [piloci]
-
-secrets:
-  jwt_secret:
-    file: ./secrets/jwt_secret
-  session_secret:
-    file: ./secrets/session_secret
-  tunnel_token:
-    file: ./secrets/tunnel_token
 
 volumes:
   piloci_data:

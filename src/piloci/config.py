@@ -8,20 +8,6 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import override
 
-DEFAULT_JWT_SECRET_FILE = Path("/run/secrets/jwt_secret")
-DEFAULT_SESSION_SECRET_FILE = Path("/run/secrets/session_secret")
-
-
-def _read_secret_file(path: Path) -> str:
-    return path.read_text(encoding="utf-8").strip()
-
-
-def _looks_like_placeholder(value: str) -> bool:
-    return value in {
-        "dev-secret-change-me",
-        "change-me-generate-with-secrets-token-hex-32",
-    }
-
 
 class Settings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
@@ -84,13 +70,11 @@ class Settings(BaseSettings):
 
     # JWT (M2+)
     jwt_secret: str = Field(default="dev-secret-change-me", min_length=32)
-    jwt_secret_file: Path | None = None
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 90
 
     # Session (M2+)
     session_secret: str = Field(default="dev-secret-change-me", min_length=32)
-    session_secret_file: Path | None = None
     session_expire_days: int = 14
     session_max_per_user: int = 10
 
@@ -119,18 +103,6 @@ class Settings(BaseSettings):
 
     @override
     def model_post_init(self, __context: object) -> None:
-        self.jwt_secret = self._resolve_secret(
-            secret_name="JWT_SECRET",
-            current_value=self.jwt_secret,
-            configured_file=self.jwt_secret_file,
-            default_file=DEFAULT_JWT_SECRET_FILE,
-        )
-        self.session_secret = self._resolve_secret(
-            secret_name="SESSION_SECRET",
-            current_value=self.session_secret,
-            configured_file=self.session_secret_file,
-            default_file=DEFAULT_SESSION_SECRET_FILE,
-        )
         self._apply_low_spec_mode()
 
     def _apply_low_spec_mode(self) -> None:
@@ -150,29 +122,6 @@ class Settings(BaseSettings):
         self.raw_session_retention_days = min(self.raw_session_retention_days, 7)
         self.audit_log_retention_days = min(self.audit_log_retention_days, 30)
         self.maintenance_interval_sec = max(self.maintenance_interval_sec, 900)
-
-    @staticmethod
-    def _resolve_secret(
-        *,
-        secret_name: str,
-        current_value: str,
-        configured_file: Path | None,
-        default_file: Path,
-    ) -> str:
-        if configured_file is not None:
-            if not configured_file.is_file():
-                raise FileNotFoundError(
-                    f"{secret_name}_FILE points to missing file: {configured_file}"
-                )
-            return _read_secret_file(configured_file)
-
-        if not _looks_like_placeholder(current_value):
-            return current_value
-
-        if default_file.is_file():
-            return _read_secret_file(default_file)
-
-        return current_value
 
 
 _settings: Settings | None = None
