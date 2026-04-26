@@ -5,17 +5,26 @@ import { Providers } from "./providers";
 import { getCopy } from "@/lib/copy";
 
 const themeInitScript = `
-  const storageKey = 'piloci-theme';
-  const storedTheme = localStorage.getItem(storageKey);
-  const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const theme = storedTheme === 'dark' || storedTheme === 'light'
-    ? storedTheme
-    : systemPrefersDark
-      ? 'dark'
-      : 'light';
-  const root = document.documentElement;
-  root.classList.toggle('dark', theme === 'dark');
-  root.style.colorScheme = theme;
+  (() => {
+    try {
+      const storageKey = 'piloci-theme';
+      const storedTheme = window.localStorage.getItem(storageKey);
+      const systemPrefersDark = typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      const theme = storedTheme === 'dark' || storedTheme === 'light'
+        ? storedTheme
+        : systemPrefersDark
+          ? 'dark'
+          : 'light';
+      const root = document.documentElement;
+      root.classList.toggle('dark', theme === 'dark');
+      root.style.colorScheme = theme;
+    } catch {
+      const root = document.documentElement;
+      root.classList.remove('dark');
+      root.style.colorScheme = 'light';
+    }
+  })();
 `;
 
 const copy = getCopy();

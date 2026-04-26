@@ -16,16 +16,24 @@ export function I18nProvider({ children }: { children: React.ReactNode }) {
 
   // Load locale from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem('locale') as Locale;
-    if (saved && (saved === 'ko' || saved === 'en')) {
-      setLocaleState(saved);
+    try {
+      const saved = window.localStorage.getItem('locale') as Locale | null;
+      if (saved && (saved === 'ko' || saved === 'en')) {
+        setLocaleState(saved);
+      }
+    } catch {
+      // Ignore storage failures and keep default locale.
     }
   }, []);
 
   const setLocale = (newLocale: Locale) => {
     setLocaleState(newLocale);
-    localStorage.setItem('locale', newLocale);
-    // Optionally set a cookie for server-side detection if needed
+    try {
+      window.localStorage.setItem('locale', newLocale);
+    } catch {
+      // Ignore storage failures and keep in-memory locale.
+    }
+
     document.cookie = `locale=${newLocale};path=/;max-age=31536000`;
   };
 
