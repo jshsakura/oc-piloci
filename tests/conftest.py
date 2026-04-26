@@ -1,9 +1,20 @@
+import os
 from unittest.mock import AsyncMock
 
 import pytest
 
 from piloci.config import Settings
 from piloci.storage.lancedb_store import MemoryStore
+
+# Ensure every test session has valid secrets even when .env is absent (CI).
+_VALID_SECRET = "test-secret-32-characters-minimum!"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def _set_secret_env_vars():
+    for key in ("JWT_SECRET", "SESSION_SECRET"):
+        os.environ.setdefault(key, _VALID_SECRET)
+    yield
 
 
 @pytest.fixture
