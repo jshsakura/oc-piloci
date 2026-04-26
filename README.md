@@ -6,7 +6,7 @@ Self-hosted, multi-user LLM memory service for teams — on Raspberry Pi 5.
 
 piLoci combines a Python MCP server, web dashboard, SQLite auth data, LanceDB vector storage, and an Obsidian-style workspace layer so your team can run project-scoped memory on your own hardware.
 
-> **Current status**: alpha, package version `0.1.0`
+> **Current status**: alpha, package version `0.0.1`
 >
 > Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, Google OAuth option, 2FA option, audit logs, transcript ingest pipeline, cached vault workspace/export flow, low-token recall flow, batched curator embeddings, and thresholded Telegram session alerts are implemented.
 
@@ -16,7 +16,7 @@ piLoci (파이로싸이) — from **Raspberry Pi** + **Method of Loci** (the anc
 
 **Built for teams**: Multiple users share a single piLoci instance. Each user gets their own account (with optional 2FA), and projects enforce strict memory isolation — so your team works together on the same hardware without leaking context between projects. Think of it as a shared, always-on brain for your project team.
 
-The project is in alpha (v0.1.0). While many core components are functional, ongoing development continues to harden reliability, security, and UX.
+The project is in alpha (v0.0.1). While many core components are functional, ongoing development continues to harden reliability, security, and UX.
 
 ## Inspiration: llm-wiki
 
@@ -237,6 +237,8 @@ REDIS_URL=redis://redis:6379/0
 
 HOST=0.0.0.0
 PORT=8314
+PILOCI_BIND_HOST=127.0.0.1
+PILOCI_HOST_PORT=8314
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 
@@ -250,6 +252,10 @@ LOG_FORMAT=json
 # GITHUB_CLIENT_ID=
 # GITHUB_CLIENT_SECRET=
 ```
+
+`docker-compose.yml` publishes the app to `${PILOCI_BIND_HOST}:${PILOCI_HOST_PORT}`.
+The default is `127.0.0.1:8314`, which is ideal when nginx, Caddy, or a tunnel runs on the same Pi.
+If you want direct LAN access without a reverse proxy, set `PILOCI_BIND_HOST=0.0.0.0`.
 
 The app auto-initializes SQLite and LanceDB on first startup, so there is no separate database bootstrap step.
 
@@ -298,6 +304,7 @@ docker compose up -d
 
 Expose port `8314` through your own reverse proxy or tunnel. Cloudflare Tunnel,
 Caddy, nginx, and similar edge services are managed outside `docker-compose.yml`.
+With the default settings they should proxy to `http://127.0.0.1:8314` on the Pi host.
 
 ## Development
 
@@ -417,8 +424,8 @@ pnpm build
 4. Tag and push the matching version.
 
 ```bash
-git tag v0.1.0
-git push origin main v0.1.0
+git tag v0.0.1
+git push origin main v0.0.1
 ```
 
 ### What the publish workflow does

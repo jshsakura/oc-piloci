@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import AuthLayout from "@/components/AuthLayout";
+import { AuthProviderButtons } from "@/components/auth-provider-buttons";
 import { useAuthStore } from "@/lib/auth";
-import { api } from "@/lib/api";
+import { api, type AuthProviderStatus } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -69,17 +70,63 @@ function getErrorMessage(error: unknown): string {
   return "이메일 또는 비밀번호가 올바르지 않습니다";
 }
 
+function getOauthErrorMessage(error: string | null): string | null {
+  switch (error) {
+    case "oauth_cancelled":
+      return "소셜 로그인이 취소되었습니다. 다시 시도해 주세요.";
+    case "oauth_invalid_state":
+      return "로그인 요청이 만료되었거나 유효하지 않습니다. 다시 시도해 주세요.";
+    case "oauth_failed":
+      return "소셜 로그인 처리 중 오류가 발생했습니다. 다시 시도해 주세요.";
+    default:
+      return null;
+  }
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const { setUser } = useAuthStore();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [authProviders, setAuthProviders] = useState<AuthProviderStatus[]>([]);
+  const [oauthError, setOauthError] = useState<string | null>(null);
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: { email: "", password: "" },
   });
+
+  useEffect(() => {
+    let active = true;
+
+    void api.listAuthProviders()
+      .then((result) => {
+        if (active) {
+          setAuthProviders(result.providers);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAuthProviders([]);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setOauthError(getOauthErrorMessage(params.get("error")));
+    setResetNotice(
+      params.get("reset") === "1"
+        ? "비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요."
+        : null
+    );
+  }, []);
 
   const onSubmit = async (data: LoginFormValues) => {
     setServerError(null);
@@ -94,6 +141,8 @@ export default function LoginPage() {
       setIsPending(false);
     }
   };
+
+  const hasAuthProviders = authProviders.some((provider) => provider.configured);
 
   return (
     <AuthLayout>
@@ -113,6 +162,18 @@ export default function LoginPage() {
             ))}
           </p>
         </div>
+
+        {resetNotice && (
+          <div className="mb-4 rounded-md border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+            {resetNotice}
+          </div>
+        )}
+
+        {oauthError && (
+          <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+            {oauthError}
+          </div>
+        )}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} noValidate className="space-y-4">
@@ -197,45 +258,18 @@ export default function LoginPage() {
           </form>
         </Form>
 
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center"><div className="w-full border-t" /></div>
-          <div className="relative flex justify-center text-xs uppercase text-muted-foreground">
-            <span className="bg-card px-2">또는</span>
-          </div>
-        </div>
+        {hasAuthProviders && (
+          <>
+            <div className="relative my-6">
+              <div className="absolute inset-0 flex items-center"><div className="w-full border-t" /></div>
+              <div className="relative flex justify-center text-xs uppercase text-muted-foreground">
+                <span className="bg-card px-2">또는</span>
+              </div>
+            </div>
 
-        <div className="space-y-2">
-          <Button className="w-full gap-2 rounded-lg bg-[#FEE500] text-[#191919] hover:bg-[#F2D900]" asChild>
-            <a href="/auth/kakao/login">
-              <svg className="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 3C6.48 3 2 6.58 2 11c0 2.78 1.77 5.23 4.46 6.66L5.5 21l4.24-2.33c.73.11 1.48.17 2.26.17 5.52 0 10-3.58 10-8s-4.48-8-10-8Z" />
-              </svg>
-              카카오로 계속하기
-            </a>
-          </Button>
-          <Button className="w-full gap-2 rounded-lg bg-[#03C75A] text-white hover:bg-[#02b351]" asChild>
-            <a href="/auth/naver/login">
-              <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path d="M6 4h4.1l3.8 5.45V4H18v16h-4.1L10.1 14.55V20H6V4Z" fill="currentColor" />
-              </svg>
-              네이버로 계속하기
-            </a>
-          </Button>
-          <Button variant="outline" className="w-full gap-2 rounded-lg" asChild>
-            <a href="/auth/google/login">
-              <svg className="size-4" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
-              Google로 계속하기
-            </a>
-          </Button>
-          <Button className="w-full gap-2 rounded-lg bg-[#24292F] text-white hover:bg-[#1b1f23]" asChild>
-            <a href="/auth/github/login">
-              <svg className="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 2C6.48 2 2 6.58 2 12.26c0 4.54 2.87 8.39 6.84 9.75.5.1.68-.22.68-.49 0-.24-.01-1.04-.01-1.88-2.78.62-3.37-1.21-3.37-1.21-.46-1.2-1.11-1.52-1.11-1.52-.91-.64.07-.63.07-.63 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.36 1.12 2.94.86.09-.67.35-1.12.63-1.38-2.22-.26-4.55-1.14-4.55-5.09 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.35 9.35 0 0 1 12 6.84c.85 0 1.71.12 2.51.36 1.9-1.33 2.74-1.05 2.74-1.05.56 1.41.21 2.45.11 2.71.64.72 1.03 1.63 1.03 2.75 0 3.96-2.33 4.82-4.56 5.08.36.32.68.95.68 1.92 0 1.39-.01 2.5-.01 2.84 0 .27.18.59.69.49A10.28 10.28 0 0 0 22 12.26C22 6.58 17.52 2 12 2Z" />
-              </svg>
-              GitHub로 계속하기
-            </a>
-          </Button>
-        </div>
+            <AuthProviderButtons providers={authProviders} />
+          </>
+        )}
 
         <div className="mt-4 text-center">
           <Link href="/forgot-password" className="text-sm text-muted-foreground underline underline-offset-4 transition-colors hover:text-foreground">

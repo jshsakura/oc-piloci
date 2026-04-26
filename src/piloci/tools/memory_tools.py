@@ -142,7 +142,13 @@ async def handle_memory(
             project_id=project_id,
             memory_id=args.memory_id,
         )
-        return {"success": deleted, "action": "forget", "memory_id": args.memory_id}
+        if not deleted:
+            return {
+                "success": False,
+                "action": "forget",
+                "error": f"memory_id '{args.memory_id}' not found in this project",
+            }
+        return {"success": True, "action": "forget", "memory_id": args.memory_id}
 
     vector = await embed_fn(args.content)
     memory_id = await store.save(

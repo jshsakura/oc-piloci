@@ -18,11 +18,15 @@ logger = logging.getLogger(__name__)
 VECTOR_SIZE = 384  # bge-small-en-v1.5
 TABLE_NAME = "piloci_memories"
 
+MEMORY_SCOPE_PERSONAL = "personal"
+MEMORY_SCOPE_SHARED = "shared"
+
 _SCHEMA = pa.schema(
     [
         pa.field("memory_id", pa.string(), nullable=False),
         pa.field("user_id", pa.string(), nullable=False),
         pa.field("project_id", pa.string(), nullable=False),
+        pa.field("scope", pa.string(), nullable=False),
         pa.field("content", pa.string()),
         pa.field("tags", pa.list_(pa.string())),
         pa.field("metadata", pa.string()),  # JSON-encoded
@@ -62,6 +66,7 @@ def _row_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "id": row["memory_id"],
         "user_id": row["user_id"],
         "project_id": row["project_id"],
+        "scope": row.get("scope", MEMORY_SCOPE_PERSONAL),
         "content": row.get("content", ""),
         "tags": list(tags),
         "metadata": metadata,
@@ -174,6 +179,7 @@ class MemoryStore:
                     "memory_id": memory_id,
                     "user_id": user_id,
                     "project_id": project_id,
+                    "scope": MEMORY_SCOPE_PERSONAL,
                     "content": memory["content"],
                     "tags": memory.get("tags", []),
                     "metadata": orjson.dumps(memory.get("metadata", {})).decode(),
@@ -233,6 +239,7 @@ class MemoryStore:
             "memory_id",
             "user_id",
             "project_id",
+            "scope",
             "content",
             "tags",
             "metadata",
@@ -265,6 +272,7 @@ class MemoryStore:
             "memory_id",
             "user_id",
             "project_id",
+            "scope",
             "content",
             "tags",
             "metadata",
@@ -313,6 +321,7 @@ class MemoryStore:
                 "memory_id",
                 "user_id",
                 "project_id",
+                "scope",
                 "content",
                 "tags",
                 "metadata",
@@ -330,6 +339,7 @@ class MemoryStore:
                     "memory_id": _safe_id(memory_id),
                     "user_id": user_id,
                     "project_id": project_id,
+                    "scope": existing.get("scope", MEMORY_SCOPE_PERSONAL),
                     "content": content if content is not None else existing["content"],
                     "tags": tags if tags is not None else existing["tags"],
                     "metadata": orjson.dumps(merged_meta).decode(),

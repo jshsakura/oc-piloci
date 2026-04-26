@@ -69,14 +69,16 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     # JWT (M2+)
-    jwt_secret: str = Field(default="dev-secret-change-me", min_length=32)
+    jwt_secret: str = Field(min_length=32)
     jwt_algorithm: str = "HS256"
     jwt_expire_days: int = 90
 
     # Session (M2+)
-    session_secret: str = Field(default="dev-secret-change-me", min_length=32)
+    session_secret: str = Field(min_length=32)
     session_expire_days: int = 14
     session_max_per_user: int = 10
+    ingest_max_body_bytes: int = 10 * 1024 * 1024
+    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:8314"])
 
     # SMTP (optional, M4)
     smtp_host: str | None = None

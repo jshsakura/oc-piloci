@@ -13,6 +13,7 @@ class MemoryRecord:
     content: str
     vector: list[float]
     memory_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    scope: str = "personal"
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
     created_at: int = field(default_factory=lambda: int(time.time()))
@@ -25,6 +26,7 @@ class SearchResult:
     score: float
     user_id: str
     project_id: str
+    scope: str
     content: str
     tags: list[str]
     metadata: dict[str, Any]

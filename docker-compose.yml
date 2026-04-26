@@ -7,11 +7,11 @@
 #   3. docker compose up -d
 #
 # Architecture:
-#   piloci:8314 ← redis:6379
+#   host:${PILOCI_HOST_PORT:-8314} → piloci:8314 ← redis:6379
 #   └── SQLite + LanceDB on /data volume
 #
 # Reverse proxy (Cloudflare Tunnel, nginx, Caddy, etc.) is
-# managed outside this compose file.
+# managed outside this compose file and should point at the published host port.
 # ──────────────────────────────────────────────────────────────
 services:
   piloci:
@@ -32,6 +32,8 @@ services:
       - LOG_FORMAT=json
     env_file:
       - .env
+    ports:
+      - "${PILOCI_BIND_HOST:-127.0.0.1}:${PILOCI_HOST_PORT:-8314}:8314"
     volumes:
       - piloci_data:/data
     depends_on:

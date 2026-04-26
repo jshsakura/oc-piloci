@@ -87,3 +87,29 @@ def test_reset_password_route_is_rate_limited(monkeypatch: pytest.MonkeyPatch) -
 
     assert route.endpoint is not routes.route_reset_password
     assert getattr(route.endpoint, "__wrapped__", None) is routes.route_reset_password
+
+
+def test_auth_providers_route_reports_configured_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    import piloci.api.routes as routes
+    import piloci.auth.oauth as oauth
+
+    monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace())
+    monkeypatch.setattr(
+        oauth,
+        "get_provider_credentials",
+        lambda settings, name: (
+            ("client-id", "client-secret") if name in {"kakao", "google"} else None
+        ),
+    )
+
+    with TestClient(_make_app(monkeypatch), client=("providers-client", 50004)) as client:
+        response = client.get("/api/auth/providers")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["providers"] == [
+        {"name": "google", "configured": True, "login_path": "/auth/google/login"},
+        {"name": "github", "configured": False, "login_path": "/auth/github/login"},
+        {"name": "kakao", "configured": True, "login_path": "/auth/kakao/login"},
+        {"name": "naver", "configured": False, "login_path": "/auth/naver/login"},
+    ]

@@ -77,3 +77,5 @@ nano .env
 docker compose pull
 docker compose up -d
 ```
+
+By default the compose stack publishes piLoci on `127.0.0.1:8314` on the host, so an external reverse proxy or tunnel on the same machine should target that address.

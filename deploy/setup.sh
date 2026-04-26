@@ -65,6 +65,7 @@ PY
     ok "Created .env from .env.example"
     ok "Generated JWT_SECRET and SESSION_SECRET in .env"
     warn "Edit .env to configure SMTP, OAuth, reverse proxy, etc. as needed"
+    warn "Default host binding is 127.0.0.1:${PILOCI_HOST_PORT:-8314} for reverse proxy / tunnel use"
 fi
 
 # ── 2. Data directories (Docker volumes are auto-created,
@@ -92,6 +93,7 @@ echo -e "${GREEN}  Setup complete!${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo -e "  Env file: $ENV_FILE"
+echo -e "  Published app URL: http://127.0.0.1:8314"
 echo ""
 echo -e "  ${CYAN}Next steps:${NC}"
 echo -e "    1. Review and customize .env"

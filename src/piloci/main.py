@@ -9,6 +9,7 @@ from typing import Any
 import uvicorn
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
+from starlette.middleware.cors import CORSMiddleware
 from starlette.routing import Mount
 
 from piloci.api.ratelimit import setup_ratelimit
@@ -157,6 +158,13 @@ def create_app():
         debug=settings.debug,
         routes=routes,
         middleware=[
+            Middleware(
+                CORSMiddleware,
+                allow_origins=settings.cors_origins,
+                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                allow_headers=["Authorization", "Content-Type"],
+                allow_credentials=True,
+            ),
             Middleware(RuntimeProfilingMiddleware),
             Middleware(SecurityHeadersMiddleware),
             Middleware(AuthMiddleware, settings=settings),

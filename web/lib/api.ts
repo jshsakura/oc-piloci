@@ -1,5 +1,12 @@
 const BASE = "";
 
+export type AuthProviderName = "kakao" | "naver" | "google" | "github";
+export type AuthProviderStatus = {
+  name: AuthProviderName;
+  configured: boolean;
+  login_path: string;
+};
+
 async function request<T>(
   path: string,
   options: RequestInit = {}
@@ -21,6 +28,7 @@ async function request<T>(
 
 export const api = {
   // Auth
+  listAuthProviders: () => request<{ providers: AuthProviderStatus[] }>("/api/auth/providers"),
   signup: (email: string, password: string, name: string) =>
     request("/auth/signup", { method: "POST", body: JSON.stringify({ email, password, name }) }),
   login: (email: string, password: string) =>
