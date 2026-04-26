@@ -677,11 +677,10 @@ services:
       - QDRANT_URL=http://qdrant:6333
       - REDIS_URL=redis://redis:6379/0
       - DATABASE_URL=sqlite:////data/piloci.db
-      - JWT_SECRET_FILE=/run/secrets/jwt_secret
-      - SESSION_SECRET_FILE=/run/secrets/session_secret
+      - JWT_SECRET=${JWT_SECRET}
+      - SESSION_SECRET=${SESSION_SECRET}
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
-    secrets: [jwt_secret, session_secret]
     volumes:
       - piloci_data:/data
     depends_on:
@@ -721,21 +720,6 @@ services:
       timeout: 3s
       retries: 5
 
-  cloudflared:
-    image: cloudflare/cloudflared:latest
-    restart: unless-stopped
-    command: tunnel --no-autoupdate run
-    environment:
-      - TUNNEL_TOKEN_FILE=/run/secrets/tunnel_token
-    secrets: [tunnel_token]
-    networks: [piloci_internal]
-    depends_on: [piloci]
-
-secrets:
-  jwt_secret: { file: ./secrets/jwt_secret }
-  session_secret: { file: ./secrets/session_secret }
-  tunnel_token: { file: ./secrets/tunnel_token }
-
 volumes:
   piloci_data:
   redis_data:
@@ -743,7 +727,6 @@ volumes:
 networks:
   piloci_internal:
     driver: bridge
-    internal: false  # cloudflared가 외부 도달 필요
 ```
 
 ### 핵심 보안 포인트
@@ -753,7 +736,7 @@ networks:
 - **non-root user** — UID 1000
 - **capabilities drop ALL** — 필수만 추가
 - **no-new-privileges** — privilege escalation 차단
-- **Docker secrets** — 환경 변수에 시크릿 평문 금지
+- **런타임 시크릿은 `.env`로 주입** — 저장소 커밋 금지, 배포 시 교체 필수
 - **내부 네트워크 격리** — piloci ↔ qdrant는 내부망에서만
 
 ### Cloudflare Tunnel 설정
@@ -763,9 +746,8 @@ networks:
 cloudflared tunnel login
 cloudflared tunnel create piloci
 cloudflared tunnel route dns piloci piloci.example.com
-cloudflared tunnel token piloci > secrets/tunnel_token
 
-# 이후는 docker compose로 자동 실행
+# 이후는 운영 환경(systemd, 별도 컨테이너, 호스트 서비스 등)에서 터널을 따로 실행
 ```
 
 ### 대안: 네이티브 systemd (문서만 제공)

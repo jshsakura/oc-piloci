@@ -109,6 +109,12 @@
 
 ## 2026-04-24
 
-- Fixed deployment secret wiring so the app can read `JWT_SECRET_FILE` and `SESSION_SECRET_FILE` from Docker secrets while still supporting direct env vars for native/local runs.
+- Fixed deployment secret wiring so the app could read `JWT_SECRET_FILE` and `SESSION_SECRET_FILE` from Docker secrets while still supporting direct env vars for native/local runs. This was later superseded by the 2026-04-26 env-only deployment cleanup.
 - Updated deployment templates to match the LanceDB-based architecture: added `LANCEDB_PATH`, removed stale Qdrant guidance from dev config, and clarified Cloudflare Tunnel secret handling.
 - Refreshed `README.md` so the Docker deployment flow, required runtime variables, and release steps reflect the current production setup.
+
+## 2026-04-26
+
+- Removed Docker secret-file fallback and standardized deployment on env-only `JWT_SECRET` / `SESSION_SECRET` values.
+- Simplified `deploy/setup.sh` so first-run setup now generates those secrets directly into `.env` instead of writing `secrets/*` files.
+- Updated `docker-compose.yml`, `.env.example`, README/README.ko, `PLAN.md`, and `docs/index.md` so reverse proxies/tunnels stay outside Compose and the documented runtime contract matches the code.
