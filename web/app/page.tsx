@@ -16,12 +16,13 @@ import { Locale } from "@/lib/copy";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import BrandMark from "@/components/BrandMark";
+import RoutePending from "@/components/RoutePending";
 import ThemeToggle from "@/components/ThemeToggle";
 import TypingQuotes from "@/components/TypingQuotes";
 
 export default function LandingPage() {
   const router = useRouter();
-  const { user } = useAuthStore();
+  const { user, hasHydrated } = useAuthStore();
   const { locale, setLocale, t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [termIdx, setTermIdx] = useState(0);
@@ -67,10 +68,18 @@ export default function LandingPage() {
   };
 
   useEffect(() => {
-    if (user) router.replace("/dashboard");
-  }, [user, router]);
+    if (hasHydrated && user) router.replace("/dashboard");
+  }, [hasHydrated, user, router]);
 
-  if (user) return null;
+  if (!hasHydrated || user) {
+    return (
+      <RoutePending
+        fullScreen
+        title="piLoci 불러오는 중"
+        description="세션과 화면 상태를 확인한 뒤 바로 이동합니다."
+      />
+    );
+  }
 
   const features = t.landing.sections.features.list;
   const capabilities = t.landing.sections.capabilities.list;
