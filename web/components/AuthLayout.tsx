@@ -23,7 +23,7 @@ function RainbowAI({ text }: { text: string }) {
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen">
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 bg-muted/50 border-r">
+      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 bg-muted/50 border-r section-pattern">
         <BrandMark />
         <div className="space-y-4">
           <h1 className="text-3xl font-bold tracking-tight">

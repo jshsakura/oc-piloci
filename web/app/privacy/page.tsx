@@ -11,7 +11,7 @@ export default function PrivacyPage() {
   const p = t.privacy;
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background landing-pattern">
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
           <BrandMark />
