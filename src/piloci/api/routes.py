@@ -15,13 +15,11 @@ from piloci.api.ratelimit import RATE_LOGIN, RATE_PASSWORD_RESET, RATE_SIGNUP, l
 from piloci.auth.session import get_session_store
 from piloci.config import get_settings
 from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
-from piloci.curator.vault import (
-    invalidate_project_vault_cache,
-)
-
-logger = logging.getLogger(__name__)
+from piloci.curator.vault import invalidate_project_vault_cache
 from piloci.db.session import async_session
 from piloci.utils.logging import get_runtime_profiler
+
+logger = logging.getLogger(__name__)
 
 
 def _json(data: Any, status: int = 200) -> Response:
