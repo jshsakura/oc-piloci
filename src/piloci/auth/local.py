@@ -60,6 +60,7 @@ _RE_LOWERCASE = re.compile(r"[a-z]")
 _RE_DIGIT = re.compile(r"\d")
 
 _MAX_LOGIN_ATTEMPTS = 5
+_RESET_TOKEN_SEPARATOR = "."
 
 
 def _validate_password(password: str) -> None:
@@ -71,6 +72,20 @@ def _validate_password(password: str) -> None:
         raise WeakPasswordError("Password must contain at least one lowercase letter.")
     if not _RE_DIGIT.search(password):
         raise WeakPasswordError("Password must contain at least one digit.")
+
+
+def _build_reset_token(user_id: str) -> str:
+    return f"{user_id}{_RESET_TOKEN_SEPARATOR}{uuid.uuid4()}"
+
+
+def _extract_reset_token_user_id(token: str) -> str | None:
+    user_id, separator, _ = token.partition(_RESET_TOKEN_SEPARATOR)
+    if separator != _RESET_TOKEN_SEPARATOR or not user_id:
+        return None
+    try:
+        return str(uuid.UUID(user_id))
+    except ValueError:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +269,7 @@ async def create_reset_token(
     if user is None:
         return None
 
-    raw_token = str(uuid.uuid4())
+    raw_token = _build_reset_token(user.id)
     hashed_token = hash_password(raw_token)
     now = datetime.now(timezone.utc)
 
@@ -299,8 +314,14 @@ async def reset_password(
 
     _validate_password(new_password)
 
+    token_user_id = _extract_reset_token_user_id(token)
+    if token_user_id is None:
+        raise TokenInvalidError("Invalid or expired reset token")
+
     result = await db_session.execute(
-        select(PasswordResetToken).where(PasswordResetToken.used == False)  # noqa: E712
+        select(PasswordResetToken)
+        .where(PasswordResetToken.user_id == token_user_id)
+        .order_by(PasswordResetToken.created_at.desc())
     )
     matched: PasswordResetToken | None = None
     for candidate in result.scalars().all():
@@ -315,7 +336,10 @@ async def reset_password(
         raise TokenUsedError("Reset token has already been used")
 
     now = datetime.now(timezone.utc)
-    if matched.expires_at < now:
+    expires_at = matched.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < now:
         raise TokenExpiredError("Reset token has expired")
 
     result = await db_session.execute(select(User).where(User.id == matched.user_id))

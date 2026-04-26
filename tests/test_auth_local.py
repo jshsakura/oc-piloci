@@ -3,18 +3,26 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from piloci.auth.local import (
     AccountLockedError,
     EmailExistsError,
     InvalidCredentialsError,
+    TokenExpiredError,
+    TokenInvalidError,
+    TokenUsedError,
     TOTPRequiredError,
     WeakPasswordError,
     _validate_password,
+    create_reset_token,
     login,
+    reset_password,
     signup,
 )
 
@@ -202,3 +210,106 @@ async def test_login_totp_required_raises():
 
     with pytest.raises(TOTPRequiredError):
         await login("mfa@test.com", pw, "127.0.0.1", "", db, store, settings)
+
+
+@pytest.fixture
+async def auth_db_session():
+    from piloci.db.session import init_db
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    await init_db(engine=engine)
+    session_factory = async_sessionmaker(
+        engine,
+        expire_on_commit=False,
+        autoflush=False,
+        autocommit=False,
+    )
+
+    async with session_factory() as session:
+        yield session
+
+    await engine.dispose()
+
+
+async def _create_local_user(db_session, *, email: str = "reset@test.com"):
+    from piloci.auth.password import hash_password
+    from piloci.db.models import User
+
+    user = User(
+        id=str(uuid.uuid4()),
+        email=email,
+        name="Reset User",
+        password_hash=hash_password("SecurePass1!x"),
+        created_at=datetime.now(timezone.utc),
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.mark.asyncio
+async def test_create_reset_token_scopes_token_with_user_id(auth_db_session):
+    user = await _create_local_user(auth_db_session)
+
+    token = await create_reset_token(user.email, auth_db_session)
+
+    assert token is not None
+    assert token.startswith(f"{user.id}.")
+
+
+@pytest.mark.asyncio
+async def test_reset_password_updates_password_and_marks_token_used(auth_db_session):
+    from piloci.db.models import PasswordResetToken
+
+    user = await _create_local_user(auth_db_session)
+    token = await create_reset_token(user.email, auth_db_session)
+    assert token is not None
+
+    updated_user = await reset_password(token, "NewSecurePass1", auth_db_session)
+
+    assert updated_user.id == user.id
+    result = await auth_db_session.execute(
+        select(PasswordResetToken).where(PasswordResetToken.user_id == user.id)
+    )
+    stored_token = result.scalar_one()
+    assert stored_token.used is True
+
+
+@pytest.mark.asyncio
+async def test_reset_password_reused_token_raises_used(auth_db_session):
+    user = await _create_local_user(auth_db_session)
+    token = await create_reset_token(user.email, auth_db_session)
+    assert token is not None
+
+    await reset_password(token, "NewSecurePass1", auth_db_session)
+
+    with pytest.raises(TokenUsedError):
+        await reset_password(token, "AnotherSecurePass1", auth_db_session)
+
+
+@pytest.mark.asyncio
+async def test_reset_password_expired_token_raises(auth_db_session):
+    from piloci.db.models import PasswordResetToken
+
+    user = await _create_local_user(auth_db_session)
+    token = await create_reset_token(user.email, auth_db_session)
+    assert token is not None
+
+    result = await auth_db_session.execute(
+        select(PasswordResetToken).where(PasswordResetToken.user_id == user.id)
+    )
+    stored_token = result.scalar_one()
+    stored_token.expires_at = datetime.now(timezone.utc) - timedelta(minutes=1)
+    await auth_db_session.commit()
+
+    with pytest.raises(TokenExpiredError):
+        await reset_password(token, "NewSecurePass1", auth_db_session)
+
+
+@pytest.mark.asyncio
+async def test_reset_password_invalid_token_raises_without_table_scan(auth_db_session):
+    await _create_local_user(auth_db_session)
+
+    with pytest.raises(TokenInvalidError):
+        await reset_password("not-a-valid-reset-token", "NewSecurePass1", auth_db_session)
