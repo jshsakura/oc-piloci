@@ -105,6 +105,18 @@ class Settings(BaseSettings):
     google_client_id: str | None = None
     google_client_secret: str | None = None
 
+    # Kakao OAuth (optional)
+    kakao_client_id: str | None = None
+    kakao_client_secret: str | None = None
+
+    # Naver OAuth (optional)
+    naver_client_id: str | None = None
+    naver_client_secret: str | None = None
+
+    # GitHub OAuth (optional)
+    github_client_id: str | None = None
+    github_client_secret: str | None = None
+
     @override
     def model_post_init(self, __context: object) -> None:
         self.jwt_secret = self._resolve_secret(

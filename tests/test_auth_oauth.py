@@ -1,24 +1,57 @@
-"""Tests for Google OAuth helper functions."""
+"""Tests for multi-provider OAuth helper functions."""
 
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
+from piloci.config import Settings
 
-def test_build_auth_url():
+
+@pytest.mark.parametrize(
+    ("provider", "expected_host", "expected_scope", "extra_params"),
+    [
+        (
+            "google",
+            "accounts.google.com",
+            "openid email profile",
+            {"access_type": "online", "prompt": "select_account"},
+        ),
+        ("github", "github.com", "user:email", {}),
+        ("kakao", "kauth.kakao.com", "profile_nickname account_email", {}),
+        ("naver", "nid.naver.com", None, {}),
+    ],
+)
+def test_build_auth_url_for_each_provider(
+    provider: str,
+    expected_host: str,
+    expected_scope: str | None,
+    extra_params: dict[str, str],
+):
     from piloci.auth.oauth import build_auth_url
 
     url = build_auth_url(
+        provider=provider,
         client_id="test-client",
-        redirect_uri="http://localhost/auth/google/callback",
+        redirect_uri=f"http://localhost/auth/{provider}/callback",
         state="random-state",
     )
-    assert "accounts.google.com" in url
-    assert "test-client" in url
-    assert "random-state" in url
-    assert "openid" in url
+
+    parsed = urlparse(url)
+    params = parse_qs(parsed.query)
+
+    assert expected_host in parsed.netloc
+    assert params["client_id"] == ["test-client"]
+    assert params["state"] == ["random-state"]
+    assert params["response_type"] == ["code"]
+    if expected_scope is None:
+        assert "scope" not in params
+    else:
+        assert params["scope"] == [expected_scope]
+    for key, value in extra_params.items():
+        assert params[key] == [value]
 
 
 def test_generate_state():
@@ -32,8 +65,8 @@ def test_generate_state():
 
 
 @pytest.mark.asyncio
-async def test_exchange_code_calls_google():
-    from piloci.auth.oauth import exchange_code
+async def test_exchange_code_calls_provider_token_endpoint():
+    from piloci.auth.oauth import PROVIDERS, exchange_code
 
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
@@ -46,21 +79,73 @@ async def test_exchange_code_calls_google():
 
     with patch("piloci.auth.oauth.httpx.AsyncClient", return_value=mock_client):
         result = await exchange_code(
+            provider="github",
             code="auth-code",
             client_id="cid",
             client_secret="csecret",
             redirect_uri="http://localhost/callback",
         )
-    assert result["access_token"] == "tok123"
+
+    assert result == {"access_token": "tok123"}
+    mock_client.post.assert_awaited_once_with(
+        PROVIDERS["github"].token_url,
+        data={
+            "code": "auth-code",
+            "client_id": "cid",
+            "client_secret": "csecret",
+            "redirect_uri": "http://localhost/callback",
+            "grant_type": "authorization_code",
+        },
+        headers={"Accept": "application/json"},
+    )
 
 
+@pytest.mark.parametrize(
+    ("provider", "payload", "expected"),
+    [
+        (
+            "google",
+            {"email": "google@test.com", "sub": "g-123", "name": "Google User"},
+            {"email": "google@test.com", "sub": "g-123", "name": "Google User"},
+        ),
+        (
+            "github",
+            {"email": "github@test.com", "id": 123, "name": "GitHub User", "login": "ghuser"},
+            {"email": "github@test.com", "sub": "123", "name": "GitHub User"},
+        ),
+        (
+            "kakao",
+            {
+                "id": 456,
+                "kakao_account": {
+                    "email": "kakao@test.com",
+                    "profile": {"nickname": "Kakao User"},
+                },
+            },
+            {"email": "kakao@test.com", "sub": "456", "name": "Kakao User"},
+        ),
+        (
+            "naver",
+            {
+                "response": {
+                    "email": "naver@test.com",
+                    "id": "naver-789",
+                    "nickname": "Naver User",
+                }
+            },
+            {"email": "naver@test.com", "sub": "naver-789", "name": "Naver User"},
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_get_userinfo_calls_google():
-    from piloci.auth.oauth import get_userinfo
+async def test_get_userinfo_normalizes_provider_payload(
+    provider: str, payload: dict[str, object], expected: dict[str, str]
+):
+    from piloci.auth.oauth import PROVIDERS, get_userinfo
 
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
-    mock_response.json = MagicMock(return_value={"email": "u@test.com", "sub": "123"})
+    mock_response.json = MagicMock(return_value=payload)
 
     mock_client = AsyncMock()
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -68,15 +153,23 @@ async def test_get_userinfo_calls_google():
     mock_client.get = AsyncMock(return_value=mock_response)
 
     with patch("piloci.auth.oauth.httpx.AsyncClient", return_value=mock_client):
-        result = await get_userinfo("access-token")
-    assert result["email"] == "u@test.com"
+        result = await get_userinfo(provider, "access-token")
+
+    assert result == expected
+    mock_client.get.assert_awaited_once_with(
+        PROVIDERS[provider].userinfo_url,
+        headers={
+            "Authorization": "Bearer access-token",
+            **PROVIDERS[provider].userinfo_headers,
+        },
+    )
 
 
 @pytest.mark.asyncio
-async def test_upsert_google_user_creates_new():
-    from piloci.auth.oauth import upsert_google_user
+async def test_upsert_oauth_user_creates_new():
+    from piloci.auth.oauth import upsert_oauth_user
 
-    userinfo = {"email": "new@test.com", "sub": "g-sub-999", "name": "New User"}
+    userinfo = {"email": "new@test.com", "sub": "gh-sub-999", "name": "New User"}
 
     mock_db = AsyncMock()
     mock_result = MagicMock()
@@ -86,19 +179,22 @@ async def test_upsert_google_user_creates_new():
     mock_db.commit = AsyncMock()
     mock_db.refresh = AsyncMock()
 
-    user = await upsert_google_user(mock_db, userinfo)
-    mock_db.add.assert_called_once()
+    user = await upsert_oauth_user(mock_db, "github", userinfo)
+
+    mock_db.add.assert_called_once_with(user)
     mock_db.commit.assert_awaited_once()
-    assert user is not None
+    mock_db.refresh.assert_awaited_once_with(user)
+    assert user.email == "new@test.com"
+    assert user.oauth_provider == "github"
+    assert user.oauth_sub == "gh-sub-999"
+    assert user.email_verified is True
 
 
 @pytest.mark.asyncio
-async def test_upsert_google_user_links_existing():
-    from unittest.mock import MagicMock
+async def test_upsert_oauth_user_links_existing_local_account():
+    from piloci.auth.oauth import upsert_oauth_user
 
-    from piloci.auth.oauth import upsert_google_user
-
-    userinfo = {"email": "existing@test.com", "sub": "g-sub-777", "name": "Existing"}
+    userinfo = {"email": "existing@test.com", "sub": "kakao-sub-777", "name": "Existing"}
 
     existing_user = MagicMock()
     existing_user.oauth_sub = None
@@ -112,7 +208,77 @@ async def test_upsert_google_user_links_existing():
     mock_db.commit = AsyncMock()
     mock_db.refresh = AsyncMock()
 
-    user = await upsert_google_user(mock_db, userinfo)
-    assert existing_user.oauth_provider == "google"
-    assert existing_user.oauth_sub == "g-sub-777"
+    user = await upsert_oauth_user(mock_db, "kakao", userinfo)
+
+    assert existing_user.oauth_provider == "kakao"
+    assert existing_user.oauth_sub == "kakao-sub-777"
+    assert existing_user.email_verified is True
+    assert existing_user.name == "Existing"
+    mock_db.add.assert_not_called()
+    mock_db.commit.assert_awaited_once()
+    mock_db.refresh.assert_awaited_once_with(existing_user)
     assert user is existing_user
+
+
+@pytest.mark.parametrize(
+    ("provider", "expected"),
+    [
+        ("google", ("google-id", "google-secret")),
+        ("github", ("github-id", "github-secret")),
+        ("kakao", ("kakao-id", "kakao-secret")),
+        ("naver", ("naver-id", "naver-secret")),
+    ],
+)
+def test_get_provider_credentials_returns_configured_values(
+    provider: str, expected: tuple[str, str]
+):
+    from piloci.auth.oauth import get_provider_credentials
+
+    settings = Settings(
+        jwt_secret="test-secret-32-characters-minimum!",
+        session_secret="test-secret-32-characters-minimum!",
+        google_client_id="google-id",
+        google_client_secret="google-secret",
+        github_client_id="github-id",
+        github_client_secret="github-secret",
+        kakao_client_id="kakao-id",
+        kakao_client_secret="kakao-secret",
+        naver_client_id="naver-id",
+        naver_client_secret="naver-secret",
+    )
+
+    assert get_provider_credentials(settings, provider) == expected
+
+
+def test_get_provider_credentials_returns_none_when_not_configured():
+    from piloci.auth.oauth import get_provider_credentials
+
+    settings = Settings(
+        jwt_secret="test-secret-32-characters-minimum!",
+        session_secret="test-secret-32-characters-minimum!",
+        google_client_id="google-id",
+        google_client_secret="google-secret",
+    )
+
+    assert get_provider_credentials(settings, "github") is None
+
+
+@pytest.mark.parametrize(
+    "func,args",
+    [
+        ("build_auth_url", ("discord", "cid", "http://localhost/callback", "state")),
+        ("get_provider_credentials", (None, "discord")),
+    ],
+)
+def test_invalid_provider_raises_value_error(func: str, args: tuple[object, ...]):
+    from piloci.auth import oauth
+
+    if func == "get_provider_credentials":
+        settings = Settings(
+            jwt_secret="test-secret-32-characters-minimum!",
+            session_secret="test-secret-32-characters-minimum!",
+        )
+        args = (settings, "discord")
+
+    with pytest.raises(ValueError, match="Unknown OAuth provider"):
+        getattr(oauth, func)(*args)

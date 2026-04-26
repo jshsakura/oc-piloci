@@ -798,45 +798,72 @@ async def route_change_password(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
-# Google OAuth
+# OAuth
 # ---------------------------------------------------------------------------
 
 _OAUTH_STATE_PREFIX = "oauth_state:"
 
 
-async def route_google_auth(request: Request) -> Response:
-    """GET /auth/google — Google 로그인 시작. redirect_uri 쿼리 파라미터 옵션."""
+async def route_oauth_login(request: Request) -> Response:
+    """GET /auth/{provider}/login — OAuth 로그인 시작."""
     settings = get_settings()
-    if not settings.google_client_id or not settings.google_client_secret:
-        return _json({"error": "Google OAuth is not configured"}, 503)
 
     from starlette.responses import RedirectResponse
 
-    from piloci.auth.oauth import build_auth_url, generate_state
+    from piloci.auth.oauth import (
+        PROVIDERS,
+        build_auth_url,
+        generate_state,
+        get_provider_credentials,
+    )
+
+    provider = (request.path_params.get("provider") or "").strip().lower()
+    if provider not in PROVIDERS:
+        return _json({"error": "Unknown OAuth provider"}, 400)
+
+    credentials = get_provider_credentials(settings, provider)
+    if credentials is None:
+        return _json({"error": f"{provider} OAuth is not configured"}, 503)
+    client_id, _ = credentials
 
     state = generate_state()
     base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/auth/google/callback"
+    redirect_uri = f"{base_url}/auth/{provider}/callback"
 
     # state를 Redis에 5분 저장 (CSRF 방어)
     store = get_session_store(settings)
     await store._redis.setex(f"{_OAUTH_STATE_PREFIX}{state}", 300, "1")  # noqa: SLF001
 
-    url = build_auth_url(settings.google_client_id, redirect_uri, state)
+    url = build_auth_url(provider, client_id, redirect_uri, state)
     return RedirectResponse(url, status_code=302)
 
 
-async def route_google_callback(request: Request) -> Response:
-    """GET /auth/google/callback — Google 인가 코드 처리."""
+async def route_oauth_callback(request: Request) -> Response:
+    """GET /auth/{provider}/callback — OAuth 인가 코드 처리."""
     settings = get_settings()
-    if not settings.google_client_id or not settings.google_client_secret:
-        return _json({"error": "Google OAuth is not configured"}, 503)
+
+    from starlette.responses import RedirectResponse
+
+    from piloci.auth.oauth import (
+        PROVIDERS,
+        exchange_code,
+        get_provider_credentials,
+        get_userinfo,
+        upsert_oauth_user,
+    )
+
+    provider = (request.path_params.get("provider") or "").strip().lower()
+    if provider not in PROVIDERS:
+        return _json({"error": "Unknown OAuth provider"}, 400)
+
+    credentials = get_provider_credentials(settings, provider)
+    if credentials is None:
+        return _json({"error": f"{provider} OAuth is not configured"}, 503)
+    client_id, client_secret = credentials
 
     code = request.query_params.get("code")
     state = request.query_params.get("state")
     error = request.query_params.get("error")
-
-    from starlette.responses import RedirectResponse
 
     if error or not code or not state:
         return RedirectResponse("/login?error=oauth_cancelled", status_code=302)
@@ -850,22 +877,16 @@ async def route_google_callback(request: Request) -> Response:
     await store._redis.delete(state_key)  # noqa: SLF001
 
     base_url = str(request.base_url).rstrip("/")
-    redirect_uri = f"{base_url}/auth/google/callback"
+    redirect_uri = f"{base_url}/auth/{provider}/callback"
 
     try:
-        from piloci.auth.oauth import exchange_code, get_userinfo, upsert_google_user
-
-        tokens = await exchange_code(
-            code, settings.google_client_id, settings.google_client_secret, redirect_uri
-        )
-        userinfo = await get_userinfo(tokens["access_token"])
+        tokens = await exchange_code(provider, code, client_id, client_secret, redirect_uri)
+        userinfo = await get_userinfo(provider, tokens["access_token"])
     except Exception:
         return RedirectResponse("/login?error=oauth_failed", status_code=302)
 
-    from piloci.db.models import User  # noqa: F401
-
     async with async_session() as db:
-        user = await upsert_google_user(db, userinfo)
+        user = await upsert_oauth_user(db, provider, userinfo)
 
     # 세션 발급
     ip = request.client.host if request.client else ""
@@ -876,10 +897,11 @@ async def route_google_callback(request: Request) -> Response:
 
     response = RedirectResponse("/dashboard", status_code=302)
     response.set_cookie(
-        "session_id",
+        "piloci_session",
         session_id,
         httponly=True,
         samesite="lax",
+        secure=True,
         max_age=max_age,
         path="/",
     )
@@ -1232,8 +1254,8 @@ def get_routes() -> list[Route]:
         Route("/api/account/2fa/disable", route_2fa_disable, methods=["POST"]),
         Route("/api/me", route_me, methods=["GET"]),
         Route("/api/account/password", route_change_password, methods=["POST"]),
-        Route("/auth/google", route_google_auth, methods=["GET"]),
-        Route("/auth/google/callback", route_google_callback, methods=["GET"]),
+        Route("/auth/{provider}/login", route_oauth_login, methods=["GET"]),
+        Route("/auth/{provider}/callback", route_oauth_callback, methods=["GET"]),
         # v0.3: auto-capture + memory admin
         Route("/api/ingest", route_ingest, methods=["POST"]),
         Route("/api/memories", route_create_memory, methods=["POST"]),
