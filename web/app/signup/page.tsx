@@ -10,6 +10,7 @@ import AuthLayout from "@/components/AuthLayout";
 import { AuthProviderButtons } from "@/components/auth-provider-buttons";
 import { useAuthStore } from "@/lib/auth";
 import { api, type AuthProviderStatus } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -98,11 +99,13 @@ function getErrorMessage(error: unknown): string {
 export default function SignupPage() {
   const router = useRouter();
   const { setUser } = useAuthStore();
+  const { t } = useTranslation();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [authProviders, setAuthProviders] = useState<AuthProviderStatus[]>([]);
+  const [signupComplete, setSignupComplete] = useState(false);
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
@@ -135,8 +138,12 @@ export default function SignupPage() {
     setIsPending(true);
     try {
       const user = (await api.signup(data.email, data.password, data.name)) as User;
-      setUser(user);
-      router.push("/dashboard");
+      if (((user as unknown) as Record<string, unknown>).approval_status === "approved") {
+        setUser(user);
+        router.push("/dashboard");
+      } else {
+        setSignupComplete(true);
+      }
     } catch (err) {
       setServerError(getErrorMessage(err));
     } finally {
@@ -149,6 +156,25 @@ export default function SignupPage() {
   return (
     <AuthLayout>
       <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
+        {signupComplete ? (
+          <div className="text-center">
+            <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
+              <svg className="size-6 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" /><path d="M12 16v-2" /><path d="M12 8h.01" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold">{t.signup.approvalTitle}</h2>
+            <p className="mt-3 text-sm text-muted-foreground">
+              {t.signup.approvalMessage}
+              <br />
+              {t.signup.approvalSubmessage}
+            </p>
+            <Link href="/login">
+              <Button variant="outline" className="mt-6 w-full">{t.signup.goToLogin}</Button>
+            </Link>
+          </div>
+        ) : (
+        <>
         <div className="mb-8 text-center">
           <h2 className="text-2xl font-bold">회원가입</h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -338,6 +364,8 @@ export default function SignupPage() {
             </Link>
           </p>
         </div>
+        </>
+        )}
       </div>
     </AuthLayout>
   );

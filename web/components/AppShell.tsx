@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, FolderKanban, Settings, ClipboardList, LogOut } from "lucide-react";
+import { LayoutDashboard, FolderKanban, Settings, ClipboardList, LogOut, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,6 +14,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import BrandMark from "@/components/BrandMark";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useAuthStore } from "@/lib/auth";
+import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
 
 const navItems = [
@@ -23,10 +24,13 @@ const navItems = [
   { href: "/audit", label: "감사", icon: ClipboardList },
 ] as const;
 
+const adminNavItem = { href: "/admin/users", label: "관리", icon: ShieldCheck } as const;
+
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
+  const { t } = useTranslation();
 
   const handleLogout = async () => {
     try {
@@ -54,6 +58,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
+            {user?.is_admin && (() => {
+              const active = pathname.startsWith(adminNavItem.href);
+              return (
+                <Link href={adminNavItem.href}>
+                  <Button variant={active ? "secondary" : "ghost"} size="sm" className="gap-1.5 text-sm">
+                    <adminNavItem.icon className="size-4" />
+                    <span className="hidden sm:inline">{t.admin.title}</span>
+                  </Button>
+                </Link>
+              );
+            })()}
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <ThemeToggle />

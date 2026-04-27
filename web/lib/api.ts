@@ -71,4 +71,12 @@ export const api = {
     request<{ backup_codes: string[] }>("/api/account/2fa/confirm", { method: "POST", body: JSON.stringify({ code }) }),
   disable2fa: (password: string, code: string) =>
     request("/api/account/2fa/disable", { method: "POST", body: JSON.stringify({ password, code }) }),
+
+  // Admin
+  adminListUsers: (status?: string) =>
+    request<import("./types").AdminUser[]>(`/api/admin/users${status ? `?status=${status}` : ""}`),
+  adminApproveUser: (userId: string) =>
+    request(`/api/admin/users/${userId}/approve`, { method: "POST" }),
+  adminRejectUser: (userId: string, reason?: string) =>
+    request(`/api/admin/users/${userId}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
 };

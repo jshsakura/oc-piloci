@@ -1,6 +1,8 @@
 export interface User {
   user_id: string;
   email: string;
+  is_admin?: boolean;
+  approval_status?: "pending" | "approved" | "rejected";
 }
 
 export interface Project {
@@ -42,6 +44,19 @@ export interface AuditLog {
 
 export interface ApiError {
   error: string;
+}
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name?: string;
+  is_admin: boolean;
+  approval_status: "pending" | "approved" | "rejected";
+  reviewed_by?: string;
+  reviewed_at?: string;
+  rejection_reason?: string;
+  created_at: string;
+  oauth_provider?: string;
 }
 
 export interface VaultNote {

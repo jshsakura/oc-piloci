@@ -10,6 +10,7 @@ import AuthLayout from "@/components/AuthLayout";
 import { AuthProviderButtons } from "@/components/auth-provider-buttons";
 import { useAuthStore } from "@/lib/auth";
 import { api, type AuthProviderStatus } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -59,9 +60,11 @@ const loginSchema = z.object({
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, tc: { login: { approvalPendingShort: string; approvalRejectedShort: string } }): string {
   if (error instanceof Error) {
     const msg = error.message.toLowerCase();
+    if (msg.includes("pending") || msg.includes("승인")) return tc.login.approvalPendingShort;
+    if (msg.includes("rejected") || msg.includes("거부") || msg.includes("거절")) return tc.login.approvalRejectedShort;
     if (msg.includes("locked") || msg.includes("잠김")) return "계정이 잠겼습니다";
     if (msg.includes("invalid") || msg.includes("unauthorized") || msg.includes("401")) {
       return "이메일 또는 비밀번호가 올바르지 않습니다";
@@ -70,7 +73,7 @@ function getErrorMessage(error: unknown): string {
   return "이메일 또는 비밀번호가 올바르지 않습니다";
 }
 
-function getOauthErrorMessage(error: string | null): string | null {
+function getOauthErrorMessage(error: string | null, tc: { login: { approvalPending: string; approvalRejected: string } }): string | null {
   switch (error) {
     case "oauth_cancelled":
       return "소셜 로그인이 취소되었습니다. 다시 시도해 주세요.";
@@ -78,6 +81,10 @@ function getOauthErrorMessage(error: string | null): string | null {
       return "로그인 요청이 만료되었거나 유효하지 않습니다. 다시 시도해 주세요.";
     case "oauth_failed":
       return "소셜 로그인 처리 중 오류가 발생했습니다. 다시 시도해 주세요.";
+    case "approval_pending":
+      return tc.login.approvalPending;
+    case "approval_rejected":
+      return tc.login.approvalRejected;
     default:
       return null;
   }
@@ -86,6 +93,7 @@ function getOauthErrorMessage(error: string | null): string | null {
 export default function LoginPage() {
   const router = useRouter();
   const { setUser } = useAuthStore();
+  const { t } = useTranslation();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -120,7 +128,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    setOauthError(getOauthErrorMessage(params.get("error")));
+    setOauthError(getOauthErrorMessage(params.get("error"), t));
     setResetNotice(
       params.get("reset") === "1"
         ? "비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요."
@@ -136,7 +144,7 @@ export default function LoginPage() {
       setUser(user);
       router.push("/dashboard");
     } catch (err) {
-      setServerError(getErrorMessage(err));
+      setServerError(getErrorMessage(err, t));
     } finally {
       setIsPending(false);
     }
