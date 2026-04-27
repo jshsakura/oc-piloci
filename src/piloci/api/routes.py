@@ -303,6 +303,11 @@ def _require_user(request: Request) -> dict[str, Any] | None:
     return getattr(request.state, "user", None)
 
 
+def _uid(user: dict[str, Any]) -> str:
+    """Extract user id from JWT payload (sub) or session dict (user_id)."""
+    return user.get("sub") or user.get("user_id") or ""
+
+
 def _require_admin(request: Request) -> dict[str, Any] | None:
     user = getattr(request.state, "user", None)
     if user is None or not user.get("is_admin"):
@@ -345,7 +350,7 @@ async def route_list_projects(request: Request) -> Response:
 
     async with async_session() as db:
         result = await db.execute(
-            select(Project).where(Project.user_id == user["sub"]).order_by(Project.created_at)
+            select(Project).where(Project.user_id == _uid(user)).order_by(Project.created_at)
         )
         projects = result.scalars().all()
 
@@ -394,7 +399,7 @@ async def route_create_project(request: Request) -> Response:
     now = datetime.now(timezone.utc)
     project = Project(
         id=str(uuid.uuid4()),
-        user_id=user["sub"],
+        user_id=_uid(user),
         slug=slug,
         name=name,
         description=description,
@@ -435,7 +440,7 @@ async def route_delete_project(request: Request) -> Response:
 
     async with async_session() as db:
         result = await db.execute(
-            select(Project).where(Project.id == project_id, Project.user_id == user["sub"])
+            select(Project).where(Project.id == project_id, Project.user_id == _uid(user))
         )
         project = result.scalar_one_or_none()
         if not project:
@@ -444,7 +449,7 @@ async def route_delete_project(request: Request) -> Response:
 
     await invalidate_project_vault_cache(
         get_settings().vault_dir,
-        user["sub"],
+        _uid(user),
         project_id,
         project.slug,
     )
@@ -461,7 +466,7 @@ async def route_project_workspace(request: Request) -> Response:
     if not slug:
         return _json({"error": "project slug required"}, 400)
 
-    user_id = user["sub"]
+    user_id = _uid(user)
     project = await _get_user_project_by_slug(user_id, slug)
     if project is None:
         return _json({"error": "Not found"}, 404)
@@ -485,7 +490,7 @@ async def route_project_workspace_preview(request: Request) -> Response:
     if not slug:
         return _json({"error": "project slug required"}, 400)
 
-    user_id = user["sub"]
+    user_id = _uid(user)
     project = await _get_user_project_by_slug(user_id, slug)
     if project is None:
         return _json({"error": "Not found"}, 404)
@@ -510,7 +515,7 @@ async def route_vault_export(request: Request) -> Response:
     if not slug:
         return _json({"error": "project slug required"}, 400)
 
-    user_id = user["sub"]
+    user_id = _uid(user)
     project = await _get_user_project_by_slug(user_id, slug)
     if project is None:
         return _json({"error": "Not found"}, 404)
@@ -563,17 +568,30 @@ async def route_create_token(request: Request) -> Response:
 
         async with async_session() as db:
             result = await db.execute(
-                select(Project).where(Project.id == project_id, Project.user_id == user["sub"])
+                select(Project).where(Project.id == project_id, Project.user_id == _uid(user))
             )
             proj = result.scalar_one_or_none()
         if not proj:
             return _json({"error": "Project not found"}, 404)
         project_slug = proj.slug
 
+    # Resolve email — may not be present in session dict (only in JWT payload)
+    user_id_val = _uid(user)
+    user_email = user.get("email")
+    if not user_email:
+        from sqlalchemy import select as _sel
+
+        from piloci.db.models import User as _User
+
+        async with async_session() as _db:
+            _r = await _db.execute(_sel(_User).where(_User.id == user_id_val))
+            _u = _r.scalar_one_or_none()
+            user_email = _u.email if _u else ""
+
     token_id = str(uuid.uuid4())
     jwt_token = create_token(
-        user_id=user["sub"],
-        email=user["email"],
+        user_id=user_id_val,
+        email=user_email,
         project_id=project_id,
         project_slug=project_slug,
         scope=scope,
@@ -593,7 +611,7 @@ async def route_create_token(request: Request) -> Response:
         db.add(
             ApiToken(
                 token_id=token_id,
-                user_id=user["sub"],
+                user_id=_uid(user),
                 project_id=project_id,
                 name=token_name,
                 token_hash=token_hash,
@@ -623,7 +641,7 @@ async def route_list_tokens(request: Request) -> Response:
         result = await db.execute(
             select(ApiToken)
             .where(
-                ApiToken.user_id == user["sub"],
+                ApiToken.user_id == _uid(user),
                 ApiToken.revoked == False,  # noqa: E712
             )
             .order_by(ApiToken.created_at.desc())
@@ -658,7 +676,7 @@ async def route_revoke_token(request: Request) -> Response:
 
     async with async_session() as db:
         result = await db.execute(
-            select(ApiToken).where(ApiToken.token_id == token_id, ApiToken.user_id == user["sub"])
+            select(ApiToken).where(ApiToken.token_id == token_id, ApiToken.user_id == _uid(user))
         )
         token = result.scalar_one_or_none()
         if not token:
@@ -687,7 +705,7 @@ async def route_list_audit(request: Request) -> Response:
     from piloci.db.models import AuditLog
 
     async with async_session() as db:
-        q = select(AuditLog).where(AuditLog.user_id == user["sub"])
+        q = select(AuditLog).where(AuditLog.user_id == _uid(user))
         if action_filter:
             q = q.where(AuditLog.action == action_filter)
         q = q.order_by(AuditLog.created_at.desc()).limit(limit).offset(offset)
@@ -726,7 +744,7 @@ async def route_2fa_enable(request: Request) -> Response:
     from piloci.db.models import User
 
     async with async_session() as db:
-        result = await db.execute(select(User).where(User.id == user["sub"]))
+        result = await db.execute(select(User).where(User.id == _uid(user)))
         db_user: User | None = result.scalar_one_or_none()
         if not db_user:
             return _json({"error": "User not found"}, 404)
@@ -739,7 +757,16 @@ async def route_2fa_enable(request: Request) -> Response:
         db.add(db_user)
         await db.commit()
 
-    qr = get_qr_base64(secret, user["email"])
+    # Resolve email — may not be present in session dict (only in JWT payload)
+    user_id_val = _uid(user)
+    user_email = user.get("email")
+    if not user_email:
+        async with async_session() as _db2:
+            _r2 = await _db2.execute(select(User).where(User.id == user_id_val))
+            _u2 = _r2.scalar_one_or_none()
+            user_email = _u2.email if _u2 else ""
+
+    qr = get_qr_base64(secret, user_email)
     return _json({"qr": qr, "secret": secret})
 
 
@@ -764,7 +791,7 @@ async def route_2fa_confirm(request: Request) -> Response:
     from piloci.db.models import User
 
     async with async_session() as db:
-        result = await db.execute(select(User).where(User.id == user["sub"]))
+        result = await db.execute(select(User).where(User.id == _uid(user)))
         db_user: User | None = result.scalar_one_or_none()
         if not db_user:
             return _json({"error": "User not found"}, 404)
@@ -811,7 +838,7 @@ async def route_2fa_disable(request: Request) -> Response:
     from piloci.db.models import User
 
     async with async_session() as db:
-        result = await db.execute(select(User).where(User.id == user["sub"]))
+        result = await db.execute(select(User).where(User.id == _uid(user)))
         db_user: User | None = result.scalar_one_or_none()
         if not db_user:
             return _json({"error": "User not found"}, 404)
@@ -845,10 +872,22 @@ async def route_me(request: Request) -> Response:
     user = _require_user(request)
     if not user:
         return _json({"error": "Unauthorized"}, 401)
+
+    user_email = user.get("email")
+    if not user_email:
+        from sqlalchemy import select as _sel
+
+        from piloci.db.models import User as _User
+
+        async with async_session() as _db:
+            _r = await _db.execute(_sel(_User).where(_User.id == _uid(user)))
+            _u = _r.scalar_one_or_none()
+            user_email = _u.email if _u else None
+
     return _json(
         {
-            "user_id": user["sub"],
-            "email": user.get("email"),
+            "user_id": _uid(user),
+            "email": user_email,
             "scope": user.get("scope"),
             "is_admin": user.get("is_admin", False),
             "approval_status": user.get("approval_status", "approved"),
@@ -888,7 +927,7 @@ async def route_change_password(request: Request) -> Response:
     from piloci.db.models import User
 
     async with async_session() as db:
-        result = await db.execute(select(User).where(User.id == user["sub"]))
+        result = await db.execute(select(User).where(User.id == _uid(user)))
         u = result.scalar_one_or_none()
         if not u or not verify_password(current, u.password_hash or ""):
             return _json({"error": "Current password is incorrect"}, 401)
@@ -1265,7 +1304,7 @@ async def route_ingest(request: Request) -> Response:
     if not isinstance(transcript, list) or not transcript:
         return _json({"error": "transcript must be a non-empty list"}, 400)
 
-    user_id = user.get("sub") or user.get("user_id")
+    user_id = _uid(user)
     project_id = body.get("project_id") or user.get("project_id")
     if not user_id or not project_id:
         return _json({"error": "user_id and project_id required"}, 400)
@@ -1326,7 +1365,7 @@ async def route_create_memory(request: Request) -> Response:
     user = request.state.user
     if user is None:
         return _json({"error": "unauthorized"}, 401)
-    user_id_value = user.get("sub") or user.get("user_id")
+    user_id_value = _uid(user)
     project_id_value = user.get("project_id")
     if not isinstance(user_id_value, str) or not user_id_value:
         return _json({"error": "user_id required"}, 400)
@@ -1380,7 +1419,7 @@ async def route_get_memory(request: Request) -> Response:
     user = request.state.user
     if user is None:
         return _json({"error": "unauthorized"}, 401)
-    user_id = user.get("sub") or user.get("user_id")
+    user_id = _uid(user)
     project_id = user.get("project_id") or request.query_params.get("project_id")
     if not project_id:
         return _json({"error": "project_id required"}, 400)
@@ -1396,7 +1435,7 @@ async def route_update_memory(request: Request) -> Response:
     user = request.state.user
     if user is None:
         return _json({"error": "unauthorized"}, 401)
-    user_id = user.get("sub") or user.get("user_id")
+    user_id = _uid(user)
     project_id = user.get("project_id")
     if not project_id:
         return _json({"error": "project scope required"}, 400)
@@ -1439,7 +1478,7 @@ async def route_delete_memory(request: Request) -> Response:
     user = request.state.user
     if user is None:
         return _json({"error": "unauthorized"}, 401)
-    user_id = user.get("sub") or user.get("user_id")
+    user_id = _uid(user)
     project_id = user.get("project_id")
     if not project_id:
         return _json({"error": "project scope required"}, 400)
@@ -1456,7 +1495,7 @@ async def route_clear_memories(request: Request) -> Response:
     user = request.state.user
     if user is None:
         return _json({"error": "unauthorized"}, 401)
-    user_id = user.get("sub") or user.get("user_id")
+    user_id = _uid(user)
     project_id = user.get("project_id")
     if not project_id:
         return _json({"error": "project scope required"}, 400)
@@ -1482,7 +1521,7 @@ async def route_analyze_session(request: Request) -> Response:
     user = _require_user(request)
     if user is None:
         return _json({"error": "unauthorized"}, 401)
-    user_id = user.get("sub") or user.get("user_id")
+    user_id = _uid(user)
     project_id = user.get("project_id")
     if not isinstance(user_id, str) or not user_id:
         return _json({"error": "user_id required"}, 400)
@@ -1676,13 +1715,18 @@ async def route_admin_approve_user(request: Request) -> Response:
     from piloci.db.models import User
 
     user_id = request.path_params["id"]
+    admin_id = admin.get("user_id") or admin.get("sub")
     async with async_session() as db:
+        admin_result = await db.execute(select(User).where(User.id == admin_id))
+        admin_user = admin_result.scalar_one_or_none()
+        admin_email = admin_user.email if admin_user else "unknown"
+
         result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
         user = result.scalar_one_or_none()
         if user is None:
             return _json({"error": "User not found"}, 404)
         user.approval_status = "approved"
-        user.reviewed_by = admin["email"]
+        user.reviewed_by = admin_email
         user.reviewed_at = datetime.now(timezone.utc)
         user.rejection_reason = None
         await db.commit()
@@ -1702,13 +1746,18 @@ async def route_admin_reject_user(request: Request) -> Response:
     body = orjson.loads(await request.body()) if await request.body() else {}
     reason = body.get("reason")
 
+    admin_id = admin.get("user_id") or admin.get("sub")
     async with async_session() as db:
+        admin_result = await db.execute(select(User).where(User.id == admin_id))
+        admin_user = admin_result.scalar_one_or_none()
+        admin_email = admin_user.email if admin_user else "unknown"
+
         result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
         user = result.scalar_one_or_none()
         if user is None:
             return _json({"error": "User not found"}, 404)
         user.approval_status = "rejected"
-        user.reviewed_by = admin["email"]
+        user.reviewed_by = admin_email
         user.reviewed_at = datetime.now(timezone.utc)
         user.rejection_reason = reason or None
         await db.commit()
