@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from typing import Any
 
 import httpx
 
@@ -78,4 +79,19 @@ async def send_session_summary(tracker: McpSessionTracker, settings: Settings) -
 
     if last_response is not None:
         last_response.raise_for_status()
+    return True
+
+
+async def send_admin_notification(text: str, settings: Settings) -> bool:
+    if not settings.telegram_bot_token or not settings.telegram_chat_id:
+        return False
+
+    url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
+    payload: dict[str, Any] = {
+        "chat_id": settings.telegram_chat_id,
+        "text": text[:_MAX_TEXT_LEN],
+    }
+    async with httpx.AsyncClient(timeout=settings.telegram_timeout_sec) as client:
+        response = await client.post(url, json=payload)
+        response.raise_for_status()
     return True
