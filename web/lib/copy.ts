@@ -307,6 +307,68 @@ const copy = {
         ],
         dates: '공고일자: 2026년 1월 1일 / 시행일자: 2026년 1월 1일',
       },
+    terms: {
+      title: '서비스 약관',
+      subtitle: 'piLoci 서비스 이용약관',
+      preamble: '본 약관은 piLoci 서비스의 이용 조건과 절차, 이용자와 운영자의 권리·의무 및 책임사항을 규정합니다.',
+      sections: [
+        {
+          title: '1. 약관의 적용',
+          content: '',
+          items: [
+            '본 약관은 piLoci 서비스를 이용하는 모든 사용자에게 적용됩니다.',
+            '운영자는 약관을 변경할 수 있으며, 변경 시 서비스 내 공지사항으로 안내합니다.',
+            '변경된 약관에 동의하지 않을 경우 서비스 이용을 중단할 수 있습니다.',
+          ],
+        },
+        {
+          title: '2. 서비스 내용',
+          content: '',
+          items: [
+            'piLoci는 AI 대화 맥락을 프로젝트 단위로 저장·검색·관리하는 자가호스팅 메모리 서비스입니다.',
+            '핵심 기능: 대화 증류(자동 핵심 추출), 시맨틱 검색, 프로젝트 격리 메모리, MCP 도구 인터페이스.',
+            '서비스 내용은 기능 개선을 위해 변경될 수 있으며, 주요 변경 시 사전 공지합니다.',
+          ],
+        },
+        {
+          title: '3. 사용자 의무',
+          content: '',
+          items: [
+            '타인의 계정을 무단으로 사용해서는 안 됩니다.',
+            '서비스의 보안 취약점을 악용하거나 시스템에 부하를 주는 행위를 금지합니다.',
+            '저장하는 대화 콘텐츠에 대해 사용자가 전적인 책임을 집니다.',
+          ],
+        },
+        {
+          title: '4. 데이터 소유권',
+          content: '',
+          items: [
+            '사용자가 입력하고 생성된 모든 데이터의 소유권은 사용자에게 있습니다.',
+            '운영자는 사용자 동의 없이 데이터에 접근하거나 활용하지 않습니다.',
+            '로컬 우선(Local-first) 구조에서 데이터는 사용자 장치에 저장됩니다.',
+          ],
+        },
+        {
+          title: '5. 서비스 중단 및 종료',
+          content: '',
+          items: [
+            '운영자는 서비스 개선을 위해 일시적으로 서비스를 중단할 수 있습니다.',
+            '서비스 종료 시 최소 30일 전에 공지하며, 사용자에게 데이터를 내보낼 기회를 제공합니다.',
+            '사용자는 언제든지 계정을 삭제하고 모든 데이터를 즉시 파기할 수 있습니다.',
+          ],
+        },
+        {
+          title: '6. 책임의 한계',
+          content: '',
+          items: [
+            '자가호스팅(Self-hosted) 서비스로서, 시스템 운영 및 데이터 백업의 책임은 배포자에게 있습니다.',
+            'AI가 생성하는 증류 결과의 정확성에 대해 보장하지 않습니다.',
+            '불가항력적 사유로 인한 서비스 중단에 대해서는 책임을 지지 않습니다.',
+          ],
+        },
+      ],
+      dates: '공고일자: 2026년 1월 1일 / 시행일자: 2026년 1월 1일',
+    },
     admin: {
       title: '사용자 관리',
       description: '가입 요청을 승인 또는 거부합니다.',
@@ -640,6 +702,68 @@ const copy = {
           title: '7. Your Rights',
           content: '',
           items: ['You may view, modify, or delete your personal information at any time.', 'Manage directly from the Settings page within the service.', 'For privacy-related inquiries, contact us via email for immediate handling.'],
+        },
+      ],
+      dates: 'Published: January 1, 2026 / Effective: January 1, 2026',
+    },
+    terms: {
+      title: 'Terms of Service',
+      subtitle: 'piLoci Terms of Service',
+      preamble: 'These terms govern the conditions and procedures for using piLoci, and define the rights, obligations, and responsibilities of users and operators.',
+      sections: [
+        {
+          title: '1. Application of Terms',
+          content: '',
+          items: [
+            'These terms apply to all users of the piLoci service.',
+            'The operator may modify these terms and will notify users of changes via in-service announcements.',
+            'If you do not agree to the modified terms, you may discontinue use of the service.',
+          ],
+        },
+        {
+          title: '2. Service Description',
+          content: '',
+          items: [
+            'piLoci is a self-hosted memory service that stores, searches, and manages AI conversation context on a per-project basis.',
+            'Core features: conversation distillation (automatic key extraction), semantic search, project-isolated memory, MCP tool interface.',
+            'Service content may change for improvement, with advance notice for significant changes.',
+          ],
+        },
+        {
+          title: '3. User Responsibilities',
+          content: '',
+          items: [
+            'You must not use another person\'s account without authorization.',
+            'Exploiting security vulnerabilities or causing system overload is prohibited.',
+            'You bear full responsibility for the content stored in conversations.',
+          ],
+        },
+        {
+          title: '4. Data Ownership',
+          content: '',
+          items: [
+            'All data you input and generate remains your property.',
+            'The operator does not access or utilize your data without consent.',
+            'In a local-first architecture, data is stored on your device.',
+          ],
+        },
+        {
+          title: '5. Service Suspension and Termination',
+          content: '',
+          items: [
+            'The operator may temporarily suspend the service for maintenance.',
+            'Service termination will be announced at least 30 days in advance, with an opportunity to export your data.',
+            'You may delete your account and destroy all data at any time.',
+          ],
+        },
+        {
+          title: '6. Limitation of Liability',
+          content: '',
+          items: [
+            'As a self-hosted service, system operation and data backup responsibilities lie with the deployer.',
+            'We do not guarantee the accuracy of AI-generated distillation results.',
+            'We are not liable for service interruptions due to force majeure events.',
+          ],
         },
       ],
       dates: 'Published: January 1, 2026 / Effective: January 1, 2026',

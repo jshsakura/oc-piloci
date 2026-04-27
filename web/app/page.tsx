@@ -470,11 +470,16 @@ export default function LandingPage() {
       </section>
 
       <footer className="border-t bg-background py-6">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4">
+        <div className="mx-auto flex flex-col items-center gap-3 sm:flex-row sm:justify-between max-w-6xl px-4">
           <p className="text-sm text-muted-foreground">{t.landing.footer}</p>
-          <Link href="/privacy" className="text-sm text-muted-foreground/60 hover:text-foreground transition-colors">
-            {t.privacy.title}
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/privacy" className="text-sm text-muted-foreground/60 hover:text-foreground transition-colors">
+              {t.privacy.title}
+            </Link>
+            <Link href="/terms" className="text-sm text-muted-foreground/60 hover:text-foreground transition-colors">
+              {t.terms.title}
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

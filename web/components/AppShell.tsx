@@ -82,6 +82,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <div className="px-2 py-1.5 text-sm text-muted-foreground">{user?.email}</div>
+                <DropdownMenuItem asChild>
+                  <Link href="/privacy">
+                    개인정보 처리방침
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/terms">
+                    서비스 약관
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive">
                   <LogOut className="mr-2 size-4" />
                   로그아웃

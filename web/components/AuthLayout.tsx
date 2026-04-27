@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import BrandMark from "@/components/BrandMark";
+import { useTranslation } from "@/lib/i18n";
 
 function RainbowAI({ text }: { text: string }) {
   const parts = text.split("AI");
@@ -21,6 +23,7 @@ function RainbowAI({ text }: { text: string }) {
 }
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
+  const { locale } = useTranslation();
   return (
     <div className="flex min-h-screen">
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 bg-muted/50 border-r section-pattern">
@@ -35,7 +38,16 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
             piLoci는 프로젝트별 격리된 메모리 공간으로 AI가 맥락을 잃지 않도록 돕습니다.
           </p>
         </div>
-        <p className="text-sm text-muted-foreground">© piLoci 2026. Husband of Rebekah.</p>
+        <p className="text-sm text-muted-foreground">
+          © piLoci 2026. Husband of Rebekah. ·{" "}
+          <Link href="/privacy" className="hover:text-foreground transition-colors">
+            {locale === "ko" ? "개인정보 처리방침" : "Privacy Policy"}
+          </Link>
+          {" "}·{" "}
+          <Link href="/terms" className="hover:text-foreground transition-colors">
+            {locale === "ko" ? "서비스 약관" : "Terms of Service"}
+          </Link>
+        </p>
       </div>
       <div className="flex w-full lg:w-1/2 items-center justify-center p-6 landing-pattern">
         {children}
