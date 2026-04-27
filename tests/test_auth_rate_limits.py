@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from starlette.applications import Starlette
@@ -20,10 +21,17 @@ def _make_app(monkeypatch: pytest.MonkeyPatch) -> Starlette:
     import piloci.api.routes as routes
 
     async def _signup(*args, **kwargs):
-        return SimpleNamespace(id="user-1", email="user@test.com")
+        return SimpleNamespace(
+            id="user-1", email="user@test.com", approval_status="approved", is_admin=False
+        )
 
     async def _login(*args, **kwargs):
-        return SimpleNamespace(id="user-1", email="user@test.com"), "session-1"
+        return (
+            SimpleNamespace(
+                id="user-1", email="user@test.com", approval_status="approved", is_admin=False
+            ),
+            "session-1",
+        )
 
     async def _create_reset_token(*args, **kwargs):
         return "reset-token"
@@ -36,7 +44,11 @@ def _make_app(monkeypatch: pytest.MonkeyPatch) -> Starlette:
     monkeypatch.setattr(routes, "login", _login)
     monkeypatch.setattr(routes, "create_reset_token", _create_reset_token)
     monkeypatch.setattr(routes, "reset_password", _reset_password)
-    monkeypatch.setattr(routes, "get_session_store", lambda settings: SimpleNamespace())
+    monkeypatch.setattr(
+        routes,
+        "get_session_store",
+        lambda settings: SimpleNamespace(create_session=AsyncMock(return_value="sess-1")),
+    )
     monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(session_expire_days=14))
 
     app = Starlette(routes=get_routes())
