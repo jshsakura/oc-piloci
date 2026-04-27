@@ -98,6 +98,7 @@ class Settings(BaseSettings):
     # Kakao OAuth (optional)
     kakao_client_id: str | None = None
     kakao_client_secret: str | None = None
+    kakao_admin_key: str | None = None
 
     # Naver OAuth (optional)
     naver_client_id: str | None = None

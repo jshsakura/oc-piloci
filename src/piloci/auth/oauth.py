@@ -349,3 +349,15 @@ def verify_naver_unlink_signature(
         message = f"{client_id}_{svc_id}{user_id}{timestamp}"
     expected = hmac.new(client_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(expected, signature)
+
+
+def verify_kakao_unlink_auth(authorization: str, admin_key: str) -> bool:
+    """Verify Kakao unlink webhook authorization header.
+
+    Kakao sends ``Authorization: KakaoAK ${ADMIN_KEY}``.
+    """
+    prefix = "KakaoAK "
+    if not authorization.startswith(prefix):
+        return False
+    token = authorization[len(prefix) :]
+    return hmac.compare_digest(token, admin_key)
