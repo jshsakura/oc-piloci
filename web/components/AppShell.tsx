@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, FolderKanban, Settings, ClipboardList, LogOut, ShieldCheck, KeyRound } from "lucide-react";
+import { LayoutDashboard, FolderKanban, Settings, ClipboardList, LogOut, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,11 +21,8 @@ import { api } from "@/lib/api";
 const navItems = [
   { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
   { href: "/projects", label: "프로젝트", icon: FolderKanban },
-  { href: "/settings", label: "설정", icon: Settings },
-  { href: "/audit", label: "감사", icon: ClipboardList },
 ] as const;
 
-const adminNavItem = { href: "/admin/users", label: "관리", icon: ShieldCheck } as const;
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -59,17 +56,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </Link>
               );
             })}
-            {user?.is_admin && (() => {
-              const active = pathname.startsWith(adminNavItem.href);
-              return (
-                <Link href={adminNavItem.href}>
-                  <Button variant={active ? "secondary" : "ghost"} size="sm" className="gap-1.5 text-sm">
-                    <adminNavItem.icon className="size-4" />
-                    <span className="hidden sm:inline">{t.admin.title}</span>
-                  </Button>
-                </Link>
-              );
-            })()}
           </nav>
           <div className="ml-auto flex items-center gap-2">
             <ThemeToggle />
@@ -82,20 +68,28 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <div className="px-2 py-1.5 text-sm text-muted-foreground">{user?.email}</div>
+                <div className="px-2 py-1.5 text-sm text-muted-foreground select-none">{user?.email}</div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/settings">
-                    <KeyRound className="mr-2 size-4" />
-                    API 토큰
+                    <Settings className="mr-2 size-4" />
+                    설정
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link href="/projects">
-                    <FolderKanban className="mr-2 size-4" />
-                    프로젝트
+                  <Link href="/audit">
+                    <ClipboardList className="mr-2 size-4" />
+                    활동 기록
                   </Link>
                 </DropdownMenuItem>
+                {user?.is_admin && (
+                  <DropdownMenuItem asChild>
+                    <Link href="/admin/users">
+                      <ShieldCheck className="mr-2 size-4" />
+                      {t.admin.title}
+                    </Link>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive">
                   <LogOut className="mr-2 size-4" />
