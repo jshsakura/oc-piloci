@@ -50,6 +50,14 @@ class InvalidTOTPError(AuthError):
     """Raised when the provided TOTP code is invalid."""
 
 
+class ApprovalPendingError(AuthError):
+    """Raised when a user's account is pending admin approval."""
+
+
+class ApprovalRejectedError(AuthError):
+    """Raised when a user's account has been rejected by an admin."""
+
+
 # ---------------------------------------------------------------------------
 # Password policy
 # ---------------------------------------------------------------------------
@@ -100,13 +108,7 @@ async def signup(
     db_session: AsyncSession,
     settings: Settings,
 ) -> User:
-    """Register a new local user.
-
-    Raises:
-        EmailExistsError: if the email is already taken.
-        WeakPasswordError: if the password does not meet policy requirements.
-    """
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     from piloci.db.models import AuditLog, User  # type: ignore[attr-defined]
 
@@ -116,16 +118,27 @@ async def signup(
     if result.scalar_one_or_none() is not None:
         raise EmailExistsError(f"Email already registered: {email}")
 
+    user_count = (await db_session.execute(select(func.count()).select_from(User))).scalar() or 0
+    is_first_user = user_count == 0
+
     hashed = hash_password(password)
     now = datetime.now(timezone.utc)
-    user = User(id=str(uuid.uuid4()), email=email, name=name, password_hash=hashed, created_at=now)
+    user = User(
+        id=str(uuid.uuid4()),
+        email=email,
+        name=name,
+        password_hash=hashed,
+        created_at=now,
+        approval_status="approved" if is_first_user else "pending",
+        is_admin=is_first_user,
+    )
     db_session.add(user)
     await db_session.flush()
 
     audit = AuditLog(
         user_id=user.id,
         action="signup",
-        meta_data=orjson.dumps({"email": email}).decode(),
+        meta_data=orjson.dumps({"email": email, "first_user": is_first_user}).decode(),
         created_at=now,
     )
     db_session.add(audit)
@@ -183,6 +196,11 @@ async def login(
             await db_session.commit()
 
         raise InvalidCredentialsError("Invalid email or password.")
+
+    if user.approval_status == "pending":
+        raise ApprovalPendingError("Account pending admin approval.")
+    if user.approval_status == "rejected":
+        raise ApprovalRejectedError("Account has been rejected by an admin.")
 
     # TOTP check
     if user.totp_enabled:

@@ -180,8 +180,7 @@ async def get_userinfo(provider: str, access_token: str) -> NormalizedUserInfo:
 
 
 async def upsert_oauth_user(db: AsyncSession, provider: str, userinfo: NormalizedUserInfo) -> User:
-    """Upsert an OAuth user for the selected provider and return the user row."""
-    from sqlalchemy import or_, select
+    from sqlalchemy import func, or_, select
 
     from piloci.db.models import User
 
@@ -204,6 +203,9 @@ async def upsert_oauth_user(db: AsyncSession, provider: str, userinfo: Normalize
     now = datetime.now(timezone.utc)
 
     if user is None:
+        user_count = (await db.execute(select(func.count()).select_from(User))).scalar() or 0
+        is_first_user = user_count == 0
+
         user = User(
             id=str(uuid.uuid4()),
             email=email,
@@ -213,6 +215,8 @@ async def upsert_oauth_user(db: AsyncSession, provider: str, userinfo: Normalize
             oauth_sub=sub,
             created_at=now,
             last_login_at=now,
+            approval_status="approved" if is_first_user else "pending",
+            is_admin=is_first_user,
         )
         db.add(user)
     else:

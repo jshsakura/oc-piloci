@@ -25,8 +25,15 @@ class SessionStore:
         self._settings = settings
         self._session_ttl = settings.session_expire_days * 86400
 
-    async def create_session(self, user_id: str, ip: str, user_agent: str) -> str:
-        """Create a new session, enforcing max sessions per user via LRU eviction."""
+    async def create_session(
+        self,
+        user_id: str,
+        ip: str,
+        user_agent: str,
+        *,
+        is_admin: bool = False,
+        approval_status: str = "pending",
+    ) -> str:
         session_id = secrets.token_hex(32)
         now = datetime.now(tz=timezone.utc).isoformat()
 
@@ -36,6 +43,8 @@ class SessionStore:
                 "created_at": now,
                 "ip": ip,
                 "user_agent": user_agent,
+                "is_admin": is_admin,
+                "approval_status": approval_status,
             }
         )
 
