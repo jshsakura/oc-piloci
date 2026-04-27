@@ -4,29 +4,6 @@ import "./globals.css";
 import { Providers } from "./providers";
 import { getCopy } from "@/lib/copy";
 
-const themeInitScript = `
-  (() => {
-    try {
-      const storageKey = 'piloci-theme';
-      const storedTheme = window.localStorage.getItem(storageKey);
-      const systemPrefersDark = typeof window.matchMedia === 'function'
-        && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      const theme = storedTheme === 'dark' || storedTheme === 'light'
-        ? storedTheme
-        : systemPrefersDark
-          ? 'dark'
-          : 'light';
-      const root = document.documentElement;
-      root.classList.toggle('dark', theme === 'dark');
-      root.style.colorScheme = theme;
-    } catch {
-      const root = document.documentElement;
-      root.classList.remove('dark');
-      root.style.colorScheme = 'light';
-    }
-  })();
-`;
-
 const copy = getCopy();
 const SITE_URL = "https://piloci.jshsakura.com";
 
@@ -95,9 +72,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         />
       </head>
       <body className="antialiased">
-        <Script id="piloci-theme-init" strategy="beforeInteractive">
-          {themeInitScript}
-        </Script>
+        <Script src="/theme-init.js" strategy="beforeInteractive" />
         <Providers>{children}</Providers>
       </body>
     </html>
