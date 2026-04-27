@@ -35,7 +35,13 @@ def _homepage(request: Request) -> PlainTextResponse:
 
 
 def _make_app() -> Starlette:
-    app = Starlette(routes=[Route("/", _homepage), Route("/healthz", _homepage)])
+    app = Starlette(
+        routes=[
+            Route("/", _homepage),
+            Route("/healthz", _homepage),
+            Route("/api/test", _homepage),
+        ]
+    )
     app.add_middleware(SecurityHeadersMiddleware)
     return app
 
@@ -45,11 +51,18 @@ def client() -> TestClient:
     return TestClient(_make_app())
 
 
-def test_all_security_headers_present(client: TestClient) -> None:
+def test_static_page_has_security_headers_but_no_csp(client: TestClient) -> None:
     response = client.get("/")
     assert response.status_code == 200
-    for header in _REQUIRED_HEADERS:
-        assert header in response.headers, f"Missing header: {header}"
+    assert "X-Content-Type-Options" in response.headers
+    assert "X-Frame-Options" in response.headers
+    assert "Content-Security-Policy" not in response.headers
+
+
+def test_api_route_has_csp(client: TestClient) -> None:
+    response = client.get("/api/test")
+    assert response.status_code == 200
+    assert "Content-Security-Policy" in response.headers
 
 
 def test_x_content_type_options_value(client: TestClient) -> None:
@@ -78,7 +91,7 @@ def test_hsts_value(client: TestClient) -> None:
 
 
 def test_csp_value(client: TestClient) -> None:
-    response = client.get("/")
+    response = client.get("/api/test")
     assert response.headers["Content-Security-Policy"] == _EXPECTED_CSP
 
 
