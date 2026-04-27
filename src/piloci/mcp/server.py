@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""piloci v0.3 MCP server — 4 tools + 3 resources + 1 prompt.
+"""piloci v0.3 MCP server — 6 tools + 3 resources + 1 prompt.
 
 Core mechanism (copied from supermemory-mcp v4.0):
 1. Aggressive tool descriptions push the LLM to call memory/recall.
@@ -20,6 +20,14 @@ from piloci.config import Settings, get_settings
 from piloci.storage.embed import embed_one
 from piloci.storage.lancedb_store import MemoryStore
 from piloci.tools._schema import compact_schema
+from piloci.tools.instinct_tools import (
+    CONTRADICT_DESC,
+    RECOMMEND_DESC,
+    ContradictInput,
+    RecommendInput,
+    handle_contradict,
+    handle_recommend,
+)
 from piloci.tools.memory_tools import (
     LIST_PROJECTS_DESC,
     MEMORY_DESC,
@@ -52,6 +60,8 @@ TOOL_DEFINITIONS = [
     _make_tool("recall", RECALL_DESC, RecallInput),
     _make_tool("listProjects", LIST_PROJECTS_DESC, ListProjectsInput),
     _make_tool("whoAmI", WHOAMI_DESC, WhoAmIInput),
+    _make_tool("recommend", RECOMMEND_DESC, RecommendInput),
+    _make_tool("contradict", CONTRADICT_DESC, ContradictInput),
 ]
 
 
@@ -141,6 +151,7 @@ def create_mcp_server(
     profile_fn=None,
     projects_fn=None,
     recent_fn=None,
+    instincts_store=None,
 ) -> Server:
     """Build the MCP server with tools, resources, and prompts registered.
 
@@ -148,9 +159,9 @@ def create_mcp_server(
         settings: piloci settings
         store: vector store (LanceDB)
         profile_fn: async (user_id, project_id) -> dict | None
-                    Returns {"static": [...], "dynamic": [...]}
         projects_fn: async (user_id, refresh: bool) -> list[dict]
         recent_fn: async (user_id, project_id, limit: int) -> list[dict]
+        instincts_store: InstinctsStore instance for recommend/contradict tools
     """
     server = Server("piloci")
 
@@ -231,6 +242,22 @@ def create_mcp_server(
             result = await handle_whoami(
                 args, user_id, project_id, auth_payload, session_id, client_info=None
             )
+        elif name == "recommend":
+            args = RecommendInput.model_validate(arguments)
+            required_project_id = _require_project_id(project_id)
+            if instincts_store is None:
+                result = {"instincts": [], "total": 0, "error": "instincts not enabled"}
+            else:
+                result = await handle_recommend(args, user_id, required_project_id, instincts_store)
+        elif name == "contradict":
+            args = ContradictInput.model_validate(arguments)
+            required_project_id = _require_project_id(project_id)
+            if instincts_store is None:
+                result = {"success": False, "error": "instincts not enabled"}
+            else:
+                result = await handle_contradict(
+                    args, user_id, required_project_id, instincts_store
+                )
         else:
             raise ValueError(f"Unknown tool: {name}")
 

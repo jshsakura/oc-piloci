@@ -21,6 +21,7 @@ from piloci.config import get_settings
 from piloci.db.session import init_db
 from piloci.mcp.server import create_mcp_server
 from piloci.mcp.sse import create_sse_app
+from piloci.storage.instincts_store import InstinctsStore
 from piloci.storage.lancedb_store import MemoryStore
 from piloci.utils.logging import RuntimeProfilingMiddleware, configure_logging
 
@@ -64,8 +65,10 @@ async def _run_stdio() -> None:
 
     settings = get_settings()
     store = MemoryStore(settings)
+    instincts_store = InstinctsStore(settings)
     await store.ensure_collection()
-    mcp_server = _build_mcp(settings, store)
+    await instincts_store.ensure_collection()
+    mcp_server = _build_mcp(settings, store, instincts_store)
     logger.info("piLoci stdio MCP server starting")
     async with stdio_server() as (read, write):
         await mcp_server.run(read, write, mcp_server.create_initialization_options())
@@ -76,7 +79,7 @@ def run_stdio() -> None:
     asyncio.run(_run_stdio())
 
 
-def _build_mcp(settings, store: MemoryStore):
+def _build_mcp(settings, store: MemoryStore, instincts_store: InstinctsStore | None = None):
     """Build MCP server with v0.3 resources/prompts wired to DB + store."""
     from sqlalchemy import select
 
@@ -117,6 +120,7 @@ def _build_mcp(settings, store: MemoryStore):
         profile_fn=profile_fn,
         projects_fn=projects_fn,
         recent_fn=recent_fn,
+        instincts_store=instincts_store,
     )
 
 
@@ -125,7 +129,8 @@ def create_app():
     configure_logging(level=settings.log_level, fmt=settings.log_format)
 
     store = MemoryStore(settings)
-    mcp_server = _build_mcp(settings, store)
+    instincts_store = InstinctsStore(settings)
+    mcp_server = _build_mcp(settings, store, instincts_store)
 
     sse_app = create_sse_app(mcp_server, debug=settings.debug, prefix="/mcp")
 
@@ -148,7 +153,7 @@ def create_app():
 
     @asynccontextmanager
     async def lifespan(app_inner):
-        await _startup(app_inner, store, stop_event, bg_tasks)
+        await _startup(app_inner, store, stop_event, bg_tasks, instincts_store)
         try:
             yield
         finally:
@@ -172,15 +177,18 @@ def create_app():
         lifespan=lifespan,
     )
     app.state.store = store
+    app.state.instincts_store = instincts_store
     setup_ratelimit(app)
     return app
 
 
-async def _startup(app, store, stop_event, bg_tasks) -> None:
+async def _startup(app, store, stop_event, bg_tasks, instincts_store=None) -> None:
     settings = get_settings()
     await init_db()
     logger.info("Database initialized")
     await store.ensure_collection()
+    if instincts_store is not None:
+        await instincts_store.ensure_collection()
     logger.info("LanceDB collection ready")
 
     from piloci.ops.maintenance import run_maintenance_worker

@@ -25,6 +25,26 @@ export interface Memory {
   updated_at: number;
 }
 
+export interface TokenSetup {
+  mcp_config: {
+    mcpServers: {
+      piloci: {
+        type: string;
+        url: string;
+        headers: { Authorization: string };
+      };
+    };
+  };
+  hook_config: {
+    hooks: {
+      Stop: Array<{
+        matcher: string;
+        hooks: Array<{ type: string; command: string }>;
+      }>;
+    };
+  };
+}
+
 export interface ApiToken {
   token_id: string;
   name: string;
@@ -32,6 +52,13 @@ export interface ApiToken {
   project_id?: string;
   created_at: string;
   last_used_at?: string;
+}
+
+export interface CreatedToken {
+  token: string;
+  token_id: string;
+  name: string;
+  setup?: TokenSetup;
 }
 
 export interface AuditLog {
