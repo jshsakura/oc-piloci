@@ -17,6 +17,41 @@ async def _fake_async_session():
     yield SimpleNamespace()
 
 
+@pytest.fixture(autouse=True)
+def _reset_limiter():
+    """Reset ALL slowapi internal state between tests.
+
+    Calling ``setup_ratelimit(app)`` mutates the module-global limiter's
+    ``_route_limits`` and ``__marked_for_limiting`` dicts.  Because each
+    test creates a new Starlette app via ``_make_app()``, the same decorated
+    route handlers get registered N times — once per test — causing slowapi
+    to evaluate N identical limits per request (so a single request
+    increments the counter N times).
+
+    Clearing storage alone is not enough; we must also deduplicate the
+    internal route-limit registrations.
+    """
+    storage = limiter._storage
+    storage.reset()
+
+    # Deduplicate _route_limits: keep only one entry per endpoint key.
+    for key in list(limiter._route_limits.keys()):
+        limits = limiter._route_limits[key]
+        if len(limits) > 1:
+            limiter._route_limits[key] = limits[:1]
+
+    # Deduplicate __marked_for_limiting the same way.
+    marked = limiter._Limiter__marked_for_limiting
+    for key in list(marked.keys()):
+        funcs = marked[key]
+        if len(funcs) > 1:
+            marked[key] = funcs[:1]
+
+    yield
+
+    storage.reset()
+
+
 def _make_app(monkeypatch: pytest.MonkeyPatch) -> Starlette:
     import piloci.api.routes as routes
 
@@ -54,13 +89,6 @@ def _make_app(monkeypatch: pytest.MonkeyPatch) -> Starlette:
     app = Starlette(routes=get_routes())
     setup_ratelimit(app)
     return app
-
-
-@pytest.fixture(autouse=True)
-def _reset_limiter_storage():
-    limiter._storage.reset()
-    yield
-    limiter._storage.reset()
 
 
 def test_signup_route_is_rate_limited(monkeypatch: pytest.MonkeyPatch) -> None:
