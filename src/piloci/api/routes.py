@@ -1086,6 +1086,55 @@ async def route_naver_unlink_callback(request: Request) -> Response:
     return _json({"result": "ok"})
 
 
+async def route_kakao_unlink_callback(request: Request) -> Response:
+    settings = get_settings()
+
+    from sqlalchemy import select
+
+    from piloci.auth.oauth import verify_kakao_unlink_auth
+    from piloci.db.models import User
+
+    admin_key = settings.kakao_admin_key
+    if not admin_key:
+        return _json({"error": "kakao OAuth is not configured"}, 503)
+
+    authorization = request.headers.get("Authorization", "")
+    if not verify_kakao_unlink_auth(authorization, admin_key):
+        return _json({"error": "Invalid authorization"}, 403)
+
+    if request.method == "GET":
+        app_id = str(request.query_params.get("app_id", ""))
+        user_id = str(request.query_params.get("user_id", ""))
+        referrer_type = str(request.query_params.get("referrer_type", ""))
+    else:
+        form = await request.form()
+        app_id = str(form.get("app_id", ""))
+        user_id = str(form.get("user_id", ""))
+        referrer_type = str(form.get("referrer_type", ""))
+
+    if not user_id:
+        return _json({"error": "Missing user_id"}, 400)
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(User).where(
+                User.oauth_provider == "kakao",
+                User.oauth_sub == user_id,
+            )
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            return _json({"result": "ok"})
+
+        user.oauth_provider = None
+        user.oauth_sub = None
+        user.oauth_access_token = None
+        user.oauth_refresh_token = None
+        db.add(user)
+
+    return _json({"result": "ok"})
+
+
 # ---------------------------------------------------------------------------
 # Health checks
 # ---------------------------------------------------------------------------
@@ -1331,6 +1380,83 @@ async def route_clear_memories(request: Request) -> Response:
     return _json({"cleared": True, "count": count})
 
 
+async def route_analyze_session(request: Request) -> Response:
+    """POST /api/sessions/analyze — extract instincts from a Claude Code session transcript.
+
+    Body: {"transcript": "...", "project_id": "optional override"}
+    Called by the piloci-stop-hook.sh script at end of each session.
+    """
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "unauthorized"}, 401)
+    user_id = user.get("sub") or user.get("user_id")
+    project_id = user.get("project_id")
+    if not isinstance(user_id, str) or not user_id:
+        return _json({"error": "user_id required"}, 400)
+    if not isinstance(project_id, str) or not project_id:
+        return _json({"error": "project scope required — use a project-scoped token"}, 400)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "invalid JSON"}, 400)
+
+    transcript = body.get("transcript")
+    if not isinstance(transcript, str) or not transcript.strip():
+        return _json({"error": "transcript required"}, 400)
+
+    instincts_store = getattr(request.app.state, "instincts_store", None)
+    if instincts_store is None:
+        return _json({"error": "instincts store not available"}, 503)
+
+    settings = get_settings()
+
+    try:
+        from piloci.curator.session_analyzer import extract_instincts
+        from piloci.storage import embed as _embed_mod
+
+        raw_instincts = await extract_instincts(
+            transcript=transcript,
+            endpoint=settings.gemma_endpoint,
+            model=settings.gemma_model,
+        )
+    except Exception:
+        logger.exception("session_analyze: extraction failed")
+        return _json({"error": "extraction failed"}, 500)
+
+    saved = []
+    for inst in raw_instincts:
+        try:
+            combined = f"{inst['trigger']} {inst['action']}"
+            vector = await _embed_mod.embed_one(
+                text=combined,
+                model=settings.embed_model,
+                cache_dir=settings.embed_cache_dir,
+                lru_size=settings.embed_lru_size,
+                executor_workers=settings.embed_executor_workers,
+                max_concurrency=settings.embed_max_concurrency,
+            )
+            result = await instincts_store.observe(
+                user_id=user_id,
+                project_id=project_id,
+                trigger=inst["trigger"],
+                action=inst["action"],
+                domain=inst.get("domain", "other"),
+                evidence_note=inst.get("evidence", ""),
+                vector=vector,
+            )
+            saved.append({
+                "instinct_id": result["instinct_id"],
+                "domain": result["domain"],
+                "confidence": result["confidence"],
+                "instinct_count": result["instinct_count"],
+            })
+        except Exception:
+            logger.exception("session_analyze: failed to store instinct")
+
+    return _json({"extracted": len(raw_instincts), "saved": len(saved), "instincts": saved})
+
+
 async def route_healthz(request: Request) -> Response:
     return _json({"status": "ok"})
 
@@ -1453,6 +1579,11 @@ def get_routes() -> list[Route]:
             route_naver_unlink_callback,
             methods=["POST", "GET"],
         ),
+        Route(
+            "/auth/kakao/unlink-callback",
+            route_kakao_unlink_callback,
+            methods=["POST", "GET"],
+        ),
         # v0.3: auto-capture + memory admin
         Route("/api/ingest", route_ingest, methods=["POST"]),
         Route("/api/memories", route_create_memory, methods=["POST"]),
@@ -1460,4 +1591,5 @@ def get_routes() -> list[Route]:
         Route("/api/memories/{id}", route_update_memory, methods=["PATCH"]),
         Route("/api/memories/{id}", route_delete_memory, methods=["DELETE"]),
         Route("/api/memories/clear", route_clear_memories, methods=["POST"]),
+        Route("/api/sessions/analyze", route_analyze_session, methods=["POST"]),
     ]

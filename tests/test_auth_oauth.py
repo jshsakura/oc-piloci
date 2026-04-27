@@ -514,3 +514,181 @@ async def test_naver_unlink_callback_wrong_client_id(naver_settings, monkeypatch
         },
     )
     assert response.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# verify_kakao_unlink_auth
+# ---------------------------------------------------------------------------
+
+
+def test_verify_kakao_unlink_auth_valid():
+    from piloci.auth.oauth import verify_kakao_unlink_auth
+
+    admin_key = "test-admin-key-12345"
+    assert verify_kakao_unlink_auth(f"KakaoAK {admin_key}", admin_key)
+
+
+def test_verify_kakao_unlink_auth_invalid_key():
+    from piloci.auth.oauth import verify_kakao_unlink_auth
+
+    assert not verify_kakao_unlink_auth("KakaoAK wrong-key", "correct-admin-key")
+
+
+def test_verify_kakao_unlink_auth_bad_header():
+    from piloci.auth.oauth import verify_kakao_unlink_auth
+
+    assert not verify_kakao_unlink_auth("Bearer token", "admin-key")
+    assert not verify_kakao_unlink_auth("", "admin-key")
+
+
+# ---------------------------------------------------------------------------
+# route_kakao_unlink_callback integration tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def kakao_settings(monkeypatch):
+    from piloci.config import Settings
+
+    s = Settings(
+        jwt_secret="test-secret-32-characters-minimum!",
+        session_secret="test-secret-32-characters-minimum!",
+        kakao_client_id="test-kakao-id",
+        kakao_client_secret="test-kakao-secret",
+        kakao_admin_key="test-kakao-admin-key",
+    )
+    import piloci.api.routes as routes_mod
+
+    monkeypatch.setattr(routes_mod, "get_settings", lambda: s)
+    return s
+
+
+@pytest.mark.asyncio
+async def test_kakao_unlink_callback_post_success(kakao_settings, monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from starlette.applications import Starlette
+    from starlette.testclient import TestClient
+
+    mock_user = MagicMock()
+    mock_user.oauth_provider = "kakao"
+    mock_user.oauth_sub = "kakao-user-456"
+    mock_user.oauth_access_token = "encrypted-token"
+    mock_user.oauth_refresh_token = None
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_user
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_db.add = MagicMock()
+
+    @asynccontextmanager
+    async def _fake_session():
+        yield mock_db
+
+    import piloci.api.routes as routes_mod
+
+    monkeypatch.setattr(routes_mod, "async_session", _fake_session)
+
+    from piloci.api.routes import get_routes
+
+    app = Starlette(routes=get_routes())
+    client = TestClient(app)
+
+    response = client.post(
+        "/auth/kakao/unlink-callback",
+        data={"app_id": "test-kakao-id", "user_id": "kakao-user-456", "referrer_type": "UNLINK_FROM_APPS"},
+        headers={"Authorization": "KakaoAK test-kakao-admin-key"},
+    )
+    assert response.status_code == 200
+    assert response.json()["result"] == "ok"
+    assert mock_user.oauth_provider is None
+    assert mock_user.oauth_sub is None
+
+
+@pytest.mark.asyncio
+async def test_kakao_unlink_callback_get_success(kakao_settings, monkeypatch):
+    from contextlib import asynccontextmanager
+
+    from starlette.applications import Starlette
+    from starlette.testclient import TestClient
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = None
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=mock_result)
+
+    @asynccontextmanager
+    async def _fake_session():
+        yield mock_db
+
+    import piloci.api.routes as routes_mod
+
+    monkeypatch.setattr(routes_mod, "async_session", _fake_session)
+
+    from piloci.api.routes import get_routes
+
+    app = Starlette(routes=get_routes())
+    client = TestClient(app)
+
+    response = client.get(
+        "/auth/kakao/unlink-callback?app_id=test-kakao-id&user_id=999&referrer_type=ACCOUNT_DELETE",
+        headers={"Authorization": "KakaoAK test-kakao-admin-key"},
+    )
+    assert response.status_code == 200
+    assert response.json()["result"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_kakao_unlink_callback_invalid_auth(kakao_settings, monkeypatch):
+    from starlette.applications import Starlette
+    from starlette.testclient import TestClient
+
+    from piloci.api.routes import get_routes
+
+    app = Starlette(routes=get_routes())
+    client = TestClient(app)
+
+    response = client.post(
+        "/auth/kakao/unlink-callback",
+        data={"app_id": "test-kakao-id", "user_id": "kakao-user-456", "referrer_type": "UNLINK_FROM_APPS"},
+        headers={"Authorization": "KakaoAK wrong-key"},
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_kakao_unlink_callback_missing_auth(kakao_settings, monkeypatch):
+    from starlette.applications import Starlette
+    from starlette.testclient import TestClient
+
+    from piloci.api.routes import get_routes
+
+    app = Starlette(routes=get_routes())
+    client = TestClient(app)
+
+    response = client.post(
+        "/auth/kakao/unlink-callback",
+        data={"app_id": "test-kakao-id", "user_id": "kakao-user-456", "referrer_type": "UNLINK_FROM_APPS"},
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_kakao_unlink_callback_missing_user_id(kakao_settings, monkeypatch):
+    from starlette.applications import Starlette
+    from starlette.testclient import TestClient
+
+    from piloci.api.routes import get_routes
+
+    app = Starlette(routes=get_routes())
+    client = TestClient(app)
+
+    response = client.post(
+        "/auth/kakao/unlink-callback",
+        data={"app_id": "test-kakao-id", "referrer_type": "UNLINK_FROM_APPS"},
+        headers={"Authorization": "KakaoAK test-kakao-admin-key"},
+    )
+    assert response.status_code == 400
