@@ -598,7 +598,11 @@ async def test_kakao_unlink_callback_post_success(kakao_settings, monkeypatch):
 
     response = client.post(
         "/auth/kakao/unlink-callback",
-        data={"app_id": "test-kakao-id", "user_id": "kakao-user-456", "referrer_type": "UNLINK_FROM_APPS"},
+        data={
+            "app_id": "test-kakao-id",
+            "user_id": "kakao-user-456",
+            "referrer_type": "UNLINK_FROM_APPS",
+        },
         headers={"Authorization": "KakaoAK test-kakao-admin-key"},
     )
     assert response.status_code == 200
@@ -653,7 +657,11 @@ async def test_kakao_unlink_callback_invalid_auth(kakao_settings, monkeypatch):
 
     response = client.post(
         "/auth/kakao/unlink-callback",
-        data={"app_id": "test-kakao-id", "user_id": "kakao-user-456", "referrer_type": "UNLINK_FROM_APPS"},
+        data={
+            "app_id": "test-kakao-id",
+            "user_id": "kakao-user-456",
+            "referrer_type": "UNLINK_FROM_APPS",
+        },
         headers={"Authorization": "KakaoAK wrong-key"},
     )
     assert response.status_code == 403
@@ -671,7 +679,11 @@ async def test_kakao_unlink_callback_missing_auth(kakao_settings, monkeypatch):
 
     response = client.post(
         "/auth/kakao/unlink-callback",
-        data={"app_id": "test-kakao-id", "user_id": "kakao-user-456", "referrer_type": "UNLINK_FROM_APPS"},
+        data={
+            "app_id": "test-kakao-id",
+            "user_id": "kakao-user-456",
+            "referrer_type": "UNLINK_FROM_APPS",
+        },
     )
     assert response.status_code == 403
 

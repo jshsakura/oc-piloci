@@ -47,6 +47,47 @@ from piloci.utils.logging import get_runtime_profiler
 logger = logging.getLogger(__name__)
 
 
+def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
+    """Generate ready-to-paste config snippets for Claude Code integration."""
+    analyze_url = f"{base_url}/api/sessions/analyze"
+    mcp_url = f"{base_url}/mcp/sse"
+
+    # Python one-liner for the stop hook (uses only single-quoted strings so it
+    # embeds cleanly inside a double-quoted shell command without extra escaping).
+    py = (
+        "import os,json,urllib.request as u; "
+        "t=os.environ.get('CLAUDE_SESSION_TRANSCRIPT',''); "
+        "f=open(t).read() if t and os.path.isfile(t) else ''; "
+        "f.count('role')>=5 and "
+        f"[u.urlopen(u.Request('{analyze_url}',"
+        "json.dumps({'transcript':f}).encode(),"
+        f"{{'Content-Type':'application/json','Authorization':'Bearer {token}'}},"
+        "method='POST'),timeout=30) for _ in [0]]"
+    )
+    stop_hook_command = f'python3 -c "{py}" 2>/dev/null'
+
+    mcp_config = {
+        "mcpServers": {
+            "piloci": {
+                "type": "sse",
+                "url": mcp_url,
+                "headers": {"Authorization": f"Bearer {token}"},
+            }
+        }
+    }
+    hook_config = {
+        "hooks": {
+            "Stop": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": stop_hook_command}],
+                }
+            ]
+        }
+    }
+    return {"mcp_config": mcp_config, "hook_config": hook_config}
+
+
 def _json(data: Any, status: int = 200) -> Response:
     return Response(orjson.dumps(data), status_code=status, media_type="application/json")
 
@@ -533,7 +574,12 @@ async def route_create_token(request: Request) -> Response:
             )
         )
 
-    return _json({"token": jwt_token, "token_id": token_id, "name": token_name}, 201)
+    base_url = get_settings().base_url or str(request.base_url).rstrip("/")
+    setup = _generate_token_setup(jwt_token, base_url) if scope == "project" else None
+    resp: dict[str, Any] = {"token": jwt_token, "token_id": token_id, "name": token_name}
+    if setup:
+        resp["setup"] = setup
+    return _json(resp, 201)
 
 
 async def route_list_tokens(request: Request) -> Response:
@@ -1103,14 +1149,10 @@ async def route_kakao_unlink_callback(request: Request) -> Response:
         return _json({"error": "Invalid authorization"}, 403)
 
     if request.method == "GET":
-        app_id = str(request.query_params.get("app_id", ""))
         user_id = str(request.query_params.get("user_id", ""))
-        referrer_type = str(request.query_params.get("referrer_type", ""))
     else:
         form = await request.form()
-        app_id = str(form.get("app_id", ""))
         user_id = str(form.get("user_id", ""))
-        referrer_type = str(form.get("referrer_type", ""))
 
     if not user_id:
         return _json({"error": "Missing user_id"}, 400)
@@ -1445,12 +1487,14 @@ async def route_analyze_session(request: Request) -> Response:
                 evidence_note=inst.get("evidence", ""),
                 vector=vector,
             )
-            saved.append({
-                "instinct_id": result["instinct_id"],
-                "domain": result["domain"],
-                "confidence": result["confidence"],
-                "instinct_count": result["instinct_count"],
-            })
+            saved.append(
+                {
+                    "instinct_id": result["instinct_id"],
+                    "domain": result["domain"],
+                    "confidence": result["confidence"],
+                    "instinct_count": result["instinct_count"],
+                }
+            )
         except Exception:
             logger.exception("session_analyze: failed to store instinct")
 
