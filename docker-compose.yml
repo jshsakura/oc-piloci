@@ -14,6 +14,29 @@
 # managed outside this compose file and should point at the published host port.
 # ──────────────────────────────────────────────────────────────
 services:
+  bootstrap:
+    image: ${PILOCI_IMAGE:-jshsakura/piloci:latest}
+    restart: "no"
+    read_only: true
+    user: "1000:1000"
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs:
+      - /tmp
+    entrypoint: ["piloci", "bootstrap"]
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:////data/piloci.db
+      - LANCEDB_PATH=/data/lancedb
+    env_file:
+      - .env
+    volumes:
+      - piloci_data:/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   piloci:
     image: ${PILOCI_IMAGE:-jshsakura/piloci:latest}
     restart: unless-stopped
@@ -25,7 +48,7 @@ services:
     tmpfs:
       - /tmp
     environment:
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
       - DATABASE_URL=sqlite+aiosqlite:////data/piloci.db
       - LANCEDB_PATH=/data/lancedb
       - LOG_LEVEL=INFO
@@ -37,6 +60,8 @@ services:
     volumes:
       - piloci_data:/data
     depends_on:
+      bootstrap:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     networks: [piloci_internal]
@@ -45,6 +70,11 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   redis:
     image: redis:7-alpine
@@ -55,14 +85,20 @@ services:
       --appendonly yes
       --maxmemory 256mb
       --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:-changeme}
     volumes:
       - redis_data:/data
     networks: [piloci_internal]
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   piloci_data:

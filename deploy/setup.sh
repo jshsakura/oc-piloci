@@ -42,13 +42,15 @@ else
     cp "$ENV_EXAMPLE" "$ENV_FILE"
     JWT_SECRET_VALUE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
     SESSION_SECRET_VALUE="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-    python3 - "$ENV_FILE" "$JWT_SECRET_VALUE" "$SESSION_SECRET_VALUE" <<'PY'
+    REDIS_PASSWORD_VALUE="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
+    python3 - "$ENV_FILE" "$JWT_SECRET_VALUE" "$SESSION_SECRET_VALUE" "$REDIS_PASSWORD_VALUE" <<'PY'
 from pathlib import Path
 import sys
 
 env_path = Path(sys.argv[1])
 jwt_secret = sys.argv[2]
 session_secret = sys.argv[3]
+redis_password = sys.argv[4]
 content = env_path.read_text(encoding="utf-8")
 content = content.replace(
     "JWT_SECRET=change-me-generate-with-secrets-token-hex-32",
@@ -60,10 +62,15 @@ content = content.replace(
     f"SESSION_SECRET={session_secret}",
     1,
 )
+content = content.replace(
+    "REDIS_PASSWORD=changeme",
+    f"REDIS_PASSWORD={redis_password}",
+    1,
+)
 env_path.write_text(content, encoding="utf-8")
 PY
     ok "Created .env from .env.example"
-    ok "Generated JWT_SECRET and SESSION_SECRET in .env"
+    ok "Generated JWT_SECRET, SESSION_SECRET, REDIS_PASSWORD in .env"
     warn "Edit .env to configure SMTP, OAuth, reverse proxy, etc. as needed"
     warn "Default host binding is 127.0.0.1:${PILOCI_HOST_PORT:-8314} for reverse proxy / tunnel use"
 fi
