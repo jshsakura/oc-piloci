@@ -234,6 +234,8 @@ async def login(
         user_id=str(user.id),
         ip=ip,
         user_agent=user_agent,
+        is_admin=user.is_admin,
+        approval_status=user.approval_status,
     )
 
     audit = AuditLog(

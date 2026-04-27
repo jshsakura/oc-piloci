@@ -15,6 +15,8 @@ from piloci.api.ratelimit import RATE_LOGIN, RATE_PASSWORD_RESET, RATE_SIGNUP, l
 from piloci.auth.jwt_utils import create_token
 from piloci.auth.local import (
     AccountLockedError,
+    ApprovalPendingError,
+    ApprovalRejectedError,
     EmailExistsError,
     InvalidCredentialsError,
     InvalidTOTPError,
@@ -94,7 +96,15 @@ async def route_signup(request: Request) -> Response:
             user = await signup(
                 email=email, password=password, name=name, db_session=db, settings=settings
             )
-        return _json({"user_id": user.id, "email": user.email}, 201)
+        return _json(
+            {
+                "user_id": user.id,
+                "email": user.email,
+                "approval_status": user.approval_status,
+                "is_admin": user.is_admin,
+            },
+            201,
+        )
     except EmailExistsError:
         return _json({"error": "Email already registered"}, 409)
     except WeakPasswordError as e:
@@ -152,6 +162,10 @@ async def route_login(request: Request) -> Response:
         return _json({"error": "Invalid 2FA code"}, 401)
     except InvalidCredentialsError:
         return _json({"error": "Invalid email or password"}, 401)
+    except ApprovalPendingError:
+        return _json({"error": "Account pending admin approval"}, 403)
+    except ApprovalRejectedError:
+        return _json({"error": "Account has been rejected by an admin"}, 403)
     except Exception:
         return _json({"error": "Internal server error"}, 500)
 
@@ -756,7 +770,15 @@ async def route_me(request: Request) -> Response:
     user = _require_user(request)
     if not user:
         return _json({"error": "Unauthorized"}, 401)
-    return _json({"user_id": user["sub"], "email": user.get("email"), "scope": user.get("scope")})
+    return _json(
+        {
+            "user_id": user["sub"],
+            "email": user.get("email"),
+            "scope": user.get("scope"),
+            "is_admin": user.get("is_admin", False),
+            "approval_status": user.get("approval_status", "approved"),
+        }
+    )
 
 
 # POST /api/account/password  body: {"current_password": "...", "new_password": "..."}
