@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { TokenManager } from "@/components/TokenManager";
 import { useAuthStore } from "@/lib/auth";
-import { api } from "@/lib/api";
+import { api, type AuthProviderName } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import RoutePending from "@/components/RoutePending";
@@ -49,6 +49,9 @@ export default function SettingsPage() {
   const [disableError, setDisableError] = useState("");
 
   const [copiedMcp, setCopiedMcp] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectError, setDisconnectError] = useState("");
+  const [disconnectSuccess, setDisconnectSuccess] = useState(false);
 
   useEffect(() => {
     if (hasHydrated && !user) router.replace("/login");
@@ -136,6 +139,28 @@ export default function SettingsPage() {
     setTimeout(() => setCopiedMcp(false), 2000);
   };
 
+  const handleDisconnect = async () => {
+    if (!user?.oauth_provider) return;
+    setDisconnectError("");
+    setDisconnectSuccess(false);
+    setDisconnecting(true);
+    try {
+      await api.disconnectProvider(user.oauth_provider as AuthProviderName);
+      setDisconnectSuccess(true);
+    } catch (err) {
+      setDisconnectError(err instanceof Error ? err.message : "연결 끊기에 실패했습니다");
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  const providerLabel: Record<string, string> = {
+    google: "Google",
+    github: "GitHub",
+    kakao: "Kakao",
+    naver: "Naver",
+  };
+
   return (
     <AppShell>
       <h1 className="text-2xl font-bold">설정</h1>
@@ -178,6 +203,39 @@ export default function SettingsPage() {
               </form>
             </CardContent>
           </Card>
+
+          {user.oauth_provider && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-3">
+                  <CardTitle>소셜 로그인</CardTitle>
+                  <Badge variant="default">
+                    {providerLabel[user.oauth_provider] ?? user.oauth_provider} 연결됨
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  {providerLabel[user.oauth_provider] ?? user.oauth_provider} 계정으로 로그인하고 있습니다.
+                  연결을 끊으려면 먼저 비밀번호를 설정하세요.
+                </p>
+                {disconnectError && <p className="text-sm text-destructive">{disconnectError}</p>}
+                {disconnectSuccess && (
+                  <p className="text-sm text-primary">
+                    연결이 끊어졌습니다. 비밀번호로 로그인해주세요.
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  disabled={disconnecting}
+                  onClick={handleDisconnect}
+                >
+                  {disconnecting ? "처리 중..." : "연결 끊기"}
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         <TabsContent value="security" className="mt-4">

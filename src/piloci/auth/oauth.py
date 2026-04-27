@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import logging
 import secrets
 import uuid
 from dataclasses import dataclass, field
@@ -16,6 +18,10 @@ if TYPE_CHECKING:
 
     from piloci.config import Settings
     from piloci.db.models import User
+
+from piloci.auth.crypto import encrypt_token
+
+logger = logging.getLogger(__name__)
 
 NormalizedUserInfo = dict[str, str]
 UserExtractor = Callable[[dict[str, Any]], NormalizedUserInfo]
@@ -179,16 +185,31 @@ async def get_userinfo(provider: str, access_token: str) -> NormalizedUserInfo:
     return provider_config.extract_user(payload)
 
 
-async def upsert_oauth_user(db: AsyncSession, provider: str, userinfo: NormalizedUserInfo) -> User:
+async def upsert_oauth_user(
+    db: AsyncSession,
+    provider: str,
+    userinfo: NormalizedUserInfo,
+    settings: Settings | None = None,
+    access_token: str | None = None,
+    refresh_token: str | None = None,
+) -> User:
     from sqlalchemy import func, or_, select
 
+    from piloci.config import get_settings
     from piloci.db.models import User
 
     _get_provider(provider)
+    effective_settings = settings or get_settings()
 
     email = userinfo.get("email", "")
     sub = userinfo.get("sub", "")
     name = userinfo.get("name") or email
+    encrypted_access_token = (
+        encrypt_token(access_token, effective_settings) if access_token else None
+    )
+    encrypted_refresh_token = (
+        encrypt_token(refresh_token, effective_settings) if refresh_token else None
+    )
 
     result = await db.execute(
         select(User).where(
@@ -213,6 +234,8 @@ async def upsert_oauth_user(db: AsyncSession, provider: str, userinfo: Normalize
             name=name,
             oauth_provider=provider,
             oauth_sub=sub,
+            oauth_access_token=encrypted_access_token,
+            oauth_refresh_token=encrypted_refresh_token,
             created_at=now,
             last_login_at=now,
             approval_status="approved" if is_first_user else "pending",
@@ -226,11 +249,71 @@ async def upsert_oauth_user(db: AsyncSession, provider: str, userinfo: Normalize
             user.email_verified = True
         if not user.name:
             user.name = name
+        user.oauth_access_token = encrypted_access_token
+        user.oauth_refresh_token = encrypted_refresh_token
         user.last_login_at = now
 
     await db.commit()
     await db.refresh(user)
     return user
+
+
+async def revoke_provider_token(
+    provider: str, access_token: str, client_id: str, client_secret: str
+) -> bool:
+    _get_provider(provider)
+
+    basic_auth = base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            if provider == "naver":
+                response = await client.post(
+                    "https://nid.naver.com/oauth2.0/token",
+                    data={
+                        "grant_type": "delete",
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                        "access_token": access_token,
+                        "service_provider": "NAVER",
+                    },
+                )
+            elif provider == "google":
+                response = await client.post(
+                    "https://oauth2.googleapis.com/revoke",
+                    data={"token": access_token},
+                )
+            elif provider == "github":
+                response = await client.request(
+                    "DELETE",
+                    f"https://api.github.com/applications/{client_id}/grant",
+                    headers={
+                        "Accept": "application/vnd.github+json",
+                        "Authorization": f"Basic {basic_auth}",
+                    },
+                    json={"access_token": access_token},
+                )
+            elif provider == "kakao":
+                response = await client.post(
+                    "https://kapi.kakao.com/v1/user/unlink",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+            else:
+                return False
+    except httpx.HTTPError:
+        logger.warning("OAuth token revoke request failed for provider=%s", provider, exc_info=True)
+        return False
+
+    if response.status_code in {200, 204}:
+        return True
+
+    logger.warning(
+        "OAuth token revoke failed for provider=%s status=%s body=%s",
+        provider,
+        response.status_code,
+        response.text,
+    )
+    return False
 
 
 def get_provider_credentials(settings: Settings, provider: str) -> tuple[str, str] | None:

@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, cast
 
 import orjson
+from cryptography.fernet import InvalidToken
 from sqlalchemy import delete
 from starlette.requests import Request
 from starlette.responses import Response
@@ -823,6 +824,22 @@ async def route_change_password(request: Request) -> Response:
     return _json({"changed": True})
 
 
+async def route_auth_providers(_: Request) -> Response:
+    """GET /api/auth/providers — 노출 가능한 OAuth provider 상태 목록."""
+    from piloci.auth.oauth import PROVIDERS, get_provider_credentials
+
+    settings = get_settings()
+    providers = [
+        {
+            "name": name,
+            "configured": get_provider_credentials(settings, name) is not None,
+            "login_path": f"/auth/{name}/login",
+        }
+        for name in PROVIDERS
+    ]
+    return _json({"providers": providers})
+
+
 # ---------------------------------------------------------------------------
 # OAuth
 # ---------------------------------------------------------------------------
@@ -911,8 +928,18 @@ async def route_oauth_callback(request: Request) -> Response:
     except Exception:
         return RedirectResponse("/login?error=oauth_failed", status_code=302)
 
+    access_token = tokens["access_token"]
+    refresh_token = tokens.get("refresh_token")
+
     async with async_session() as db:
-        user = await upsert_oauth_user(db, provider, userinfo)
+        user = await upsert_oauth_user(
+            db,
+            provider,
+            userinfo,
+            settings,
+            access_token=access_token,
+            refresh_token=refresh_token,
+        )
 
     # 세션 발급
     ip = request.client.host if request.client else ""
@@ -932,6 +959,74 @@ async def route_oauth_callback(request: Request) -> Response:
         path="/",
     )
     return response
+
+
+async def route_oauth_disconnect(request: Request) -> Response:
+    settings = get_settings()
+
+    from sqlalchemy import select
+
+    from piloci.auth.crypto import decrypt_token
+    from piloci.auth.oauth import PROVIDERS, get_provider_credentials, revoke_provider_token
+    from piloci.db.models import User
+
+    provider = (request.path_params.get("provider") or "").strip().lower()
+    if provider not in PROVIDERS:
+        return _json({"error": "Unknown OAuth provider"}, 400)
+
+    session_id = request.cookies.get("piloci_session")
+    if not session_id:
+        return _json({"error": "Unauthorized"}, 401)
+
+    store = get_session_store(settings)
+    session = await store.get_session(session_id)
+    if session is None:
+        return _json({"error": "Unauthorized"}, 401)
+
+    user_id = session.get("user_id")
+    if not isinstance(user_id, str) or not user_id:
+        return _json({"error": "Unauthorized"}, 401)
+
+    credentials = get_provider_credentials(settings, provider)
+    if credentials is None:
+        return _json({"error": f"{provider} OAuth is not configured"}, 503)
+    client_id, client_secret = credentials
+
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            return _json({"error": "Unauthorized"}, 401)
+        if user.password_hash is None:
+            return _json(
+                {"error": "Cannot disconnect: no password set. Set a password first."},
+                400,
+            )
+        if user.oauth_provider != provider:
+            return _json({"error": "OAuth provider does not match connected account"}, 400)
+
+        access_token: str | None = None
+        if user.oauth_access_token:
+            try:
+                access_token = decrypt_token(user.oauth_access_token, settings)
+            except InvalidToken:
+                logger.warning(
+                    "Failed to decrypt stored OAuth access token for user_id=%s provider=%s",
+                    user.id,
+                    provider,
+                    exc_info=True,
+                )
+
+        if access_token:
+            await revoke_provider_token(provider, access_token, client_id, client_secret)
+
+        user.oauth_provider = None
+        user.oauth_sub = None
+        user.oauth_access_token = None
+        user.oauth_refresh_token = None
+        db.add(user)
+
+    return _json({"status": "disconnected"})
 
 
 # ---------------------------------------------------------------------------
@@ -1271,6 +1366,7 @@ def get_routes() -> list[Route]:
         Route("/auth/signup", signup_limited, methods=["POST"]),
         Route("/auth/login", login_limited, methods=["POST"]),
         Route("/auth/logout", route_logout, methods=["POST"]),
+        Route("/api/auth/providers", route_auth_providers, methods=["GET"]),
         Route("/auth/forgot-password", forgot_password_limited, methods=["POST"]),
         Route("/auth/reset-password", reset_password_limited, methods=["POST"]),
         Route("/api/projects", route_list_projects, methods=["GET"]),
@@ -1294,6 +1390,7 @@ def get_routes() -> list[Route]:
         Route("/api/account/password", route_change_password, methods=["POST"]),
         Route("/auth/{provider}/login", route_oauth_login, methods=["GET"]),
         Route("/auth/{provider}/callback", route_oauth_callback, methods=["GET"]),
+        Route("/auth/{provider}/disconnect", route_oauth_disconnect, methods=["POST"]),
         # v0.3: auto-capture + memory admin
         Route("/api/ingest", route_ingest, methods=["POST"]),
         Route("/api/memories", route_create_memory, methods=["POST"]),

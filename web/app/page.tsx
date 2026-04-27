@@ -24,6 +24,7 @@ export default function LandingPage() {
   const router = useRouter();
   const { user, hasHydrated } = useAuthStore();
   const { locale, setLocale, t } = useTranslation();
+  const [mounted, setMounted] = useState(false);
   const [copied, setCopied] = useState(false);
   const [termIdx, setTermIdx] = useState(0);
   const [typed, setTyped] = useState(0);
@@ -50,6 +51,10 @@ export default function LandingPage() {
   const totalChars = termLines.reduce((s, l) => s + l.text.length, 0);
 
   useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
     if (typed < totalChars) {
       termTimer.current = setTimeout(() => setTyped((c) => c + 1), 22);
     } else {
@@ -71,7 +76,7 @@ export default function LandingPage() {
     if (hasHydrated && user) router.replace("/dashboard");
   }, [hasHydrated, user, router]);
 
-  if (!hasHydrated || user) {
+  if (!mounted || !hasHydrated || user) {
     return (
       <RoutePending
         fullScreen

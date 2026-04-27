@@ -20,6 +20,8 @@ class User(Base):
     password_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     oauth_provider: Mapped[str | None] = mapped_column(Text, nullable=True)
     oauth_sub: Mapped[str | None] = mapped_column(Text, nullable=True)
+    oauth_access_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    oauth_refresh_token: Mapped[str | None] = mapped_column(Text, nullable=True)
     totp_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     failed_login_count: Mapped[int] = mapped_column(Integer, default=0)

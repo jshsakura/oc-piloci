@@ -3,6 +3,7 @@ export interface User {
   email: string;
   is_admin?: boolean;
   approval_status?: "pending" | "approved" | "rejected";
+  oauth_provider?: string;
 }
 
 export interface Project {

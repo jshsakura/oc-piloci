@@ -72,6 +72,10 @@ export const api = {
   disable2fa: (password: string, code: string) =>
     request("/api/account/2fa/disable", { method: "POST", body: JSON.stringify({ password, code }) }),
 
+  // OAuth
+  disconnectProvider: (provider: AuthProviderName) =>
+    request<{ status: string }>(`/auth/${provider}/disconnect`, { method: "POST" }),
+
   // Admin
   adminListUsers: (status?: string) =>
     request<import("./types").AdminUser[]>(`/api/admin/users${status ? `?status=${status}` : ""}`),

@@ -1,5 +1,14 @@
 # MEMORY
 
+## 2026-04-27
+
+- Fixed the missing OAuth provider discovery API: `src/piloci/api/routes.py` now serves `GET /api/auth/providers` by reflecting configured providers from `piloci.auth.oauth.get_provider_credentials`, which unblocks the login/signup UI from showing non-local buttons when env credentials are present.
+- Re-enabled the previously skipped regression in `tests/test_auth_rate_limits.py` so the provider-status route shape stays locked; revalidated with `uv run pytest tests/test_auth_rate_limits.py -v --no-cov` (`5 passed`).
+
+- Added encrypted OAuth token persistence for provider logins: `src/piloci/auth/crypto.py` derives a Fernet key from `settings.jwt_secret`, `src/piloci/db/models.py` now stores nullable `oauth_access_token` / `oauth_refresh_token`, and `src/piloci/auth/oauth.py` encrypts tokens during `upsert_oauth_user()` while keeping the old call shape backward-compatible for existing tests.
+- Added provider disconnect support across the auth callback and route layer: `src/piloci/api/routes.py` now stores exchanged OAuth tokens on callback, exposes `POST /auth/{provider}/disconnect`, validates the logged-in Redis session plus password-presence safety check, revokes provider tokens through `revoke_provider_token()`, and clears linked OAuth fields locally even if remote revoke/decrypt fails.
+- Revalidated the slice with LSP error diagnostics on `src/piloci/auth/crypto.py`, `src/piloci/auth/oauth.py`, `src/piloci/api/routes.py`, and `src/piloci/db/models.py`, `uv run pytest tests/test_auth_oauth.py -q --cov-fail-under=0` (`19 passed`), full `uv run pytest tests -q` (`252 passed, 1 skipped`), and `uv build`.
+
 ## 2026-04-25
 
 - Added a preview-first workspace path for the project vault: `GET /api/projects/slug/{slug}/workspace/preview` reuses the cached vault when available, returns graph/stats plus the first five note previews, and drops heavy markdown from the default project workspace payload.

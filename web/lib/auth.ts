@@ -31,6 +31,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "piloci-auth",
+      partialize: (state) => ({ user: state.user }),
       storage: createJSONStorage(() => {
         if (typeof window === "undefined") {
           return noopStorage;
