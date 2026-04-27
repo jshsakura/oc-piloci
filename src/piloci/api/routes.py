@@ -34,6 +34,27 @@ from piloci.auth.local import (
 from piloci.auth.session import get_session_store
 from piloci.config import get_settings
 from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
+
+
+def _resolve_base_url(request: Request, settings: Any) -> str:
+    """Determine the public base URL, respecting reverse-proxy headers.
+
+    Priority:
+      1. ``settings.base_url`` (BASE_URL / PILOCI_PUBLIC_URL env var)
+      2. ``X-Forwarded-Proto`` + ``Host`` header  (Cloudflare Tunnel, nginx, etc.)
+      3. ``request.base_url`` fallback
+    """
+    if settings.base_url:
+        return settings.base_url
+
+    proto = request.headers.get("x-forwarded-proto")
+    host = request.headers.get("host") or request.headers.get("x-forwarded-host")
+    if proto and host:
+        return f"{proto}://{host}"
+
+    return str(request.base_url).rstrip("/")
+
+
 from piloci.curator.vault import (
     build_project_vault_preview,
     ensure_project_vault,
@@ -574,7 +595,7 @@ async def route_create_token(request: Request) -> Response:
             )
         )
 
-    base_url = get_settings().base_url or str(request.base_url).rstrip("/")
+    base_url = _resolve_base_url(request, settings)
     setup = _generate_token_setup(jwt_token, base_url) if scope == "project" else None
     resp: dict[str, Any] = {"token": jwt_token, "token_id": token_id, "name": token_name}
     if setup:
@@ -916,7 +937,7 @@ async def route_oauth_login(request: Request) -> Response:
     client_id, _ = credentials
 
     state = generate_state()
-    base_url = settings.base_url or str(request.base_url).rstrip("/")
+    base_url = _resolve_base_url(request, settings)
     redirect_uri = f"{base_url}/auth/{provider}/callback"
 
     # state를 Redis에 5분 저장 (CSRF 방어)
@@ -965,7 +986,7 @@ async def route_oauth_callback(request: Request) -> Response:
         return RedirectResponse("/login?error=oauth_invalid_state", status_code=302)
     await store._redis.delete(state_key)  # noqa: SLF001
 
-    base_url = settings.base_url or str(request.base_url).rstrip("/")
+    base_url = _resolve_base_url(request, settings)
     redirect_uri = f"{base_url}/auth/{provider}/callback"
 
     try:
