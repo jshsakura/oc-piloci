@@ -977,22 +977,45 @@ async def route_oauth_callback(request: Request) -> Response:
     access_token = tokens["access_token"]
     refresh_token = tokens.get("refresh_token")
 
-    async with async_session() as db:
-        user = await upsert_oauth_user(
-            db,
-            provider,
-            userinfo,
-            settings,
-            access_token=access_token,
-            refresh_token=refresh_token,
-        )
+    try:
+        async with async_session() as db:
+            user = await upsert_oauth_user(
+                db,
+                provider,
+                userinfo,
+                settings,
+                access_token=access_token,
+                refresh_token=refresh_token,
+            )
+            # Detach attributes before session closes
+            user_id = user.id
+            user_is_admin = user.is_admin
+            user_approval_status = user.approval_status
+    except Exception:
+        logger.exception("OAuth user upsert failed for provider=%s", provider)
+        return RedirectResponse("/login?error=oauth_failed", status_code=302)
+
+    if user_approval_status == "pending":
+        return RedirectResponse("/login?error=approval_pending", status_code=302)
+    if user_approval_status == "rejected":
+        return RedirectResponse("/login?error=approval_rejected", status_code=302)
 
     # 세션 발급
     ip = request.client.host if request.client else ""
     user_agent = request.headers.get("user-agent", "")
-    session_id = await store.create_session(user.id, ip, user_agent)
-    settings2 = get_settings()
-    max_age = settings2.session_expire_days * 86400
+    try:
+        session_id = await store.create_session(
+            user_id,
+            ip,
+            user_agent,
+            is_admin=user_is_admin,
+            approval_status=user_approval_status,
+        )
+    except Exception:
+        logger.exception("OAuth session creation failed for user=%s", user_id)
+        return RedirectResponse("/login?error=oauth_failed", status_code=302)
+
+    max_age = settings.session_expire_days * 86400
 
     response = RedirectResponse("/dashboard", status_code=302)
     response.set_cookie(

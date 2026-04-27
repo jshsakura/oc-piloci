@@ -1,16 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-  <defs>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#020617" />
-      <stop offset="100%" stop-color="#0F172A" />
-    </linearGradient>
-  </defs>
+  <!-- Subtle background -->
+  <rect width="256" height="256" rx="64" fill="#4B32C3" fill-opacity="0.08" />
+  <!-- Border -->
+  <rect width="256" height="256" rx="64" fill="none" stroke="#4B32C3" stroke-opacity="0.25" stroke-width="6" />
 
-  <rect width="256" height="256" rx="64" fill="url(#bg)" />
-
-  <!-- Pin symbol - scaled up from piloci-logo.svg -->
+  <!-- Pin symbol -->
   <g transform="translate(128, 120)">
-    <circle cx="0" cy="-32" r="60" fill="#4B32C3" opacity="0.15" />
+    <circle cx="0" cy="-32" r="60" fill="#4B32C3" opacity="0.12" />
     <circle cx="0" cy="-32" r="35" fill="#4B32C3" />
     <line x1="0" y1="3" x2="0" y2="70" stroke="#4B32C3" stroke-width="12" stroke-linecap="round" />
     <circle cx="0" cy="80" r="8" fill="#4B32C3" />

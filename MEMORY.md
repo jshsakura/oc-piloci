@@ -2,6 +2,17 @@
 
 ## 2026-04-27
 
+- Added comprehensive backend API regression coverage for `src/piloci/api/audit.py` and `src/piloci/api/routes.py` via new `tests/test_api_audit.py` and expanded `tests/test_api_routes_extra.py`, covering audit logging, auth/project/token helpers, workspace/vault routes, audit listing, 2FA flows, password change, and OAuth login/callback/disconnect branches without modifying `src/`.
+- Updated stale suite expectations in `tests/test_main_extra.py` and `tests/test_mcp_server_extra.py` so they match current Starlette mount behavior and MCP low-level error wrapping, which was required to make the requested full-suite verification command green again.
+- Revalidated with zero LSP error diagnostics on the touched test files and full `uv run pytest` (`484 passed`, total coverage `89.67%`), with `src/piloci/api/audit.py` at `100%` and `src/piloci/api/routes.py` at `81%` in the final coverage report.
+
+- Expanded backend regression coverage for the requested gaps in `src/piloci/main.py`, `src/piloci/auth/middleware.py`, and `src/piloci/cli.py` via `tests/test_main_extra.py`, new `tests/test_auth_middleware.py`, and new `tests/test_cli_extra.py`.
+- The new tests cover stdio/server bootstrap wiring, Starlette app/middleware registration, startup/shutdown worker orchestration, auth middleware JWT/session/no-auth branches, CLI dispatch for `serve` / `stdio` / `bootstrap` / `profile-baseline`, and bootstrap success plus credential error paths without touching `src/` code.
+- Revalidated the exact requested outcome with zero LSP error diagnostics on the three changed test files and full `uv run pytest` (`473 passed`, total coverage `83.56%`), with `src/piloci/main.py` at `97%`, `src/piloci/auth/middleware.py` at `89%`, and `src/piloci/cli.py` at `97%` in the full-suite report.
+
+- Expanded MCP regression coverage with `tests/test_mcp_server_extra.py` and `tests/test_mcp_sse_extra.py`: the new server tests now drive the real low-level MCP request handlers for tool/resource/prompt paths, auth/project-scope error contracts, vault-cache invalidation, instinct-tool branches, and context prompt assembly, while the SSE tests now cover route registration, `/healthz`, successful bearer-auth SSE setup, contextvar lifecycle, and summary-notify failure handling.
+- Revalidated the exact requested outcome with zero LSP error diagnostics on both new/updated test files, targeted MCP pytest (`34 passed`), and full `uv run pytest` (`473 passed`, total coverage `83.56%`), with `src/piloci/mcp/server.py` and `src/piloci/mcp/sse.py` both reaching `100%` coverage in the full run.
+
 - Fixed Google OAuth deploy-time redirect URI drift: `src/piloci/config.py` now accepts `BASE_URL` and `PILOCI_PUBLIC_URL` as aliases for `settings.base_url`, so `/auth/{provider}/login` and `/auth/{provider}/callback` can generate the public callback origin instead of falling back to an internal host from `request.base_url`.
 - Documented and wired the operator path for that fix across `.env.example`, `README.md`, `README.ko.md`, and `deploy/setup.sh`, and set the local deployment `.env` to `BASE_URL=https://piloci.opencourse.kr` so Google OAuth callbacks can stay pinned to the public domain behind a proxy/tunnel.
 - Added regression coverage in `tests/test_auth_oauth.py` for both `BASE_URL` and legacy `PILOCI_PUBLIC_URL` env loading, then revalidated the OAuth/provider slice with `uv run pytest tests/test_auth_oauth.py tests/test_auth_rate_limits.py -v --no-cov` (`26 passed`) and `pnpm build` in `web/`.
