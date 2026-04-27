@@ -303,6 +303,13 @@ def _require_user(request: Request) -> dict[str, Any] | None:
     return getattr(request.state, "user", None)
 
 
+def _require_admin(request: Request) -> dict[str, Any] | None:
+    user = getattr(request.state, "user", None)
+    if user is None or not user.get("is_admin"):
+        return None
+    return user
+
+
 async def _get_user_project_by_slug(user_id: str, slug: str) -> dict[str, Any] | None:
     from sqlalchemy import select
 
@@ -1620,6 +1627,95 @@ async def route_profilez(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# Admin API routes
+# ---------------------------------------------------------------------------
+
+
+async def route_admin_list_users(request: Request) -> Response:
+    admin = _require_admin(request)
+    if admin is None:
+        return _json({"error": "Forbidden"}, 403)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import User
+
+    status = request.query_params.get("status")
+    async with async_session() as db:
+        stmt = select(User).order_by(User.created_at.desc())
+        if status and status != "all":
+            stmt = stmt.where(User.approval_status == status)
+        result = await db.execute(stmt)
+        users = result.scalars().all()
+
+    rows = [
+        {
+            "id": str(u.id),
+            "email": u.email,
+            "name": u.name,
+            "is_admin": u.is_admin,
+            "approval_status": u.approval_status,
+            "reviewed_by": u.reviewed_by,
+            "reviewed_at": u.reviewed_at.isoformat() if u.reviewed_at else None,
+            "rejection_reason": u.rejection_reason,
+            "created_at": u.created_at.isoformat() if u.created_at else None,
+            "oauth_provider": u.oauth_provider,
+        }
+        for u in users
+    ]
+    return _json(rows)
+
+
+async def route_admin_approve_user(request: Request) -> Response:
+    admin = _require_admin(request)
+    if admin is None:
+        return _json({"error": "Forbidden"}, 403)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import User
+
+    user_id = request.path_params["id"]
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+        user = result.scalar_one_or_none()
+        if user is None:
+            return _json({"error": "User not found"}, 404)
+        user.approval_status = "approved"
+        user.reviewed_by = admin["email"]
+        user.reviewed_at = datetime.now(timezone.utc)
+        user.rejection_reason = None
+        await db.commit()
+    return _json({"ok": True})
+
+
+async def route_admin_reject_user(request: Request) -> Response:
+    admin = _require_admin(request)
+    if admin is None:
+        return _json({"error": "Forbidden"}, 403)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import User
+
+    user_id = request.path_params["id"]
+    body = orjson.loads(await request.body()) if await request.body() else {}
+    reason = body.get("reason")
+
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+        user = result.scalar_one_or_none()
+        if user is None:
+            return _json({"error": "User not found"}, 404)
+        user.approval_status = "rejected"
+        user.reviewed_by = admin["email"]
+        user.reviewed_at = datetime.now(timezone.utc)
+        user.rejection_reason = reason or None
+        await db.commit()
+    return _json({"ok": True})
+
+
+# ---------------------------------------------------------------------------
 # Route list
 # ---------------------------------------------------------------------------
 
@@ -1680,4 +1776,7 @@ def get_routes() -> list[Route]:
         Route("/api/memories/{id}", route_delete_memory, methods=["DELETE"]),
         Route("/api/memories/clear", route_clear_memories, methods=["POST"]),
         Route("/api/sessions/analyze", route_analyze_session, methods=["POST"]),
+        Route("/api/admin/users", route_admin_list_users, methods=["GET"]),
+        Route("/api/admin/users/{id}/approve", route_admin_approve_user, methods=["POST"]),
+        Route("/api/admin/users/{id}/reject", route_admin_reject_user, methods=["POST"]),
     ]

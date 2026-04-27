@@ -25,6 +25,7 @@ export default function AdminUsersPage() {
   const { t } = useTranslation();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [rejectTarget, setRejectTarget] = useState<AdminUser | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -38,11 +39,13 @@ export default function AdminUsersPage() {
 
   const fetchUsers = async (status?: string) => {
     setLoading(true);
+    setError(false);
     try {
       const result = await api.adminListUsers(status);
       setUsers(result as AdminUser[]);
     } catch {
       setUsers([]);
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -122,9 +125,20 @@ export default function AdminUsersPage() {
         </div>
 
         {loading ? (
-          <p className="text-sm text-muted-foreground">...</p>
+          <div className="flex items-center justify-center py-12">
+            <p className="text-sm text-muted-foreground">...</p>
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-12">
+            <p className="text-sm text-muted-foreground">사용자 목록을 불러올 수 없습니다</p>
+            <Button variant="outline" size="sm" onClick={() => void fetchUsers(filter === "all" ? undefined : filter)}>
+              다시 시도
+            </Button>
+          </div>
         ) : users.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t.admin.emptyMessage}</p>
+          <div className="flex items-center justify-center py-12">
+            <p className="text-sm text-muted-foreground">가입 대기 중인 사용자가 없습니다</p>
+          </div>
         ) : (
           <div className="overflow-x-auto rounded-lg border">
             <table className="w-full text-sm">
