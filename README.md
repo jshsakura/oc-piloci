@@ -265,6 +265,7 @@ HOST=0.0.0.0
 PORT=8314
 PILOCI_BIND_HOST=127.0.0.1
 PILOCI_HOST_PORT=8314
+# BASE_URL=https://piloci.opencourse.kr
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 
@@ -294,6 +295,7 @@ The app auto-initializes SQLite and LanceDB on first startup, so there is no sep
 
 Optional features:
 
+- `BASE_URL` — public HTTPS origin used for OAuth callbacks and absolute redirects
 - `SMTP_*` — email verification and password reset
 - `KAKAO_CLIENT_ID`, `KAKAO_CLIENT_SECRET` — Kakao OAuth login
 - `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` — Naver OAuth login
@@ -326,6 +328,27 @@ docker pull jshsakura/piloci:latest
 docker compose pull
 docker compose up -d
 ```
+
+### OAuth callback URLs behind a reverse proxy
+
+If piLoci is published through nginx, Caddy, Cloudflare Tunnel, or any other reverse proxy,
+set `BASE_URL` in `.env` to the exact external HTTPS origin.
+
+Example:
+
+```env
+BASE_URL=https://piloci.opencourse.kr
+```
+
+Google OAuth redirect URIs must match exactly, so the callback registered in Google Cloud Console
+should be:
+
+```text
+https://piloci.opencourse.kr/auth/google/callback
+```
+
+Without `BASE_URL`, the backend may derive the callback from a local/internal request host,
+which can trigger `redirect_uri_mismatch` even when the Google client ID and secret are correct.
 
 ### Reverse proxy / tunnel
 

@@ -2,6 +2,10 @@
 
 ## 2026-04-27
 
+- Fixed Google OAuth deploy-time redirect URI drift: `src/piloci/config.py` now accepts `BASE_URL` and `PILOCI_PUBLIC_URL` as aliases for `settings.base_url`, so `/auth/{provider}/login` and `/auth/{provider}/callback` can generate the public callback origin instead of falling back to an internal host from `request.base_url`.
+- Documented and wired the operator path for that fix across `.env.example`, `README.md`, `README.ko.md`, and `deploy/setup.sh`, and set the local deployment `.env` to `BASE_URL=https://piloci.opencourse.kr` so Google OAuth callbacks can stay pinned to the public domain behind a proxy/tunnel.
+- Added regression coverage in `tests/test_auth_oauth.py` for both `BASE_URL` and legacy `PILOCI_PUBLIC_URL` env loading, then revalidated the OAuth/provider slice with `uv run pytest tests/test_auth_oauth.py tests/test_auth_rate_limits.py -v --no-cov` (`26 passed`) and `pnpm build` in `web/`.
+
 - Fixed the landing-page hydration mismatch behind production React error #418: `web/app/page.tsx` now waits for a mounted client pass before switching away from the server-rendered pending shell, and `web/lib/auth.ts` now persists only `user` instead of persisting `hasHydrated`, preventing the home page from rendering a different first client tree than the server.
 - Revalidated the frontend slice with zero LSP diagnostics on `web/app/page.tsx` and `web/lib/auth.ts`, plus `pnpm build` in `web/` (`next build` passed).
 

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 from typing import ClassVar, Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing_extensions import override
 
@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     # Server
     host: str = "0.0.0.0"
     port: int = 8314
-    base_url: str | None = None
+    base_url: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("BASE_URL", "PILOCI_PUBLIC_URL"),
+    )
     debug: bool = False
     reload: bool = False
     workers: int = 1

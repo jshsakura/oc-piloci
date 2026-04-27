@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import logging
 import secrets
 import uuid
@@ -327,3 +329,23 @@ def get_provider_credentials(settings: Settings, provider: str) -> tuple[str, st
 
 def generate_state() -> str:
     return secrets.token_urlsafe(32)
+
+
+def verify_naver_unlink_signature(
+    client_id: str,
+    user_id: str,
+    timestamp: str,
+    signature: str,
+    client_secret: str,
+    svc_id: str = "",
+) -> bool:
+    """Verify HMAC-SHA256 signature from Naver unlink callback.
+
+    Naver signs ``client_id + user_id + timestamp (+ optional svc_id)``
+    with the client_secret as the HMAC key.
+    """
+    message = f"{client_id}{user_id}{timestamp}"
+    if svc_id:
+        message = f"{client_id}_{svc_id}{user_id}{timestamp}"
+    expected = hmac.new(client_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature)

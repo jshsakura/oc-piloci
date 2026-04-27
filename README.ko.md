@@ -238,6 +238,7 @@ HOST=0.0.0.0
 PORT=8314
 PILOCI_BIND_HOST=127.0.0.1
 PILOCI_HOST_PORT=8314
+# BASE_URL=https://piloci.opencourse.kr
 LOG_LEVEL=INFO
 LOG_FORMAT=json
 
@@ -267,6 +268,7 @@ LOG_FORMAT=json
 
 선택 기능:
 
+- `BASE_URL` — OAuth 콜백과 절대 리다이렉트 생성에 사용할 외부 HTTPS 주소
 - `SMTP_*` — 이메일 인증 및 비밀번호 재설정
 - `KAKAO_CLIENT_ID`, `KAKAO_CLIENT_SECRET` — Kakao OAuth 로그인
 - `NAVER_CLIENT_ID`, `NAVER_CLIENT_SECRET` — Naver OAuth 로그인
@@ -297,6 +299,27 @@ docker pull jshsakura/piloci:latest
 docker compose pull
 docker compose up -d
 ```
+
+### 리버스 프록시 뒤에서 OAuth 콜백 설정하기
+
+nginx, Caddy, Cloudflare Tunnel 같은 리버스 프록시 뒤에서 piLoci를 공개한다면,
+`.env`에 외부 HTTPS 도메인을 `BASE_URL`로 꼭 고정해야 합니다.
+
+예시:
+
+```env
+BASE_URL=https://piloci.opencourse.kr
+```
+
+Google OAuth 리디렉션 URI는 한 글자까지 정확히 일치해야 하므로,
+Google Cloud Console에는 아래 콜백을 등록해야 합니다.
+
+```text
+https://piloci.opencourse.kr/auth/google/callback
+```
+
+`BASE_URL`이 없으면 백엔드가 로컬/내부 요청 호스트를 기준으로 콜백 주소를 만들 수 있고,
+클라이언트 ID/시크릿이 맞아도 `redirect_uri_mismatch`가 발생할 수 있습니다.
 
 ### 리버스 프록시 / 터널
 

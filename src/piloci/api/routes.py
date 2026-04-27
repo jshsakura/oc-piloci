@@ -1029,6 +1029,63 @@ async def route_oauth_disconnect(request: Request) -> Response:
     return _json({"status": "disconnected"})
 
 
+async def route_naver_unlink_callback(request: Request) -> Response:
+    """POST /auth/naver/unlink-callback — Naver-initiated account unlink."""
+    settings = get_settings()
+
+    from sqlalchemy import select
+
+    from piloci.auth.oauth import get_provider_credentials, verify_naver_unlink_signature
+    from piloci.db.models import User
+
+    credentials = get_provider_credentials(settings, "naver")
+    if credentials is None:
+        return _json({"error": "naver OAuth is not configured"}, 503)
+    client_id, client_secret = credentials
+
+    form = await request.form()
+    naver_client_id = str(form.get("client_id", ""))
+    user_id = str(form.get("user_id", ""))
+    timestamp = str(form.get("timestamp", ""))
+    signature = str(form.get("signature", ""))
+    svc_id = str(form.get("svc_id", ""))
+
+    if not naver_client_id or not user_id or not timestamp or not signature:
+        return _json({"error": "Missing required parameters"}, 400)
+
+    if naver_client_id != client_id:
+        return _json({"error": "Invalid client_id"}, 403)
+
+    if not verify_naver_unlink_signature(
+        client_id=naver_client_id,
+        user_id=user_id,
+        timestamp=timestamp,
+        signature=signature,
+        client_secret=client_secret,
+        svc_id=svc_id,
+    ):
+        return _json({"error": "Invalid signature"}, 403)
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(User).where(
+                User.oauth_provider == "naver",
+                User.oauth_sub == user_id,
+            )
+        )
+        user = result.scalar_one_or_none()
+        if user is None:
+            return _json({"result": "ok"})
+
+        user.oauth_provider = None
+        user.oauth_sub = None
+        user.oauth_access_token = None
+        user.oauth_refresh_token = None
+        db.add(user)
+
+    return _json({"result": "ok"})
+
+
 # ---------------------------------------------------------------------------
 # Health checks
 # ---------------------------------------------------------------------------
@@ -1391,6 +1448,11 @@ def get_routes() -> list[Route]:
         Route("/auth/{provider}/login", route_oauth_login, methods=["GET"]),
         Route("/auth/{provider}/callback", route_oauth_callback, methods=["GET"]),
         Route("/auth/{provider}/disconnect", route_oauth_disconnect, methods=["POST"]),
+        Route(
+            "/auth/naver/unlink-callback",
+            route_naver_unlink_callback,
+            methods=["POST", "GET"],
+        ),
         # v0.3: auto-capture + memory admin
         Route("/api/ingest", route_ingest, methods=["POST"]),
         Route("/api/memories", route_create_memory, methods=["POST"]),

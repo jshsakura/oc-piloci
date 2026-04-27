@@ -64,6 +64,30 @@ def test_generate_state():
     assert s1 != s2
 
 
+def test_settings_reads_base_url_from_base_url_env(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("BASE_URL", "https://piloci.opencourse.kr")
+    monkeypatch.delenv("PILOCI_PUBLIC_URL", raising=False)
+
+    settings = Settings(
+        jwt_secret="test-secret-32-characters-minimum!",
+        session_secret="test-secret-32-characters-minimum!",
+    )
+
+    assert settings.base_url == "https://piloci.opencourse.kr"
+
+
+def test_settings_reads_base_url_from_piloci_public_url_alias(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("BASE_URL", raising=False)
+    monkeypatch.setenv("PILOCI_PUBLIC_URL", "https://piloci.opencourse.kr")
+
+    settings = Settings(
+        jwt_secret="test-secret-32-characters-minimum!",
+        session_secret="test-secret-32-characters-minimum!",
+    )
+
+    assert settings.base_url == "https://piloci.opencourse.kr"
+
+
 @pytest.mark.asyncio
 async def test_exchange_code_calls_provider_token_endpoint():
     from piloci.auth.oauth import PROVIDERS, exchange_code
@@ -282,3 +306,211 @@ def test_invalid_provider_raises_value_error(func: str, args: tuple[object, ...]
 
     with pytest.raises(ValueError, match="Unknown OAuth provider"):
         getattr(oauth, func)(*args)
+
+
+# ---------------------------------------------------------------------------
+# verify_naver_unlink_signature
+# ---------------------------------------------------------------------------
+
+
+def test_verify_naver_unlink_signature_valid():
+    import hashlib
+    import hmac
+
+    from piloci.auth.oauth import verify_naver_unlink_signature
+
+    client_secret = "my-secret-key"
+    client_id = "naver-client-id"
+    user_id = "12345678"
+    timestamp = "1700000000"
+
+    message = f"{client_id}{user_id}{timestamp}"
+    sig = hmac.new(client_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+    assert verify_naver_unlink_signature(
+        client_id=client_id,
+        user_id=user_id,
+        timestamp=timestamp,
+        signature=sig,
+        client_secret=client_secret,
+    )
+
+
+def test_verify_naver_unlink_signature_with_svc_id():
+    import hashlib
+    import hmac
+
+    from piloci.auth.oauth import verify_naver_unlink_signature
+
+    client_secret = "my-secret-key"
+    client_id = "naver-client-id"
+    svc_id = "svc-001"
+    user_id = "12345678"
+    timestamp = "1700000000"
+
+    message = f"{client_id}_{svc_id}{user_id}{timestamp}"
+    sig = hmac.new(client_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+    assert verify_naver_unlink_signature(
+        client_id=client_id,
+        user_id=user_id,
+        timestamp=timestamp,
+        signature=sig,
+        client_secret=client_secret,
+        svc_id=svc_id,
+    )
+
+
+def test_verify_naver_unlink_signature_invalid():
+    from piloci.auth.oauth import verify_naver_unlink_signature
+
+    assert not verify_naver_unlink_signature(
+        client_id="naver-client-id",
+        user_id="12345678",
+        timestamp="1700000000",
+        signature="badsignature",
+        client_secret="my-secret-key",
+    )
+
+
+# ---------------------------------------------------------------------------
+# route_naver_unlink_callback integration tests
+# ---------------------------------------------------------------------------
+
+
+def _make_naver_app():
+    from starlette.applications import Starlette
+
+    from piloci.api.routes import get_routes
+
+    routes = get_routes()
+    return Starlette(routes=routes)
+
+
+@pytest.fixture
+def naver_settings(monkeypatch):
+    from piloci.config import Settings
+
+    s = Settings(
+        jwt_secret="test-secret-32-characters-minimum!",
+        session_secret="test-secret-32-characters-minimum!",
+        naver_client_id="test-naver-id",
+        naver_client_secret="test-naver-secret",
+    )
+    import piloci.api.routes as routes_mod
+
+    monkeypatch.setattr(routes_mod, "get_settings", lambda: s)
+    return s
+
+
+@pytest.mark.asyncio
+async def test_naver_unlink_callback_success(naver_settings, monkeypatch):
+    import hashlib
+    import hmac
+    from contextlib import asynccontextmanager
+
+    from starlette.testclient import TestClient
+
+    mock_user = MagicMock()
+    mock_user.oauth_provider = "naver"
+    mock_user.oauth_sub = "naver-user-123"
+    mock_user.oauth_access_token = "encrypted-token"
+    mock_user.oauth_refresh_token = None
+
+    mock_result = MagicMock()
+    mock_result.scalar_one_or_none.return_value = mock_user
+
+    mock_db = AsyncMock()
+    mock_db.execute = AsyncMock(return_value=mock_result)
+    mock_db.add = MagicMock()
+
+    @asynccontextmanager
+    async def _fake_session():
+        yield mock_db
+
+    import piloci.api.routes as routes_mod
+
+    monkeypatch.setattr(routes_mod, "async_session", _fake_session)
+
+    app = _make_naver_app()
+    client = TestClient(app)
+
+    client_id = "test-naver-id"
+    user_id = "naver-user-123"
+    timestamp = "1700000000"
+    client_secret = "test-naver-secret"
+    message = f"{client_id}{user_id}{timestamp}"
+    sig = hmac.new(client_secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+
+    response = client.post(
+        "/auth/naver/unlink-callback",
+        data={
+            "client_id": client_id,
+            "user_id": user_id,
+            "timestamp": timestamp,
+            "signature": sig,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["result"] == "ok"
+    assert mock_user.oauth_provider is None
+    assert mock_user.oauth_sub is None
+
+
+@pytest.mark.asyncio
+async def test_naver_unlink_callback_invalid_signature(naver_settings, monkeypatch):
+    from starlette.testclient import TestClient
+
+    app = _make_naver_app()
+    client = TestClient(app)
+
+    response = client.post(
+        "/auth/naver/unlink-callback",
+        data={
+            "client_id": "test-naver-id",
+            "user_id": "naver-user-123",
+            "timestamp": "1700000000",
+            "signature": "invalidsig",
+        },
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_naver_unlink_callback_missing_params(naver_settings, monkeypatch):
+    from starlette.testclient import TestClient
+
+    app = _make_naver_app()
+    client = TestClient(app)
+
+    response = client.post("/auth/naver/unlink-callback", data={})
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_naver_unlink_callback_wrong_client_id(naver_settings, monkeypatch):
+    import hashlib
+    import hmac
+
+    from starlette.testclient import TestClient
+
+    app = _make_naver_app()
+    client = TestClient(app)
+
+    client_id = "wrong-id"
+    user_id = "naver-user-123"
+    timestamp = "1700000000"
+    message = f"{client_id}{user_id}{timestamp}"
+    sig = hmac.new("test-naver-secret".encode(), message.encode(), hashlib.sha256).hexdigest()
+
+    response = client.post(
+        "/auth/naver/unlink-callback",
+        data={
+            "client_id": client_id,
+            "user_id": user_id,
+            "timestamp": timestamp,
+            "signature": sig,
+        },
+    )
+    assert response.status_code == 403

@@ -72,6 +72,7 @@ PY
     ok "Created .env from .env.example"
     ok "Generated JWT_SECRET, SESSION_SECRET, REDIS_PASSWORD in .env"
     warn "Edit .env to configure SMTP, OAuth, reverse proxy, etc. as needed"
+    warn "Set BASE_URL=https://your-domain when OAuth runs behind a reverse proxy or tunnel"
     warn "Default host binding is 127.0.0.1:${PILOCI_HOST_PORT:-8314} for reverse proxy / tunnel use"
 fi
 
@@ -104,6 +105,7 @@ echo -e "  Published app URL: http://127.0.0.1:8314"
 echo ""
 echo -e "  ${CYAN}Next steps:${NC}"
 echo -e "    1. Review and customize .env"
+echo -e "       - Set BASE_URL to your external HTTPS domain if using OAuth"
 echo -e "    2. docker compose pull"
 echo -e "    3. docker compose up -d"
 echo -e "    4. Check logs: docker compose logs -f piloci"
