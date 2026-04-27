@@ -363,10 +363,9 @@ jobs:
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            *piLoci Deploy ${{ needs.docker.result == 'success' && '✅' || '❌' }}*
+            *piLoci v${{ github.ref_name }} 배포 ${{ needs.docker.result == 'success' && '완료 ✅' || '실패 ❌' }}*
 
-            Version: `${{ github.ref_name }}`
-            Docker: `jshsakura/piloci:${{ github.ref_name }}`
+            이미지: `jshsakura/piloci:${{ github.ref_name }}`
             GHCR: `ghcr.io/${{ github.repository }}:${{ github.ref_name }}`
-            Status: Docker `${{ needs.docker.result }}` / Release `${{ needs.release.result }}` / PyPI `${{ needs.pypi.result }}`
-            [View workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+            Docker `${{ needs.docker.result }}` · Release `${{ needs.release.result }}` · PyPI `${{ needs.pypi.result }}`
+            [워크플로우 보기](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
