@@ -29,6 +29,12 @@ class User(Base):
     last_login_ip: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    approval_status: Mapped[str] = mapped_column(
+        Text, default="pending"
+    )  # pending | approved | rejected
+    reviewed_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     quota_bytes: Mapped[int] = mapped_column(Integer, default=1073741824)
 
     __table_args__ = (UniqueConstraint("oauth_provider", "oauth_sub"),)
