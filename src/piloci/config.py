@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     # Server
     host: str = "0.0.0.0"
     port: int = 8314
+    base_url: str | None = None
     debug: bool = False
     reload: bool = False
     workers: int = 1

@@ -2,6 +2,9 @@
 
 ## 2026-04-27
 
+- Fixed the landing-page hydration mismatch behind production React error #418: `web/app/page.tsx` now waits for a mounted client pass before switching away from the server-rendered pending shell, and `web/lib/auth.ts` now persists only `user` instead of persisting `hasHydrated`, preventing the home page from rendering a different first client tree than the server.
+- Revalidated the frontend slice with zero LSP diagnostics on `web/app/page.tsx` and `web/lib/auth.ts`, plus `pnpm build` in `web/` (`next build` passed).
+
 - Fixed the missing OAuth provider discovery API: `src/piloci/api/routes.py` now serves `GET /api/auth/providers` by reflecting configured providers from `piloci.auth.oauth.get_provider_credentials`, which unblocks the login/signup UI from showing non-local buttons when env credentials are present.
 - Re-enabled the previously skipped regression in `tests/test_auth_rate_limits.py` so the provider-status route shape stays locked; revalidated with `uv run pytest tests/test_auth_rate_limits.py -v --no-cov` (`5 passed`).
 

@@ -870,7 +870,7 @@ async def route_oauth_login(request: Request) -> Response:
     client_id, _ = credentials
 
     state = generate_state()
-    base_url = str(request.base_url).rstrip("/")
+    base_url = settings.base_url or str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/auth/{provider}/callback"
 
     # state를 Redis에 5분 저장 (CSRF 방어)
@@ -919,7 +919,7 @@ async def route_oauth_callback(request: Request) -> Response:
         return RedirectResponse("/login?error=oauth_invalid_state", status_code=302)
     await store._redis.delete(state_key)  # noqa: SLF001
 
-    base_url = str(request.base_url).rstrip("/")
+    base_url = settings.base_url or str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/auth/{provider}/callback"
 
     try:
