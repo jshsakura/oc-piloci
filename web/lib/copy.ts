@@ -644,7 +644,7 @@ const copy = {
       pending: { title: '프로젝트 위치 확인 중', desc: '열어야 할 프로젝트를 찾는 중이며, 정보가 없으면 대시보드로 돌아갑니다.' },
     },
     audit: {
-      title: '활동 로그',
+      title: '활동 기록',
       subtitle: '보안 이벤트 및 접근 기록',
       filter: '필터',
       actions: {
@@ -652,10 +652,10 @@ const copy = {
         tokenCreated: '토큰 생성', tokenRevoked: '토큰 폐기', projectCreated: '프로젝트 생성', projectDeleted: '프로젝트 삭제',
       },
       table: { time: '시간', event: '이벤트', ip: 'IP', userAgent: 'User Agent' },
-      empty: { error: '감사 로그를 불러오지 못했습니다', noLogs: '기록된 이벤트가 없습니다' },
+      empty: { error: '활동 기록을 불러오지 못했습니다', noLogs: '기록된 이벤트가 없습니다' },
       pagination: { prev: '이전', next: '다음', page: '페이지' },
-      pending: { title: '감사 로그 준비 중', desc: '로그인 상태와 필터 설정을 복원한 뒤 감사 로그를 표시합니다.' },
-      redirect: { title: '로그인 화면으로 이동 중', desc: '감사 로그는 보호된 화면이라 로그인 페이지로 이동합니다.' },
+      pending: { title: '활동 기록 준비 중', desc: '로그인 상태와 필터 설정을 복원한 뒤 활동 기록을 표시합니다.' },
+      redirect: { title: '로그인 화면으로 이동 중', desc: '활동 기록은 보호된 화면이라 로그인 페이지로 이동합니다.' },
     },
     tokenManager: {
       desc: 'API 토큰으로 외부 클라이언트에서 piLoci에 접근합니다',
@@ -1334,7 +1334,7 @@ const copy = {
       pending: { title: 'Locating project', desc: 'Finding the project to open. If not found, you\'ll be redirected to the dashboard.' },
     },
     audit: {
-      title: 'Audit Log',
+      title: 'Activity Log',
       subtitle: 'Security events and access records',
       filter: 'Filter',
       actions: {
@@ -1342,10 +1342,10 @@ const copy = {
         tokenCreated: 'Token Created', tokenRevoked: 'Token Revoked', projectCreated: 'Project Created', projectDeleted: 'Project Deleted',
       },
       table: { time: 'Time', event: 'Event', ip: 'IP', userAgent: 'User Agent' },
-      empty: { error: 'Failed to load audit logs', noLogs: 'No events recorded' },
+      empty: { error: 'Failed to load activity log', noLogs: 'No events recorded' },
       pagination: { prev: 'Previous', next: 'Next', page: 'Page' },
-      pending: { title: 'Preparing audit log', desc: 'Restoring login state and filter settings before displaying audit logs.' },
-      redirect: { title: 'Redirecting to login', desc: 'Audit log is a protected page. Redirecting to login.' },
+      pending: { title: 'Preparing activity log', desc: 'Restoring login state and filter settings before displaying activity log.' },
+      redirect: { title: 'Redirecting to login', desc: 'Activity log is a protected page. Redirecting to login.' },
     },
     tokenManager: {
       desc: 'Access piLoci from external clients using API tokens',

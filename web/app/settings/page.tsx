@@ -171,7 +171,7 @@ export default function SettingsPage() {
           <TabsTrigger value="account">계정</TabsTrigger>
           <TabsTrigger value="security">보안</TabsTrigger>
           <TabsTrigger value="tokens">토큰</TabsTrigger>
-          <TabsTrigger value="audit">감사</TabsTrigger>
+          <TabsTrigger value="audit">활동</TabsTrigger>
         </TabsList>
 
         <TabsContent value="account" className="mt-4 space-y-4">
@@ -339,7 +339,7 @@ export default function SettingsPage() {
             <CardContent className="flex items-center justify-between py-6">
               <p className="text-sm text-muted-foreground">세션 활동 및 접근 로그를 확인합니다</p>
               <Button variant="outline" asChild>
-                <Link href="/audit">감사 로그 보기</Link>
+                <Link href="/audit">활동 기록 보기</Link>
               </Button>
             </CardContent>
           </Card>
