@@ -151,7 +151,7 @@ export default function AdminUsersPage() {
           <p className="mt-1 text-sm text-muted-foreground">{t.admin.description}</p>
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[
             { label: t.admin.statsTotal, value: stats.total, icon: Users, color: "text-foreground" },
             { label: t.admin.statsPending, value: stats.pending, icon: Clock, color: "text-amber-600 dark:text-amber-400" },
@@ -170,12 +170,13 @@ export default function AdminUsersPage() {
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex gap-1">
+          <div className="flex gap-1 overflow-x-auto pb-1 sm:flex-wrap sm:pb-0">
             {filters.map((f) => (
               <Button
                 key={f.key}
                 variant={filter === f.key ? "secondary" : "ghost"}
                 size="sm"
+                className="shrink-0"
                 onClick={() => setFilter(f.key)}
               >
                 {f.label}
@@ -226,108 +227,213 @@ export default function AdminUsersPage() {
             <p className="text-sm font-medium text-muted-foreground">{t.admin.emptyMessage}</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-lg border bg-card shadow-sm">
-            <table className="w-full text-sm">
-              <thead className="border-b bg-muted/50">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium">{t.admin.emailLabel}</th>
-                  <th className="px-4 py-3 text-left font-medium">{t.admin.statusLabel}</th>
-                  <th className="hidden px-4 py-3 text-left font-medium md:table-cell">{t.admin.createdAt}</th>
-                  <th className="hidden px-4 py-3 text-left font-medium lg:table-cell">{t.admin.lastLogin}</th>
-                  <th className="hidden px-4 py-3 text-left font-medium md:table-cell">{t.admin.oauthProvider}</th>
-                  <th className="px-4 py-3 text-right font-medium">{t.admin.actionLabel}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((u) => (
-                  <tr key={u.id} className="border-b last:border-0 transition-colors hover:bg-muted/30">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium">
-                          {(u.email?.charAt(0) ?? "?").toUpperCase()}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-medium">{u.email}</span>
-                            {u.is_admin && (
-                              <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                {t.admin.adminBadge}
-                              </span>
-                            )}
-                            {!u.is_active && (
-                              <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                                {t.admin.inactiveBadge}
-                              </span>
-                            )}
-                            {isSelf(u.id) && (
-                              <span className="text-[10px] text-muted-foreground">{t.admin.you}</span>
-                            )}
-                          </div>
-                          {u.name && <div className="text-xs text-muted-foreground">{u.name}</div>}
-                        </div>
+          <>
+            <div className="space-y-3 md:hidden">
+              {filtered.map((u) => (
+                <div key={u.id} className="rounded-lg border bg-card p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium">
+                        {(u.email?.charAt(0) ?? "?").toUpperCase()}
                       </div>
-                    </td>
-                    <td className="px-4 py-3">{statusBadge(u.approval_status)}</td>
-                    <td className="hidden px-4 py-3 text-muted-foreground whitespace-nowrap md:table-cell">
-                      {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
-                    </td>
-                    <td className="hidden px-4 py-3 text-muted-foreground whitespace-nowrap lg:table-cell">
-                      {u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : t.admin.neverLoggedIn}
-                    </td>
-                    <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">
-                      {u.oauth_provider ?? "—"}
-                      {u.totp_enabled && (
-                        <span className="ml-1 text-[10px] text-muted-foreground">{t.admin.twoFactor}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {u.approval_status === "pending" ? (
-                        <div className="flex justify-end gap-1.5">
-                          <Button size="sm" onClick={() => void handleAction(() => api.adminApproveUser(u.id), `${u.email} 승인됨`)} disabled={actionPending}>
-                            {t.admin.approve}
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="truncate font-medium text-sm">{u.email}</span>
+                          {u.is_admin && (
+                            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                              {t.admin.adminBadge}
+                            </span>
+                          )}
+                          {!u.is_active && (
+                            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                              {t.admin.inactiveBadge}
+                            </span>
+                          )}
+                          {isSelf(u.id) && (
+                            <span className="text-[10px] text-muted-foreground">{t.admin.you}</span>
+                          )}
+                        </div>
+                        {u.name && <div className="text-xs text-muted-foreground">{u.name}</div>}
+                      </div>
+                    </div>
+                    {statusBadge(u.approval_status)}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                    {u.created_at && (
+                      <span>{new Date(u.created_at).toLocaleDateString()}</span>
+                    )}
+                    {u.oauth_provider && <span>{u.oauth_provider}</span>}
+                    {u.totp_enabled && <span>2FA</span>}
+                  </div>
+                  <div className="mt-3 border-t pt-3">
+                    {u.approval_status === "pending" ? (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          className="flex-1"
+                          onClick={() => void handleAction(() => api.adminApproveUser(u.id), `${u.email} 승인됨`)}
+                          disabled={actionPending}
+                        >
+                          {t.admin.approve}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="flex-1"
+                          onClick={() => setRejectTarget(u)}
+                          disabled={actionPending}
+                        >
+                          {t.admin.reject}
+                        </Button>
+                      </div>
+                    ) : (
+                      !isSelf(u.id) && (
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => void handleAction(() => api.adminToggleAdmin(u.id), u.is_admin ? t.admin.demoteAdmin : t.admin.promoteAdmin)}
+                            disabled={actionPending}
+                          >
+                            {u.is_admin ? (
+                              <><ShieldOff className="mr-1.5 h-3.5 w-3.5" />{t.admin.demoteAdmin}</>
+                            ) : (
+                              <><ShieldCheck className="mr-1.5 h-3.5 w-3.5" />{t.admin.promoteAdmin}</>
+                            )}
                           </Button>
-                          <Button size="sm" variant="destructive" onClick={() => setRejectTarget(u)} disabled={actionPending}>
-                            {t.admin.reject}
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => void handleAction(() => api.adminToggleActive(u.id), u.is_active ? t.admin.deactivateUser : t.admin.activateUser)}
+                            disabled={actionPending}
+                          >
+                            {u.is_active ? (
+                              <><ToggleLeft className="mr-1.5 h-3.5 w-3.5" />{t.admin.deactivateUser}</>
+                            ) : (
+                              <><ToggleRight className="mr-1.5 h-3.5 w-3.5" />{t.admin.activateUser}</>
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="text-destructive hover:bg-destructive/10"
+                            onClick={() => setDeleteTarget(u)}
+                            disabled={actionPending}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
                         </div>
-                      ) : (
-                        !isSelf(u.id) && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => void handleAction(() => api.adminToggleAdmin(u.id), u.is_admin ? t.admin.demoteAdmin : t.admin.promoteAdmin)}>
-                                {u.is_admin ? (
-                                  <><ShieldOff className="mr-2 h-4 w-4" />{t.admin.demoteAdmin}</>
-                                ) : (
-                                  <><ShieldCheck className="mr-2 h-4 w-4" />{t.admin.promoteAdmin}</>
-                                )}
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => void handleAction(() => api.adminToggleActive(u.id), u.is_active ? t.admin.deactivateUser : t.admin.activateUser)}>
-                                {u.is_active ? (
-                                  <><ToggleLeft className="mr-2 h-4 w-4" />{t.admin.deactivateUser}</>
-                                ) : (
-                                  <><ToggleRight className="mr-2 h-4 w-4" />{t.admin.activateUser}</>
-                                )}
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(u)}>
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                {t.admin.deleteUser}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )
-                      )}
-                    </td>
+                      )
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto rounded-lg border bg-card shadow-sm md:block">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/50">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium">{t.admin.emailLabel}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t.admin.statusLabel}</th>
+                    <th className="hidden px-4 py-3 text-left font-medium md:table-cell">{t.admin.createdAt}</th>
+                    <th className="hidden px-4 py-3 text-left font-medium lg:table-cell">{t.admin.lastLogin}</th>
+                    <th className="hidden px-4 py-3 text-left font-medium md:table-cell">{t.admin.oauthProvider}</th>
+                    <th className="px-4 py-3 text-right font-medium">{t.admin.actionLabel}</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filtered.map((u) => (
+                    <tr key={u.id} className="border-b last:border-0 transition-colors hover:bg-muted/30">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                            {(u.email?.charAt(0) ?? "?").toUpperCase()}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-medium">{u.email}</span>
+                              {u.is_admin && (
+                                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                  {t.admin.adminBadge}
+                                </span>
+                              )}
+                              {!u.is_active && (
+                                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                                  {t.admin.inactiveBadge}
+                                </span>
+                              )}
+                              {isSelf(u.id) && (
+                                <span className="text-[10px] text-muted-foreground">{t.admin.you}</span>
+                              )}
+                            </div>
+                            {u.name && <div className="text-xs text-muted-foreground">{u.name}</div>}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">{statusBadge(u.approval_status)}</td>
+                      <td className="hidden px-4 py-3 text-muted-foreground whitespace-nowrap md:table-cell">
+                        {u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="hidden px-4 py-3 text-muted-foreground whitespace-nowrap lg:table-cell">
+                        {u.last_login_at ? new Date(u.last_login_at).toLocaleDateString() : t.admin.neverLoggedIn}
+                      </td>
+                      <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">
+                        {u.oauth_provider ?? "—"}
+                        {u.totp_enabled && (
+                          <span className="ml-1 text-[10px] text-muted-foreground">{t.admin.twoFactor}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {u.approval_status === "pending" ? (
+                          <div className="flex justify-end gap-1.5">
+                            <Button size="sm" onClick={() => void handleAction(() => api.adminApproveUser(u.id), `${u.email} 승인됨`)} disabled={actionPending}>
+                              {t.admin.approve}
+                            </Button>
+                            <Button size="sm" variant="destructive" onClick={() => setRejectTarget(u)} disabled={actionPending}>
+                              {t.admin.reject}
+                            </Button>
+                          </div>
+                        ) : (
+                          !isSelf(u.id) && (
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end">
+                                <DropdownMenuItem onClick={() => void handleAction(() => api.adminToggleAdmin(u.id), u.is_admin ? t.admin.demoteAdmin : t.admin.promoteAdmin)}>
+                                  {u.is_admin ? (
+                                    <><ShieldOff className="mr-2 h-4 w-4" />{t.admin.demoteAdmin}</>
+                                  ) : (
+                                    <><ShieldCheck className="mr-2 h-4 w-4" />{t.admin.promoteAdmin}</>
+                                  )}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => void handleAction(() => api.adminToggleActive(u.id), u.is_active ? t.admin.deactivateUser : t.admin.activateUser)}>
+                                  {u.is_active ? (
+                                    <><ToggleLeft className="mr-2 h-4 w-4" />{t.admin.deactivateUser}</>
+                                  ) : (
+                                    <><ToggleRight className="mr-2 h-4 w-4" />{t.admin.activateUser}</>
+                                  )}
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(u)}>
+                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  {t.admin.deleteUser}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          )
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
 
