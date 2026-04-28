@@ -17,6 +17,22 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent
+
+
+def _load_dotenv() -> dict[str, str]:
+    env_file = ROOT / ".env"
+    result: dict[str, str] = {}
+    if not env_file.exists():
+        return result
+    for line in env_file.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, _, v = line.partition("=")
+        result[k.strip()] = v.strip()
+    return result
+
+
 LOG_DIR = ROOT / "logs"
 STATIC_DIR = ROOT / "src" / "piloci" / "static"
 WEB_OUT_DIR = ROOT / "web" / "out"
@@ -24,6 +40,7 @@ BACKEND_PORT = 8314
 FRONTEND_PORT = 3000
 DEV_COMPOSE = "docker-compose.dev.yml"
 PROD_COMPOSE = "docker-compose.yml"
+NATIVE_COMPOSE = "docker-compose.native.yml"
 PUBLIC_BASE_URL = os.environ.get("PILOCI_PUBLIC_URL", "")
 
 
@@ -168,6 +185,18 @@ def sync_static() -> None:
 def native_up() -> None:
     LOG_DIR.mkdir(exist_ok=True)
 
+    # Bring down dev/prod Docker stacks, bring up native stack (nginx + redis only)
+    print("[ native ] stopping docker stacks...")
+    for cf in (PROD_COMPOSE, DEV_COMPOSE):
+        subprocess.run(["docker", "compose", "-f", cf, "down"], cwd=ROOT, capture_output=True)
+    subprocess.run(
+        ["docker", "compose", "-f", NATIVE_COMPOSE, "up", "-d"],
+        cwd=ROOT,
+        check=True,
+        env={**os.environ, **_load_dotenv()},
+    )
+    print("[ native ] nginx + redis up  (28314 → host:8314)")
+
     # If /data doesn't exist, redirect DB/LanceDB to a local ./data/ directory
     local_data = ROOT / "data"
     env_overrides: dict[str, str] = {}
@@ -178,6 +207,10 @@ def native_up() -> None:
         env_overrides["LANCEDB_PATH"] = str(local_data / "lancedb")
         print(f"[ piloci ] data dir  → {local_data.relative_to(ROOT)}/")
 
+    # Redis on localhost:6379 (exposed by docker-compose.native.yml)
+    redis_password = _load_dotenv().get("REDIS_PASSWORD", "changeme")
+    env_overrides["REDIS_URL"] = f"redis://:{redis_password}@localhost:6379/0"
+
     sync_static()
 
     print("[ piloci ] stopping existing process...")
@@ -185,7 +218,7 @@ def native_up() -> None:
     pkill("piloci serve")
     time.sleep(1)
 
-    backend_env = {**os.environ, **env_overrides}
+    backend_env = {**os.environ, **_load_dotenv(), **env_overrides}
     backend_log = open(LOG_DIR / "piloci.log", "a")
     backend = subprocess.Popen(
         ["uv", "run", "piloci", "serve"],
