@@ -6,8 +6,10 @@ import type { User } from "./types";
 interface AuthState {
   user: User | null;
   hasHydrated: boolean;
+  isBootstrapping: boolean;
   setUser: (user: User | null) => void;
   setHasHydrated: (hasHydrated: boolean) => void;
+  setIsBootstrapping: (v: boolean) => void;
   logout: () => void;
 }
 
@@ -25,8 +27,10 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       hasHydrated: false,
+      isBootstrapping: false,
       setUser: (user) => set({ user }),
       setHasHydrated: (hasHydrated) => set({ hasHydrated }),
+      setIsBootstrapping: (v) => set({ isBootstrapping: v }),
       logout: () => set({ user: null }),
     }),
     {

@@ -28,7 +28,7 @@ const MCP_EXAMPLE = `{
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { user, hasHydrated } = useAuthStore();
+  const { user, hasHydrated, isBootstrapping } = useAuthStore();
 
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -54,10 +54,10 @@ export default function SettingsPage() {
   const [disconnectSuccess, setDisconnectSuccess] = useState(false);
 
   useEffect(() => {
-    if (hasHydrated && !user) router.replace("/login");
-  }, [hasHydrated, user, router]);
+    if (hasHydrated && !isBootstrapping && !user) router.replace("/login");
+  }, [hasHydrated, isBootstrapping, user, router]);
 
-  if (!hasHydrated) {
+  if (!hasHydrated || isBootstrapping) {
     return (
       <AppShell>
         <RoutePending title="설정 불러오는 중" description="세션이 복원되면 계정 및 보안 설정을 이어서 표시합니다." />

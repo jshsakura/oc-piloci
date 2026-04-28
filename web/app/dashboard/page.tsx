@@ -19,7 +19,7 @@ import { Label } from "@/components/ui/label";
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user, hasHydrated } = useAuthStore();
+  const { user, hasHydrated, isBootstrapping } = useAuthStore();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [newSlug, setNewSlug] = useState("");
@@ -49,10 +49,10 @@ export default function DashboardPage() {
   });
 
   useEffect(() => {
-    if (hasHydrated && !user) router.replace("/login");
-  }, [hasHydrated, router, user]);
+    if (hasHydrated && !isBootstrapping && !user) router.replace("/login");
+  }, [hasHydrated, isBootstrapping, router, user]);
 
-  if (!hasHydrated) {
+  if (!hasHydrated || isBootstrapping) {
     return (
       <AppShell>
         <RoutePending title="세션 확인 중" description="대시보드에 필요한 계정 정보를 불러오고 있습니다." />

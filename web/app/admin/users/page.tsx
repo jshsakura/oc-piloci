@@ -42,7 +42,7 @@ type StatusFilter = "all" | "pending" | "approved" | "rejected";
 
 export default function AdminUsersPage() {
   const router = useRouter();
-  const { user: me, hasHydrated } = useAuthStore();
+  const { user: me, hasHydrated, isBootstrapping } = useAuthStore();
   const { t } = useTranslation();
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,10 +56,10 @@ export default function AdminUsersPage() {
   const [feedback, setFeedback] = useState<{ type: "ok" | "err"; message: string } | null>(null);
 
   useEffect(() => {
-    if (hasHydrated && (!me || !me.is_admin)) {
+    if (hasHydrated && !isBootstrapping && (!me || !me.is_admin)) {
       router.replace("/dashboard");
     }
-  }, [hasHydrated, me, router]);
+  }, [hasHydrated, isBootstrapping, me, router]);
 
   const fetchUsers = async (status?: string) => {
     setLoading(true);
@@ -96,7 +96,7 @@ export default function AdminUsersPage() {
     return { total, pending, admins };
   }, [users]);
 
-  if (!hasHydrated || !me) return <AppShell><RoutePending title={t.admin.title} description={t.admin.description} /></AppShell>;
+  if (!hasHydrated || isBootstrapping || !me) return <AppShell><RoutePending title={t.admin.title} description={t.admin.description} /></AppShell>;
   if (!me.is_admin) return <AppShell><RoutePending title={t.admin.title} description={t.admin.description} fullScreen /></AppShell>;
 
   const isSelf = (id: string) => me.user_id === id;

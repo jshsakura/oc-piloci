@@ -62,7 +62,7 @@ function ActionBadge({ action }: { action: string }) {
 
 export default function AuditPage() {
   const router = useRouter();
-  const { user, hasHydrated } = useAuthStore();
+  const { user, hasHydrated, isBootstrapping } = useAuthStore();
   const [actionFilter, setActionFilter] = useState("all");
   const [offset, setOffset] = useState(0);
 
@@ -75,10 +75,10 @@ export default function AuditPage() {
   });
 
   useEffect(() => {
-    if (hasHydrated && !user) router.replace("/login");
-  }, [hasHydrated, user, router]);
+    if (hasHydrated && !isBootstrapping && !user) router.replace("/login");
+  }, [hasHydrated, isBootstrapping, user, router]);
 
-  if (!hasHydrated) {
+  if (!hasHydrated || isBootstrapping) {
     return (
       <AppShell>
         <RoutePending title="감사 로그 준비 중" description="로그인 상태와 필터 설정을 복원한 뒤 감사 로그를 표시합니다." />
