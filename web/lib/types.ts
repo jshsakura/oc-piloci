@@ -25,16 +25,19 @@ export interface Memory {
   updated_at: number;
 }
 
-export interface TokenSetup {
-  mcp_config: {
-    mcpServers: {
-      piloci: {
-        type: string;
-        url: string;
-        headers: { Authorization: string };
-      };
+interface McpServerConfig {
+  mcpServers: {
+    piloci: {
+      type: string;
+      url: string;
+      headers: { Authorization: string };
     };
   };
+}
+
+export interface TokenSetup {
+  mcp_config: McpServerConfig;
+  mcp_config_sse: McpServerConfig;
   hook_config: {
     hooks: {
       Stop: Array<{

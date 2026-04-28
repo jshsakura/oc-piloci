@@ -77,7 +77,11 @@ def test_generate_token_setup_contains_mcp_and_hook_snippets() -> None:
     setup = routes._generate_token_setup("jwt-token", "https://piloci.example.com")
 
     assert (
-        setup["mcp_config"]["mcpServers"]["piloci"]["url"] == "https://piloci.example.com/mcp/sse"
+        setup["mcp_config"]["mcpServers"]["piloci"]["url"] == "https://piloci.example.com/mcp/http"
+    )
+    assert (
+        setup["mcp_config_sse"]["mcpServers"]["piloci"]["url"]
+        == "https://piloci.example.com/mcp/sse"
     )
     assert (
         setup["mcp_config"]["mcpServers"]["piloci"]["headers"]["Authorization"]
@@ -231,9 +235,9 @@ async def test_route_login_success_sets_session_cookie(monkeypatch: pytest.Monke
         headers=[(b"user-agent", b"pytest-agent")],
     )
     db = _db_session()
-    settings = SimpleNamespace(session_expire_days=7)
+    settings = SimpleNamespace(session_expire_days=7, base_url=None)
     redis_session = SimpleNamespace()
-    user = SimpleNamespace(id="user-1", email="user@example.com")
+    user = SimpleNamespace(id="user-1", email="user@example.com", is_admin=False)
     login_mock = AsyncMock(return_value=(user, "session-1"))
 
     monkeypatch.setattr(routes, "get_settings", lambda: settings)
@@ -245,7 +249,7 @@ async def test_route_login_success_sets_session_cookie(monkeypatch: pytest.Monke
     payload = orjson.loads(response.body)
 
     assert response.status_code == 200
-    assert payload == {"user_id": "user-1", "email": "user@example.com"}
+    assert payload == {"user_id": "user-1", "email": "user@example.com", "is_admin": False}
     login_mock.assert_awaited_once_with(
         email="user@example.com",
         password="StrongPass123!",

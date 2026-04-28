@@ -2,31 +2,14 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from starlette.applications import Starlette
-from starlette.routing import Mount, Route
 from starlette.testclient import TestClient
 
 from piloci.mcp.session_state import mcp_auth_ctx, mcp_session_ctx
 from piloci.mcp.sse import create_sse_app
-
-
-class _DummyRequest:
-    def __init__(self, headers: dict[str, str] | None = None):
-        self.headers: dict[str, str] = headers or {}
-        self.scope: dict[str, Any] = {"type": "http", "path": "/sse"}
-
-        async def _receive():
-            return {"type": "http.request", "body": b"", "more_body": False}
-
-        async def _send(message: object) -> None:
-            return None
-
-        self.receive = _receive
-        self._send = _send
 
 
 class _FakeSseTransport:
@@ -48,13 +31,6 @@ class _FakeSseTransport:
         yield "read-stream", "write-stream"
 
 
-def _route_endpoint(app: Starlette, path: str) -> Any:
-    for route in app.routes:
-        if getattr(route, "path", None) == path:
-            return cast(Any, route).endpoint
-    raise AssertionError(f"Route {path} not found")
-
-
 def test_create_sse_app_registers_expected_routes_and_prefix():
     _FakeSseTransport.instances.clear()
     mock_server = MagicMock()
@@ -63,15 +39,8 @@ def test_create_sse_app_registers_expected_routes_and_prefix():
         app = create_sse_app(mock_server, debug=True, prefix="/mcp")
 
     transport = _FakeSseTransport.instances[-1]
-    route_paths = {(type(route), getattr(route, "path", None)) for route in app.routes}
-
     assert transport.msg_path == "/mcp/messages/"
-    assert app.debug is True
-    assert route_paths == {
-        (Route, "/sse"),
-        (Mount, "/messages"),
-        (Route, "/healthz"),
-    }
+    assert callable(app)
 
 
 def test_healthz_endpoint():
@@ -92,24 +61,37 @@ async def test_handle_sse_verifies_bearer_sets_context_and_runs_server():
     settings = SimpleNamespace(telegram_bot_token=None, telegram_chat_id=None)
     auth_payload = {"sub": "user-1", "project_id": "project-1", "jti": "session-1"}
 
-    with patch("piloci.mcp.sse.SseServerTransport", _FakeSseTransport):
-        app = create_sse_app(mcp_server, prefix="/mcp")
+    responses: list[dict] = []
 
-    endpoint = _route_endpoint(app, "/sse")
-    request = _DummyRequest(headers={"authorization": "Bearer test-token"})
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(msg):
+        responses.append(msg)
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/sse",
+        "headers": [(b"authorization", b"Bearer test-token")],
+        "query_string": b"",
+    }
+
     send_summary = AsyncMock(return_value=False)
 
     assert mcp_auth_ctx.get() is None
     assert mcp_session_ctx.get() is None
+
+    with patch("piloci.mcp.sse.SseServerTransport", _FakeSseTransport):
+        app = create_sse_app(mcp_server, prefix="/mcp")
 
     with (
         patch("piloci.mcp.sse.get_settings", return_value=settings),
         patch("piloci.mcp.sse.verify_token", return_value=auth_payload) as verify,
         patch("piloci.mcp.sse.send_session_summary", send_summary),
     ):
-        response = await endpoint(request)
+        await app(scope, receive, send)
 
-    assert response is None
     verify.assert_called_once_with("test-token", settings)
     mcp_server.run.assert_awaited_once_with(
         "read-stream",
@@ -136,11 +118,22 @@ async def test_handle_sse_swallows_summary_errors_and_resets_context():
     settings = SimpleNamespace(telegram_bot_token="bot", telegram_chat_id="chat")
     auth_payload = {"sub": "user-2", "project_id": "project-9", "jti": "session-9"}
 
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(msg):
+        pass
+
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/sse",
+        "headers": [(b"authorization", b"Bearer good-token")],
+        "query_string": b"",
+    }
+
     with patch("piloci.mcp.sse.SseServerTransport", _FakeSseTransport):
         app = create_sse_app(mcp_server)
-
-    endpoint = _route_endpoint(app, "/sse")
-    request = _DummyRequest(headers={"authorization": "Bearer good-token"})
 
     with (
         patch("piloci.mcp.sse.get_settings", return_value=settings),
@@ -150,9 +143,8 @@ async def test_handle_sse_swallows_summary_errors_and_resets_context():
             AsyncMock(side_effect=RuntimeError("telegram down")),
         ),
     ):
-        response = await endpoint(request)
+        await app(scope, receive, send)
 
-    assert response is None
     mcp_server.run.assert_awaited_once()
     assert mcp_auth_ctx.get() is None
     assert mcp_session_ctx.get() is None

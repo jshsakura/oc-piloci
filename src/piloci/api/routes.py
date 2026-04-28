@@ -55,6 +55,8 @@ def _resolve_base_url(request: Request, settings: Any) -> str:
     return str(request.base_url).rstrip("/")
 
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from piloci.curator.vault import (
     build_project_vault_preview,
     ensure_project_vault,
@@ -63,7 +65,6 @@ from piloci.curator.vault import (
     load_cached_project_vault,
 )
 from piloci.db.session import async_session
-from sqlalchemy.ext.asyncio import AsyncSession
 from piloci.utils.logging import get_runtime_profiler
 
 logger = logging.getLogger(__name__)

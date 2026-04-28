@@ -84,7 +84,9 @@ def _make_app(monkeypatch: pytest.MonkeyPatch) -> Starlette:
         "get_session_store",
         lambda settings: SimpleNamespace(create_session=AsyncMock(return_value="sess-1")),
     )
-    monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(session_expire_days=14))
+    monkeypatch.setattr(
+        routes, "get_settings", lambda: SimpleNamespace(session_expire_days=14, base_url=None)
+    )
 
     app = Starlette(routes=get_routes())
     setup_ratelimit(app)

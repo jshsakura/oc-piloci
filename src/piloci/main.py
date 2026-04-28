@@ -132,13 +132,13 @@ def create_app():
     instincts_store = InstinctsStore(settings)
     mcp_server = _build_mcp(settings, store, instincts_store)
 
-    sse_app = create_sse_app(mcp_server, debug=settings.debug, prefix="/mcp")
+    mcp_app = create_sse_app(mcp_server, debug=settings.debug, prefix="/mcp")
 
     from starlette.routing import Mount as SMount
 
     routes = [
         *get_routes(),
-        SMount("/mcp", app=sse_app),
+        SMount("/mcp", app=mcp_app),
     ]
 
     static = get_static_app()

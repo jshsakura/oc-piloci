@@ -57,15 +57,20 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
   const { t } = useTranslation();
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
   const hasSetup = !!data.setup;
-  const mcpJson = data.setup ? JSON.stringify(data.setup.mcp_config, null, 2) : JSON.stringify({
-    mcpServers: {
-      piloci: {
-        type: "http",
-        url: `${baseUrl}/mcp/sse`,
-        headers: { Authorization: "Bearer <TOKEN>" },
-      },
-    },
-  }, null, 2);
+  const mcpJson = data.setup
+    ? JSON.stringify(data.setup.mcp_config, null, 2)
+    : JSON.stringify({
+        mcpServers: {
+          piloci: { type: "http", url: `${baseUrl}/mcp/http`, headers: { Authorization: "Bearer <TOKEN>" } },
+        },
+      }, null, 2);
+  const mcpSseJson = data.setup
+    ? JSON.stringify(data.setup.mcp_config_sse, null, 2)
+    : JSON.stringify({
+        mcpServers: {
+          piloci: { type: "sse", url: `${baseUrl}/mcp/sse`, headers: { Authorization: "Bearer <TOKEN>" } },
+        },
+      }, null, 2);
   const hookJson = data.setup ? JSON.stringify(data.setup.hook_config, null, 2) : null;
 
   return (
@@ -92,7 +97,18 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
               <code className="rounded bg-muted px-1 py-0.5 text-xs">.mcp.json</code>
               {t.tokenManager.mcpInstructions}
             </p>
-            <CopyBlock value={mcpJson} />
+            <Tabs defaultValue="http">
+              <TabsList className="h-7 text-xs">
+                <TabsTrigger value="http" className="px-3 text-xs">Streamable HTTP</TabsTrigger>
+                <TabsTrigger value="sse" className="px-3 text-xs">SSE (legacy)</TabsTrigger>
+              </TabsList>
+              <TabsContent value="http" className="mt-2">
+                <CopyBlock value={mcpJson} />
+              </TabsContent>
+              <TabsContent value="sse" className="mt-2">
+                <CopyBlock value={mcpSseJson} />
+              </TabsContent>
+            </Tabs>
             <p className="text-xs text-muted-foreground">
               {t.tokenManager.mcpNote}
             </p>

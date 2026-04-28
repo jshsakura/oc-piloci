@@ -274,14 +274,19 @@ def test_get_provider_credentials_returns_configured_values(
     assert get_provider_credentials(settings, provider) == expected
 
 
-def test_get_provider_credentials_returns_none_when_not_configured():
+def test_get_provider_credentials_returns_none_when_not_configured(monkeypatch: pytest.MonkeyPatch):
     from piloci.auth.oauth import get_provider_credentials
+
+    monkeypatch.setenv("GITHUB_CLIENT_ID", "")
+    monkeypatch.setenv("GITHUB_CLIENT_SECRET", "")
 
     settings = Settings(
         jwt_secret="test-secret-32-characters-minimum!",
         session_secret="test-secret-32-characters-minimum!",
         google_client_id="google-id",
         google_client_secret="google-secret",
+        github_client_id="",
+        github_client_secret="",
     )
 
     assert get_provider_credentials(settings, "github") is None
