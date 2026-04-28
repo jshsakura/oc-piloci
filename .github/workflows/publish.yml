@@ -106,10 +106,10 @@ jobs:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   # ──────────────────────────────────────────
-  # Web type check (always, parallel with test)
+  # Web Check & Build (always, parallel with test)
   # ──────────────────────────────────────────
   web-check:
-    name: Web Type Check
+    name: Web Check & Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -131,6 +131,25 @@ jobs:
       - name: tsc
         run: pnpm exec tsc --noEmit
         working-directory: web
+
+      - name: lint
+        run: pnpm run lint
+        working-directory: web
+
+      - name: test
+        run: pnpm run test:coverage
+        working-directory: web
+
+      - name: build
+        run: pnpm build
+        working-directory: web
+
+      - name: Upload web artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-out
+          path: web/out/
+          retention-days: 1
 
   # ═══════════════════════════════════════════
   # PUBLISH GATE — tag push only, after CI
@@ -363,7 +382,7 @@ jobs:
           token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           format: markdown
           message: |
-            *piLoci v${{ github.ref_name }} 배포 ${{ needs.docker.result == 'success' && '완료 ✅' || '실패 ❌' }}*
+            *piLoci ${{ github.ref_name }} 배포 ${{ needs.docker.result == 'success' && '완료 ✅' || '실패 ❌' }}*
 
             이미지: `jshsakura/piloci:${{ github.ref_name }}`
             GHCR: `ghcr.io/${{ github.repository }}:${{ github.ref_name }}`

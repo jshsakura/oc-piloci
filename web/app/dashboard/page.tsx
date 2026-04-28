@@ -27,6 +27,27 @@ export default function DashboardPage() {
   const [newDescription, setNewDescription] = useState("");
   const [formError, setFormError] = useState("");
 
+  const { data: projects, isLoading, isError } = useQuery({
+    queryKey: ["projects"],
+    queryFn: api.listProjects,
+    enabled: !!user,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: () => api.createProject(newSlug, newName, newDescription || undefined),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["projects"] });
+      setOpen(false);
+      setNewSlug("");
+      setNewName("");
+      setNewDescription("");
+      setFormError("");
+    },
+    onError: (err: unknown) => {
+      setFormError(err instanceof Error ? err.message : "프로젝트 생성에 실패했습니다");
+    },
+  });
+
   useEffect(() => {
     if (hasHydrated && !user) router.replace("/login");
   }, [hasHydrated, router, user]);
@@ -48,26 +69,6 @@ export default function DashboardPage() {
       />
     );
   }
-
-  const { data: projects, isLoading, isError } = useQuery({
-    queryKey: ["projects"],
-    queryFn: api.listProjects,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: () => api.createProject(newSlug, newName, newDescription || undefined),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["projects"] });
-      setOpen(false);
-      setNewSlug("");
-      setNewName("");
-      setNewDescription("");
-      setFormError("");
-    },
-    onError: (err: unknown) => {
-      setFormError(err instanceof Error ? err.message : "프로젝트 생성에 실패했습니다");
-    },
-  });
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();

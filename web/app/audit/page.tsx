@@ -66,6 +66,14 @@ export default function AuditPage() {
   const [actionFilter, setActionFilter] = useState("all");
   const [offset, setOffset] = useState(0);
 
+  const actionParam = actionFilter === "all" ? undefined : actionFilter;
+
+  const { data: logs, isLoading, isError } = useQuery<AuditLog[]>({
+    queryKey: ["audit", actionFilter, offset],
+    queryFn: () => api.listAudit(LIMIT, offset, actionParam),
+    enabled: !!user,
+  });
+
   useEffect(() => {
     if (hasHydrated && !user) router.replace("/login");
   }, [hasHydrated, user, router]);
@@ -87,14 +95,6 @@ export default function AuditPage() {
       />
     );
   }
-
-  const actionParam = actionFilter === "all" ? undefined : actionFilter;
-
-  const { data: logs, isLoading, isError } = useQuery<AuditLog[]>({
-    queryKey: ["audit", actionFilter, offset],
-    queryFn: () => api.listAudit(LIMIT, offset, actionParam),
-    enabled: !!user,
-  });
 
   const hasPrev = offset > 0;
   const hasNext = (logs?.length ?? 0) === LIMIT;
