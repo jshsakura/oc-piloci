@@ -21,6 +21,7 @@ from piloci.config import get_settings
 from piloci.db.session import init_db
 from piloci.mcp.server import create_mcp_server
 from piloci.mcp.sse import create_sse_app
+from piloci.mcp.streamable_http import create_streamable_http_app
 from piloci.storage.instincts_store import InstinctsStore
 from piloci.storage.lancedb_store import MemoryStore
 from piloci.utils.logging import RuntimeProfilingMiddleware, configure_logging
@@ -133,11 +134,13 @@ def create_app():
     mcp_server = _build_mcp(settings, store, instincts_store)
 
     mcp_app = create_sse_app(mcp_server, debug=settings.debug, prefix="/mcp")
+    http_app = create_streamable_http_app(mcp_server)
 
     from starlette.routing import Mount as SMount
 
     routes = [
         *get_routes(),
+        SMount("/mcp/http", app=http_app),
         SMount("/mcp", app=mcp_app),
     ]
 
