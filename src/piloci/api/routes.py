@@ -63,6 +63,7 @@ from piloci.curator.vault import (
     load_cached_project_vault,
 )
 from piloci.db.session import async_session
+from sqlalchemy.ext.asyncio import AsyncSession
 from piloci.utils.logging import get_runtime_profiler
 
 logger = logging.getLogger(__name__)
@@ -87,12 +88,24 @@ def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
     )
     stop_hook_command = f'python3 -c "{py}" 2>/dev/null'
 
+    auth_header = {"Authorization": f"Bearer {token}"}
+    # sse_config: legacy SSE transport (type:"sse")
+    # http_config: MCP Streamable HTTP transport (type:"http", Claude Code compatible)
     mcp_config = {
+        "mcpServers": {
+            "piloci": {
+                "type": "http",
+                "url": f"{base_url}/mcp/http",
+                "headers": auth_header,
+            }
+        }
+    }
+    mcp_config_sse = {
         "mcpServers": {
             "piloci": {
                 "type": "sse",
                 "url": mcp_url,
-                "headers": {"Authorization": f"Bearer {token}"},
+                "headers": auth_header,
             }
         }
     }
@@ -106,7 +119,7 @@ def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
             ]
         }
     }
-    return {"mcp_config": mcp_config, "hook_config": hook_config}
+    return {"mcp_config": mcp_config, "mcp_config_sse": mcp_config_sse, "hook_config": hook_config}
 
 
 def _json(data: Any, status: int = 200) -> Response:
@@ -206,13 +219,13 @@ async def route_login(request: Request) -> Response:
                 settings=settings,
                 totp_code=totp_code,
             )
-        response = _json({"user_id": user.id, "email": user.email})
+        response = _json({"user_id": user.id, "email": user.email, "is_admin": user.is_admin})
         response.set_cookie(
             "piloci_session",
             session_id,
             httponly=True,
             samesite="lax",
-            secure=True,
+            secure=_resolve_base_url(request, settings).startswith("https"),
             max_age=settings.session_expire_days * 86400,
             path="/",
         )
@@ -1084,13 +1097,16 @@ async def route_oauth_callback(request: Request) -> Response:
 
     max_age = settings.session_expire_days * 86400
 
+    base_url = _resolve_base_url(request, settings)
+    is_https = base_url.startswith("https")
+
     response = RedirectResponse("/dashboard", status_code=302)
     response.set_cookie(
         "piloci_session",
         session_id,
         httponly=True,
         samesite="lax",
-        secure=True,
+        secure=is_https,
         max_age=max_age,
         path="/",
     )
@@ -1693,12 +1709,15 @@ async def route_admin_list_users(request: Request) -> Response:
             "email": u.email,
             "name": u.name,
             "is_admin": u.is_admin,
+            "is_active": u.is_active,
             "approval_status": u.approval_status,
             "reviewed_by": u.reviewed_by,
             "reviewed_at": u.reviewed_at.isoformat() if u.reviewed_at else None,
             "rejection_reason": u.rejection_reason,
             "created_at": u.created_at.isoformat() if u.created_at else None,
+            "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
             "oauth_provider": u.oauth_provider,
+            "totp_enabled": u.totp_enabled,
         }
         for u in users
     ]
@@ -1721,7 +1740,7 @@ async def route_admin_approve_user(request: Request) -> Response:
         admin_user = admin_result.scalar_one_or_none()
         admin_email = admin_user.email if admin_user else "unknown"
 
-        result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+        result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if user is None:
             return _json({"error": "User not found"}, 404)
@@ -1752,7 +1771,7 @@ async def route_admin_reject_user(request: Request) -> Response:
         admin_user = admin_result.scalar_one_or_none()
         admin_email = admin_user.email if admin_user else "unknown"
 
-        result = await db.execute(select(User).where(User.id == uuid.UUID(user_id)))
+        result = await db.execute(select(User).where(User.id == user_id))
         user = result.scalar_one_or_none()
         if user is None:
             return _json({"error": "User not found"}, 404)
@@ -1761,6 +1780,110 @@ async def route_admin_reject_user(request: Request) -> Response:
         user.reviewed_at = datetime.now(timezone.utc)
         user.rejection_reason = reason or None
         await db.commit()
+    return _json({"ok": True})
+
+
+async def _admin_audit(db: AsyncSession, admin_id: str, target_id: str, action: str) -> None:
+    from piloci.db.models import AuditLog
+
+    audit = AuditLog(
+        user_id=admin_id,
+        action=f"admin_{action}",
+        meta_data=orjson.dumps({"target_user_id": target_id}).decode(),
+        created_at=datetime.now(timezone.utc),
+    )
+    db.add(audit)
+
+
+async def _invalidate_sessions(user_id: str) -> None:
+    try:
+        settings = get_settings()
+        store = get_session_store(settings)
+        await store.delete_all_user_sessions(user_id)
+    except Exception:
+        pass
+
+
+async def route_admin_toggle_admin(request: Request) -> Response:
+    admin = _require_admin(request)
+    if admin is None:
+        return _json({"error": "Forbidden"}, 403)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import User
+
+    user_id = request.path_params["id"]
+    admin_id = admin.get("user_id") or admin.get("sub")
+
+    if str(admin_id) == str(user_id):
+        return _json({"error": "Cannot change own admin status"}, 400)
+
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            return _json({"error": "User not found"}, 404)
+        user.is_admin = not user.is_admin
+        await _admin_audit(db, admin_id, user_id, "toggle_admin")
+        await db.commit()
+    await _invalidate_sessions(user_id)
+    return _json({"ok": True})
+
+
+async def route_admin_toggle_active(request: Request) -> Response:
+    admin = _require_admin(request)
+    if admin is None:
+        return _json({"error": "Forbidden"}, 403)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import User
+
+    user_id = request.path_params["id"]
+    admin_id = admin.get("user_id") or admin.get("sub")
+
+    if str(admin_id) == str(user_id):
+        return _json({"error": "Cannot deactivate yourself"}, 400)
+
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            return _json({"error": "User not found"}, 404)
+        user.is_active = not user.is_active
+        user.locked_until = None
+        user.failed_login_count = 0
+        await _admin_audit(db, admin_id, user_id, "toggle_active")
+        await db.commit()
+    await _invalidate_sessions(user_id)
+    return _json({"ok": True})
+
+
+async def route_admin_delete_user(request: Request) -> Response:
+    admin = _require_admin(request)
+    if admin is None:
+        return _json({"error": "Forbidden"}, 403)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import User
+
+    user_id = request.path_params["id"]
+    admin_id = admin.get("user_id") or admin.get("sub")
+
+    if str(admin_id) == str(user_id):
+        return _json({"error": "Cannot delete yourself"}, 400)
+
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.id == user_id))
+        user = result.scalar_one_or_none()
+        if user is None:
+            return _json({"error": "User not found"}, 404)
+        await _admin_audit(db, admin_id, user_id, "delete_user")
+        await db.delete(user)
+        await db.commit()
+    await _invalidate_sessions(user_id)
     return _json({"ok": True})
 
 
@@ -1828,4 +1951,7 @@ def get_routes() -> list[Route]:
         Route("/api/admin/users", route_admin_list_users, methods=["GET"]),
         Route("/api/admin/users/{id}/approve", route_admin_approve_user, methods=["POST"]),
         Route("/api/admin/users/{id}/reject", route_admin_reject_user, methods=["POST"]),
+        Route("/api/admin/users/{id}/toggle-admin", route_admin_toggle_admin, methods=["POST"]),
+        Route("/api/admin/users/{id}/toggle-active", route_admin_toggle_active, methods=["POST"]),
+        Route("/api/admin/users/{id}", route_admin_delete_user, methods=["DELETE"]),
     ]

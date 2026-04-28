@@ -33,3 +33,17 @@ repos:
         entry: uv run pytest tests/ -v --no-cov
         language: system
         pass_filenames: false
+
+      - id: next-lint
+        name: next lint
+        entry: bash -c "cd web && pnpm run lint"
+        language: system
+        types_or: [javascript, jsx, ts, tsx]
+        pass_filenames: false
+        
+      - id: vitest
+        name: vitest
+        entry: bash -c "cd web && pnpm run test"
+        language: system
+        types_or: [javascript, jsx, ts, tsx]
+        pass_filenames: false

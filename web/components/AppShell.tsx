@@ -14,21 +14,24 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import BrandMark from "@/components/BrandMark";
 import ThemeToggle from "@/components/ThemeToggle";
+import LocaleToggle from "@/components/LocaleToggle";
 import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
-
-const navItems = [
-  { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
-  { href: "/projects", label: "프로젝트", icon: FolderKanban },
-] as const;
-
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
   const { t } = useTranslation();
+
+  const navItems: { href: string; label: string; icon: typeof LayoutDashboard }[] = [
+    { href: "/dashboard", label: t.appShell.nav.dashboard, icon: LayoutDashboard },
+  ];
+
+  if (user?.is_admin) {
+    navItems.push({ href: "/admin/users", label: t.admin.title, icon: ShieldCheck });
+  }
 
   const handleLogout = async () => {
     try {
@@ -40,32 +43,36 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-screen flex-col bg-background landing-pattern">
       <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
           <BrandMark />
-          <nav className="flex items-center gap-1">
-            {navItems.map(({ href, label, icon: Icon }) => {
-              const active = pathname.startsWith(href);
-              return (
-                <Link key={href} href={href}>
-                  <Button variant={active ? "secondary" : "ghost"} size="sm" className="gap-1.5 text-sm">
-                    <Icon className="size-4" />
-                    <span className="hidden sm:inline">{label}</span>
-                  </Button>
-                </Link>
-              );
-            })}
-          </nav>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <nav className="flex items-center gap-1">
+              {navItems.map(({ href, label, icon: Icon }) => {
+                const active = pathname.startsWith(href);
+                return (
+                  <Link key={href} href={href}>
+                    <Button variant={active ? "secondary" : "ghost"} size="sm" className="gap-1.5 text-sm">
+                      <Icon className="size-4" />
+                      <span className="hidden sm:inline">{label}</span>
+                    </Button>
+                  </Link>
+                );
+              })}
+            </nav>
+            <LocaleToggle />
             <ThemeToggle />
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <button
+                  type="button"
+                  className="ml-1 flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
                   <Avatar className="size-8">
                     <AvatarFallback className="text-xs">{user?.email?.charAt(0).toUpperCase() ?? "U"}</AvatarFallback>
                   </Avatar>
-                </Button>
+                </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
                 <div className="px-2 py-1.5 text-sm text-muted-foreground select-none">{user?.email}</div>
@@ -73,39 +80,37 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <DropdownMenuItem asChild>
                   <Link href="/settings">
                     <Settings className="mr-2 size-4" />
-                    설정
+                    {t.appShell.dropdown.settings}
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link href="/audit">
                     <ClipboardList className="mr-2 size-4" />
-                    활동 기록
+                    {t.appShell.dropdown.activity}
                   </Link>
                 </DropdownMenuItem>
-                {user?.is_admin && (
-                  <DropdownMenuItem asChild>
-                    <Link href="/admin/users">
-                      <ShieldCheck className="mr-2 size-4" />
-                      {t.admin.title}
-                    </Link>
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive">
                   <LogOut className="mr-2 size-4" />
-                  로그아웃
+                  {t.appShell.dropdown.logout}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
-      <footer className="mt-auto border-t py-4">
-        <div className="mx-auto flex max-w-6xl items-center justify-center gap-4 px-4 text-xs text-muted-foreground">
-          <Link href="/privacy">개인정보 처리방침</Link>
-          <span>·</span>
-          <Link href="/terms">서비스 약관</Link>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
+      <footer className="mt-auto border-t bg-background py-2.5">
+        <div className="mx-auto flex flex-col items-center gap-2 sm:flex-row sm:justify-between max-w-6xl px-4">
+          <p className="text-xs text-muted-foreground">© piLoci 2026</p>
+          <div className="flex items-center gap-4">
+            <Link href="/privacy" className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors">
+              {t.appShell.footer.privacy}
+            </Link>
+            <Link href="/terms" className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors">
+              {t.appShell.footer.terms}
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

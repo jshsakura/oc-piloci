@@ -4,12 +4,12 @@ import { Providers } from "./providers";
 import { getCopy } from "@/lib/copy";
 
 const copy = getCopy();
-const SITE_URL = "https://piloci.jshsakura.com";
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://piloci.opencourse.kr";
 
 export const metadata: Metadata = {
   title: {
     template: "%s | piLoci",
-    default: "piLoci, AI가 스스로 기억하게 돕는 세컨드 브레인",
+    default: copy.metadata.title,
   },
   description: copy.metadata.description,
   metadataBase: new URL(SITE_URL),
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   robots: { index: true, follow: true },
   keywords: ["piLoci", "MCP", "LLM memory", "Raspberry Pi", "self-hosted", "LanceDB", "AI context"],
   openGraph: {
-    title: "piLoci, AI가 스스로 기억하게 돕는 세컨드 브레인",
+    title: copy.metadata.title,
     description: copy.metadata.description,
     url: SITE_URL,
     siteName: "piLoci",
@@ -62,17 +62,12 @@ const jsonLd = JSON.stringify({
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ko" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="https://fonts.googleapis.com/css2?family=Gugi&display=swap" rel="stylesheet" />
+      <body className="antialiased">
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: jsonLd }}
         />
         <script dangerouslySetInnerHTML={{ __html: `(function(){try{var t=localStorage.getItem("piloci-theme");var d=t==="dark"||t==="light"?t:matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",d==="dark");document.documentElement.style.colorScheme=d}catch(e){}})()` }} />
-      </head>
-      <body className="antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>

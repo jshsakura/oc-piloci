@@ -79,12 +79,15 @@ export interface AdminUser {
   email: string;
   name?: string;
   is_admin: boolean;
+  is_active: boolean;
   approval_status: "pending" | "approved" | "rejected";
   reviewed_by?: string;
   reviewed_at?: string;
   rejection_reason?: string;
   created_at: string;
+  last_login_at?: string;
   oauth_provider?: string;
+  totp_enabled?: boolean;
 }
 
 export interface VaultNote {

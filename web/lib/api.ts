@@ -83,4 +83,10 @@ export const api = {
     request(`/api/admin/users/${userId}/approve`, { method: "POST" }),
   adminRejectUser: (userId: string, reason?: string) =>
     request(`/api/admin/users/${userId}/reject`, { method: "POST", body: JSON.stringify({ reason }) }),
+  adminToggleAdmin: (userId: string) =>
+    request(`/api/admin/users/${userId}/toggle-admin`, { method: "POST" }),
+  adminToggleActive: (userId: string) =>
+    request(`/api/admin/users/${userId}/toggle-active`, { method: "POST" }),
+  adminDeleteUser: (userId: string) =>
+    request(`/api/admin/users/${userId}`, { method: "DELETE" }),
 };

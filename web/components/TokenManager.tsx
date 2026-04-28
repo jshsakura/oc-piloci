@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Copy, Trash2, Check } from "lucide-react";
+import { Plus, Copy, Trash2, Check, ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "@/lib/api";
 import type { ApiToken, CreatedToken, Project } from "@/lib/types";
+import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -16,12 +17,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-// ---------------------------------------------------------------------------
-// CopyBlock — code block with copy button
-// ---------------------------------------------------------------------------
-
-function CopyBlock({ value, label }: { value: string; label?: string }) {
+function CopyBlock({ value, label, sensitive }: { value: string; label?: string; sensitive?: boolean }) {
   const [copied, setCopied] = useState(false);
+  const { t } = useTranslation();
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(value);
@@ -29,104 +27,104 @@ function CopyBlock({ value, label }: { value: string; label?: string }) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const display = sensitive
+    ? `${value.slice(0, 12)}${"·".repeat(24)}`
+    : value;
+
   return (
     <div className="space-y-1.5">
       {label && <p className="text-xs text-muted-foreground">{label}</p>}
-      <div className="relative rounded-md border bg-muted">
-        <pre className="overflow-x-auto p-3 pr-12 text-xs leading-relaxed">{value}</pre>
+      <div className="flex items-center gap-2 rounded-md border bg-muted p-3">
+        {sensitive ? (
+          <code className="flex-1 truncate font-mono text-xs">{display}</code>
+        ) : (
+          <pre className="flex-1 overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-relaxed select-text">{value}</pre>
+        )}
         <Button
-          size="icon"
-          variant="ghost"
-          className="absolute right-1 top-1 size-7 text-muted-foreground hover:text-foreground"
+          size="sm"
+          variant={copied ? "default" : "outline"}
+          className="shrink-0 gap-1.5 text-xs"
           onClick={handleCopy}
         >
-          {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          {copied ? <><Check className="size-3" />{t.common.copied}</> : <><Copy className="size-3" />{t.common.copy}</>}
         </Button>
       </div>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// SetupDialog — shown once after project-scoped token is created
-// ---------------------------------------------------------------------------
-
 function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => void }) {
+  const { t } = useTranslation();
+  const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
   const hasSetup = !!data.setup;
-  const mcpJson = data.setup ? JSON.stringify(data.setup.mcp_config, null, 2) : null;
+  const mcpJson = data.setup ? JSON.stringify(data.setup.mcp_config, null, 2) : JSON.stringify({
+    mcpServers: {
+      piloci: {
+        type: "http",
+        url: `${baseUrl}/mcp/sse`,
+        headers: { Authorization: "Bearer <TOKEN>" },
+      },
+    },
+  }, null, 2);
   const hookJson = data.setup ? JSON.stringify(data.setup.hook_config, null, 2) : null;
 
   return (
     <Dialog open onOpenChange={onClose}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>토큰 발급 완료</DialogTitle>
+          <DialogTitle>{t.tokenManager.tokenCreated}</DialogTitle>
         </DialogHeader>
 
-        {hasSetup ? (
-          <Tabs defaultValue="token">
-            <TabsList className="w-full">
-              <TabsTrigger value="token" className="flex-1">토큰</TabsTrigger>
-              <TabsTrigger value="mcp" className="flex-1">MCP 서버</TabsTrigger>
-              <TabsTrigger value="hook" className="flex-1">Stop 훅</TabsTrigger>
-            </TabsList>
+        <Tabs defaultValue="token">
+          <TabsList className="w-full">
+            <TabsTrigger value="token" className="flex-1">{t.tokenManager.tabs.token}</TabsTrigger>
+            <TabsTrigger value="mcp" className="flex-1">{t.tokenManager.tabs.mcpServer}</TabsTrigger>
+            {hookJson && <TabsTrigger value="hook" className="flex-1">{t.tokenManager.tabs.stopHook}</TabsTrigger>}
+          </TabsList>
 
-            {/* ── Tab 1: Token ── */}
-            <TabsContent value="token" className="space-y-3 pt-1">
-              <p className="text-sm text-destructive">이 토큰은 다시 볼 수 없습니다. 지금 복사하세요.</p>
-              <CopyBlock value={data.token} />
-            </TabsContent>
+          <TabsContent value="token" className="space-y-3 pt-1">
+            <p className="text-sm text-destructive">{t.tokenManager.tokenWarning}</p>
+            <CopyBlock value={data.token} sensitive />
+          </TabsContent>
 
-            {/* ── Tab 2: MCP Server ── */}
-            <TabsContent value="mcp" className="space-y-3 pt-1">
-              <p className="text-sm text-muted-foreground">
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">~/.claude/mcp.json</code>에
-                아래 내용을 붙여넣으세요. 기존 파일이 있으면 <code className="rounded bg-muted px-1 py-0.5 text-xs">mcpServers</code> 키만 병합합니다.
-              </p>
-              <CopyBlock value={mcpJson!} />
-              <p className="text-xs text-muted-foreground">
-                설정 후 Claude Code를 재시작하면 <code className="rounded bg-muted px-1 py-0.5 text-xs">memory</code>,{" "}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">recall</code>,{" "}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">recommend</code> 툴이 자동으로 활성화됩니다.
-              </p>
-            </TabsContent>
+          <TabsContent value="mcp" className="space-y-3 pt-1">
+            <p className="text-sm text-muted-foreground">
+              <code className="rounded bg-muted px-1 py-0.5 text-xs">.mcp.json</code>
+              {t.tokenManager.mcpInstructions}
+            </p>
+            <CopyBlock value={mcpJson} />
+            <p className="text-xs text-muted-foreground">
+              {t.tokenManager.mcpNote}
+            </p>
+          </TabsContent>
 
-            {/* ── Tab 3: Stop Hook ── */}
+          {hookJson && (
             <TabsContent value="hook" className="space-y-3 pt-1">
               <p className="text-sm text-muted-foreground">
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">~/.claude/settings.json</code>의{" "}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">hooks</code> 키에 아래를 병합하세요.
-                세션이 끝날 때마다 piLoci가 패턴을 자동으로 학습합니다.
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">~/.claude/settings.json</code>
+                {t.tokenManager.hookInstructions}
               </p>
-              <CopyBlock value={hookJson!} />
+              <CopyBlock value={hookJson} />
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-                <strong>조건:</strong> 세션 메시지가 5개 이상일 때만 분석합니다. python3과 인터넷 연결 없이 로컬에서만 동작합니다.
+                <strong>{t.tokenManager.hookCondition}</strong>
               </div>
             </TabsContent>
-          </Tabs>
-        ) : (
-          /* user-scope token — simple view */
-          <div className="space-y-3">
-            <p className="text-sm text-destructive">이 토큰은 다시 볼 수 없습니다. 지금 복사하세요.</p>
-            <CopyBlock value={data.token} />
-          </div>
-        )}
+          )}
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
 }
 
-// ---------------------------------------------------------------------------
-// TokenManager
-// ---------------------------------------------------------------------------
-
 export function TokenManager() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const [showCreate, setShowCreate] = useState(false);
   const [formName, setFormName] = useState("");
   const [formScope, setFormScope] = useState<"user" | "project">("user");
   const [formProjectId, setFormProjectId] = useState("");
   const [createdToken, setCreatedToken] = useState<CreatedToken | null>(null);
+  const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
 
   const { data: tokens = [], isLoading } = useQuery<ApiToken[]>({
     queryKey: ["tokens"],
@@ -174,7 +172,7 @@ export function TokenManager() {
   };
 
   const formatDate = (iso: string) =>
-    new Date(iso).toLocaleDateString("ko-KR", {
+    new Date(iso).toLocaleDateString(undefined, {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -183,9 +181,9 @@ export function TokenManager() {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">API 토큰으로 외부 클라이언트에서 piLoci에 접근합니다</p>
+        <p className="text-sm text-muted-foreground">{t.tokenManager.desc}</p>
         <Button size="sm" onClick={() => setShowCreate(true)}>
-          <Plus className="mr-1 size-4" /> 발급
+          <Plus className="mr-1 size-4" /> {t.tokenManager.issue}
         </Button>
       </div>
 
@@ -194,19 +192,19 @@ export function TokenManager() {
       )}
 
       {showCreate && (
-        <Card>
+        <Card className="border-dashed bg-muted/30 shadow-none">
           <CardContent className="p-4">
             <form onSubmit={handleCreate} className="space-y-3">
               <div className="space-y-1.5">
-                <Label>토큰 이름</Label>
+                <Label>{t.tokenManager.formName}</Label>
                 <Input
                   value={formName}
                   onChange={(e) => setFormName(e.target.value)}
-                  placeholder="예: Claude Code"
+                  placeholder={t.tokenManager.formNamePlaceholder}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label>범위</Label>
+                <Label>{t.tokenManager.formScope}</Label>
                 <Select
                   value={formScope}
                   onValueChange={(v: "user" | "project") => {
@@ -218,17 +216,17 @@ export function TokenManager() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="user">사용자 전체</SelectItem>
-                    <SelectItem value="project">프로젝트 (MCP + Stop 훅 설정 자동 생성)</SelectItem>
+                    <SelectItem value="user">{t.tokenManager.scopeUser}</SelectItem>
+                    <SelectItem value="project">{t.tokenManager.scopeProject}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               {formScope === "project" && (
                 <div className="space-y-1.5">
-                  <Label>프로젝트</Label>
+                  <Label>{t.tokenManager.formProject}</Label>
                   <Select value={formProjectId} onValueChange={setFormProjectId}>
                     <SelectTrigger>
-                      <SelectValue placeholder="선택" />
+                      <SelectValue placeholder={t.tokenManager.selectProject} />
                     </SelectTrigger>
                     <SelectContent>
                       {projects.map((p) => (
@@ -247,13 +245,13 @@ export function TokenManager() {
               )}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>
-                  취소
+                  {t.tokenManager.cancel}
                 </Button>
                 <Button
                   type="submit"
                   disabled={createMutation.isPending || !formName.trim()}
                 >
-                  {createMutation.isPending ? "발급 중..." : "발급"}
+                  {createMutation.isPending ? t.tokenManager.issuing : t.tokenManager.issue}
                 </Button>
               </div>
             </form>
@@ -270,7 +268,7 @@ export function TokenManager() {
       ) : tokens.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
-            발급된 토큰이 없습니다
+            {t.tokenManager.noTokens}
           </CardContent>
         </Card>
       ) : (
@@ -278,10 +276,10 @@ export function TokenManager() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>이름</TableHead>
-                <TableHead>범위</TableHead>
-                <TableHead>발급일</TableHead>
-                <TableHead>마지막 사용</TableHead>
+                <TableHead>{t.tokenManager.tableHeaders.name}</TableHead>
+                <TableHead>{t.tokenManager.tableHeaders.scope}</TableHead>
+                <TableHead>{t.tokenManager.tableHeaders.issued}</TableHead>
+                <TableHead>{t.tokenManager.tableHeaders.lastUsed}</TableHead>
                 <TableHead className="w-16" />
               </TableRow>
             </TableHeader>
@@ -291,7 +289,11 @@ export function TokenManager() {
                   ? projects.find((p) => p.id === token.project_id)
                   : undefined;
                 return (
-                  <TableRow key={token.token_id}>
+                  <TableRow
+                    key={token.token_id}
+                    className={`cursor-pointer ${selectedTokenId === token.token_id ? "bg-accent/50" : ""}`}
+                    onClick={() => setSelectedTokenId(selectedTokenId === token.token_id ? null : token.token_id)}
+                  >
                     <TableCell className="font-medium">
                       {token.name}
                       {project && (
@@ -317,7 +319,7 @@ export function TokenManager() {
                         size="icon"
                         className="text-muted-foreground hover:text-destructive"
                         onClick={() => {
-                          if (window.confirm(`"${token.name}" 토큰을 폐기하시겠습니까?`)) {
+                          if (window.confirm(`"${token.name}" ${t.tokenManager.confirmRevoke}`)) {
                             revokeMutation.mutate(token.token_id);
                           }
                         }}
@@ -332,6 +334,87 @@ export function TokenManager() {
           </Table>
         </div>
       )}
+
+      {selectedTokenId && (() => {
+        const sel = tokens.find((t) => t.token_id === selectedTokenId);
+        if (!sel) return null;
+        const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
+        const makeConfig = (type: string) => JSON.stringify(type === "opencode" ? {
+          $schema: "https://opencode.ai/config.json",
+          mcp: {
+            piloci: {
+              type: "remote",
+              url: `${baseUrl}/mcp/sse`,
+              enabled: true,
+              headers: { Authorization: "Bearer <여기에_토큰_붙여넣기>" },
+            },
+          },
+        } : {
+          mcpServers: {
+            piloci: {
+              type: "http",
+              url: `${baseUrl}/mcp/sse`,
+              headers: { Authorization: "Bearer <여기에_토큰_붙여넣기>" },
+            },
+          },
+        }, null, 2);
+
+        return (
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium">{t.tokenManager.mcpConfigFor} &ldquo;{sel.name}&rdquo;</p>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedTokenId(null)}>
+                <ChevronUp className="size-4" />
+              </Button>
+            </div>
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+              토큰은 발급 시에만 확인할 수 있습니다. 아래 설정에서 <code className="font-mono">&lt;여기에_토큰_붙여넣기&gt;</code> 부분을 발급받은 토큰으로 교체하세요.
+            </div>
+            <Card className="border bg-card shadow-sm">
+              <CardContent className="p-4">
+                <Tabs defaultValue="claude-desktop">
+                  <TabsList>
+                    <TabsTrigger value="claude-desktop">Claude Desktop</TabsTrigger>
+                    <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
+                    <TabsTrigger value="opencode">OpenCode</TabsTrigger>
+                    <TabsTrigger value="cursor">Cursor</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="claude-desktop" className="space-y-2 pt-3">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono">~/Library/Application Support/Claude/claude_desktop_config.json</span>
+                    </div>
+                    <CopyBlock value={makeConfig("default")} />
+                  </TabsContent>
+
+                  <TabsContent value="claude-code" className="space-y-2 pt-3">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono">~/.claude.json</span>
+                      <span className="text-border">|</span>
+                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono">.mcp.json</span>
+                    </div>
+                    <CopyBlock value={makeConfig("default")} />
+                  </TabsContent>
+
+                  <TabsContent value="opencode" className="space-y-2 pt-3">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono">opencode.json</span>
+                    </div>
+                    <CopyBlock value={makeConfig("opencode")} />
+                  </TabsContent>
+
+                  <TabsContent value="cursor" className="space-y-2 pt-3">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <span className="rounded bg-muted px-1.5 py-0.5 font-mono">~/.cursor/mcp.json</span>
+                    </div>
+                    <CopyBlock value={makeConfig("default")} />
+                  </TabsContent>
+                </Tabs>
+              </CardContent>
+            </Card>
+          </div>
+        );
+      })()}
     </div>
   );
 }
