@@ -38,7 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import RoutePending from "@/components/RoutePending";
 
-type StatusFilter = "all" | "pending" | "approved" | "rejected";
+type StatusFilter = "all" | "pending" | "approved" | "rejected" | "inactive";
 
 export default function AdminUsersPage() {
   const router = useRouter();
@@ -77,17 +77,20 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     if (me?.is_admin) {
-      void fetchUsers(filter === "all" ? undefined : filter);
+      const apiStatus = filter === "all" || filter === "inactive" ? undefined : filter;
+      void fetchUsers(apiStatus);
     }
   }, [filter, me?.is_admin]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return users;
+    let list = users;
+    if (filter === "inactive") list = list.filter((u) => !u.is_active);
+    if (!search.trim()) return list;
     const q = search.toLowerCase();
-    return users.filter(
+    return list.filter(
       (u) => u.email.toLowerCase().includes(q) || (u.name && u.name.toLowerCase().includes(q))
     );
-  }, [users, search]);
+  }, [users, search, filter]);
 
   const stats = useMemo(() => {
     const total = users.length;
@@ -121,6 +124,7 @@ export default function AdminUsersPage() {
     { key: "pending", label: t.admin.filterPending },
     { key: "approved", label: t.admin.filterApproved },
     { key: "rejected", label: t.admin.filterRejected },
+    { key: "inactive", label: t.admin.filterInactive },
   ];
 
   const statusBadge = (status: string) => {
