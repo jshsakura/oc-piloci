@@ -167,6 +167,17 @@ def sync_static() -> None:
 
 def native_up() -> None:
     LOG_DIR.mkdir(exist_ok=True)
+
+    # If /data doesn't exist, redirect DB/LanceDB to a local ./data/ directory
+    local_data = ROOT / "data"
+    env_overrides: dict[str, str] = {}
+    if not Path("/data").exists():
+        local_data.mkdir(exist_ok=True)
+        (local_data / "lancedb").mkdir(exist_ok=True)
+        env_overrides["DATABASE_URL"] = f"sqlite+aiosqlite:///{local_data}/piloci.db"
+        env_overrides["LANCEDB_PATH"] = str(local_data / "lancedb")
+        print(f"[ piloci ] data dir  → {local_data.relative_to(ROOT)}/")
+
     sync_static()
 
     print("[ piloci ] stopping existing process...")
@@ -174,12 +185,14 @@ def native_up() -> None:
     pkill("piloci serve")
     time.sleep(1)
 
+    backend_env = {**os.environ, **env_overrides}
     backend_log = open(LOG_DIR / "piloci.log", "a")
     backend = subprocess.Popen(
         ["uv", "run", "piloci", "serve"],
         cwd=ROOT,
         stdout=backend_log,
         stderr=backend_log,
+        env=backend_env,
     )
     print(f"[ piloci ] PID={backend.pid}  :{BACKEND_PORT}  → logs/piloci.log")
     print()
