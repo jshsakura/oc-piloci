@@ -27,7 +27,7 @@ export const useAuthStore = create<AuthState>()(
     (set) => ({
       user: null,
       hasHydrated: false,
-      isBootstrapping: false,
+      isBootstrapping: true,
       setUser: (user) => set({ user }),
       setHasHydrated: (hasHydrated) => set({ hasHydrated }),
       setIsBootstrapping: (v) => set({ isBootstrapping: v }),
