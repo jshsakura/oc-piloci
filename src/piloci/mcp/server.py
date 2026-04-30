@@ -181,8 +181,8 @@ def create_mcp_server(
             max_concurrency=settings.embed_max_concurrency,
         )
 
-    def _get_identity() -> tuple[str, str | None, dict[str, Any], str | None]:
-        """Extract (user_id, project_id, auth_payload, session_id)."""
+    def _get_identity() -> tuple[str, str | None, dict[str, Any], str | None, str | None]:
+        """Extract (user_id, project_id, auth_payload, session_id, raw_token)."""
         from piloci.mcp.session_state import mcp_auth_ctx
 
         auth = mcp_auth_ctx.get()
@@ -193,6 +193,7 @@ def create_mcp_server(
             auth.get("project_id"),
             auth,
             auth.get("jti"),
+            auth.get("_raw_token"),
         )
 
     def _require_project_id(project_id: str | None) -> str:
@@ -210,7 +211,7 @@ def create_mcp_server(
 
     @server.call_tool()
     async def _call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
-        user_id, project_id, auth_payload, session_id = _get_identity()
+        user_id, project_id, auth_payload, session_id, raw_token = _get_identity()
 
         if name == "memory":
             args = MemoryInput.model_validate(arguments)
@@ -256,6 +257,8 @@ def create_mcp_server(
                 project_id,
                 projects_fn=projects_fn,
                 create_project_fn=create_project_fn,
+                raw_token=raw_token,
+                base_url=settings.base_url,
             )
         elif name == "recommend":
             args = RecommendInput.model_validate(arguments)
@@ -299,7 +302,7 @@ def create_mcp_server(
     @server.read_resource()
     async def _read_resource(uri) -> str:
         uri_str = str(uri)
-        user_id, project_id, _, _ = _get_identity()
+        user_id, project_id, _, _, _ = _get_identity()
 
         if uri_str == RESOURCE_PROFILE:
             required_project_id = _require_project_id(project_id)
@@ -345,7 +348,7 @@ def create_mcp_server(
         if name != CONTEXT_PROMPT_NAME:
             raise ValueError(f"Unknown prompt: {name}")
 
-        user_id, project_id, _, _ = _get_identity()
+        user_id, project_id, _, _, _ = _get_identity()
         args = arguments or {}
         include_recent = args.get("include_recent", True)
         if isinstance(include_recent, str):

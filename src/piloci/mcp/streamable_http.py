@@ -37,6 +37,7 @@ def create_streamable_http_app(mcp_server: Server) -> Callable:
         try:
             settings = get_settings()
             auth_payload = verify_token(token, settings)
+            auth_payload["_raw_token"] = token
         except ValueError as e:
             logger.warning("MCP HTTP auth failed: %s", e)
             await Response("Unauthorized", status_code=401, headers=dict(_401_headers))(

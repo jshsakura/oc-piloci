@@ -162,6 +162,40 @@ def _dir_name(cwd: str) -> str:
     return normalized.rsplit("/", 1)[-1] or "project"
 
 
+def _slugify(text: str) -> str:
+    """ASCII-safe slug: strip non-ASCII, lowercase, replace spaces/special with dash."""
+    import re
+
+    ascii_only = text.encode("ascii", errors="ignore").decode()
+    slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_only).strip("-").lower()
+    return slug[:40] or "project"
+
+
+def _build_stop_hook(token: str, base_url: str) -> dict[str, Any]:
+    """Return hook_config dict for ~/.claude/settings.json Stop hook."""
+    analyze_url = f"{base_url}/api/sessions/analyze"
+    py = (
+        "import os,json,urllib.request as u; "
+        "t=os.environ.get('CLAUDE_SESSION_TRANSCRIPT',''); "
+        "f=open(t).read() if t and os.path.isfile(t) else ''; "
+        "f.count('role')>=5 and "
+        f"[u.urlopen(u.Request('{analyze_url}',"
+        "json.dumps({'transcript':f}).encode(),"
+        f"{{'Content-Type':'application/json','Authorization':'Bearer {token}'}},"
+        "method='POST'),timeout=30) for _ in [0]]"
+    )
+    return {
+        "hooks": {
+            "Stop": [
+                {
+                    "matcher": "*",
+                    "hooks": [{"type": "command", "command": f'python3 -c "{py}" 2>/dev/null'}],
+                }
+            ]
+        }
+    }
+
+
 def build_setup_snippets(
     project_name: str | None = None, project_slug: str | None = None
 ) -> dict[str, str]:
@@ -376,11 +410,13 @@ async def handle_init(
     args: InitInput,
     user_id: str,
     project_id: str | None,
-    projects_fn,  # async callable: (user_id, refresh) -> list[dict]
-    create_project_fn,  # async callable: (user_id, name, slug) -> dict
+    projects_fn,
+    create_project_fn,
+    raw_token: str | None = None,
+    base_url: str | None = None,
 ) -> dict[str, Any]:
-    """One-time project setup: returns CLAUDE.md + AGENTS.md content to write."""
-    # Guard: refuse to init in home or root directories
+    """One-time project setup: returns CLAUDE.md, AGENTS.md, and Stop hook config."""
+    # Guard: refuse in home/root directories
     if args.cwd and _is_home_or_root(args.cwd):
         return {
             "success": False,
@@ -390,10 +426,13 @@ async def handle_init(
             ),
         }
 
-    # Resolve a friendly project name from cwd or explicit arg
-    resolved_name = args.project_name or (_dir_name(args.cwd) if args.cwd else None)
+    # Display name (Korean OK) from explicit arg or cwd folder
+    # Slug is always ASCII-safe, derived from cwd folder name
+    cwd_folder = _dir_name(args.cwd) if args.cwd else None
+    display_name = args.project_name or cwd_folder
+    slug = _slugify(cwd_folder or display_name or "project")
 
-    # If no project-scoped token, resolve or create a project automatically
+    # If no project-scoped token, resolve or create a project
     if not project_id:
         projects: list[dict[str, Any]] = []
         if projects_fn:
@@ -402,27 +441,36 @@ async def handle_init(
             except Exception:
                 pass
 
-        if not projects:
-            # No projects at all — auto-create using resolved name (init is intentional)
-            slug = (resolved_name or "default").lower().replace(" ", "-")[:40]
-            name = resolved_name or "default"
+        # Check if a project with the same slug already exists
+        matched_by_slug = next((p for p in projects if p.get("slug") == slug), None)
+
+        if matched_by_slug:
+            # Re-use existing project that matches this directory
+            project_id = matched_by_slug.get("id")
+            if not args.project_name:
+                display_name = matched_by_slug.get("name") or display_name
+        elif not projects:
+            # No projects at all — auto-create
             if create_project_fn:
                 try:
-                    new_proj = await create_project_fn(user_id, name, slug)
+                    new_proj = await create_project_fn(user_id, display_name or slug, slug)
                     project_id = new_proj.get("id") or new_proj.get("project_id")
                 except Exception as e:
                     return {"success": False, "error": f"Failed to create project: {e}"}
         elif len(projects) == 1:
-            # Exactly one project — use it automatically
+            # Single project — use it
             project_id = projects[0].get("id")
+            if not args.project_name:
+                display_name = projects[0].get("name") or display_name
+            slug = projects[0].get("slug") or slug
         else:
-            # Multiple projects, user-scoped token — ask the user to pick one
+            # Multiple projects — let Claude ask the user to choose
             return {
                 "action_required": True,
                 "message": (
                     f"You have {len(projects)} projects. "
-                    "Please re-issue a project-scoped token for the project you want to use, "
-                    "then run init again. Which project would you like to set up?"
+                    "Which project would you like to set up for this directory? "
+                    "Re-issue a project-scoped token for that project, then run init again."
                 ),
                 "projects": [
                     {"id": p.get("id"), "name": p.get("name"), "slug": p.get("slug")}
@@ -430,25 +478,25 @@ async def handle_init(
                 ],
             }
 
-    # Resolve project slug for the snippet header
-    project_slug: str | None = None
+    # Enrich display_name / slug from the resolved project record
     if projects_fn and project_id:
         try:
             all_projects = await projects_fn(user_id, False)
             matched = next((p for p in all_projects if p.get("id") == project_id), None)
             if matched:
-                project_slug = matched.get("slug")
-                if not resolved_name:
-                    resolved_name = matched.get("name")
+                if not args.project_name:
+                    display_name = matched.get("name") or display_name
+                slug = matched.get("slug") or slug
         except Exception:
             pass
 
-    snippets = build_setup_snippets(project_name=resolved_name, project_slug=project_slug)
+    snippets = build_setup_snippets(project_name=display_name, project_slug=slug)
     anchor = "## piLoci Memory"
-    return {
+
+    result: dict[str, Any] = {
         "success": True,
         "project_id": project_id,
-        "project_name": resolved_name,
+        "project_name": display_name,
         "anchor": anchor,
         "files": {
             "CLAUDE.md": snippets["claude_md"],
@@ -456,9 +504,15 @@ async def handle_init(
         },
         "instructions": (
             f"For each file (CLAUDE.md, AGENTS.md) in the project root:\n"
-            f"1. If the file already contains '{anchor}' → SKIP (already configured).\n"
-            f"2. If the file exists but lacks '{anchor}' → APPEND the content at the end.\n"
-            f"3. If the file does not exist → CREATE it with the content.\n"
-            f"After writing, piLoci will automatically recall memories at session start."
+            f"1. If already contains '{anchor}' → SKIP.\n"
+            f"2. File exists but no '{anchor}' → APPEND at end.\n"
+            f"3. File missing → CREATE with content.\n"
+            f"Also merge hook_config into ~/.claude/settings.json "
+            f"under the 'hooks' key (do not overwrite other hooks)."
         ),
     }
+
+    if raw_token and base_url:
+        result["hook_config"] = _build_stop_hook(raw_token, base_url)
+
+    return result

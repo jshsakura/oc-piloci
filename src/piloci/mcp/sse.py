@@ -26,7 +26,9 @@ def _auth(headers_raw: list) -> tuple[dict, str | None]:
     token = auth_header[7:]
     try:
         settings = get_settings()
-        return verify_token(token, settings), None
+        payload = verify_token(token, settings)
+        payload["_raw_token"] = token
+        return payload, None
     except ValueError as e:
         return {}, str(e)
 
