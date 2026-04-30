@@ -73,28 +73,11 @@ logger = logging.getLogger(__name__)
 
 def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
     """Generate ready-to-paste config snippets for Claude Code integration."""
-    ingest_url = f"{base_url}/api/sessions/ingest"
-
-    # SessionStart hook: scans transcript files on session open and ships any
-    # not-yet-ingested sessions to the server. Catches window-close cases that
-    # Stop hooks miss. Uses only single-quoted strings for clean shell embedding.
-    py = (
-        "import os,json,glob,time,urllib.request as u; "
-        "cwd=os.getcwd(); "
-        "p=os.path.expanduser('~/.claude/projects/'+cwd.replace('/','-')); "
-        "cutoff=time.time()-30*86400; "
-        "ss=[{'session_id':os.path.basename(f)[:-6],"
-        "'transcript':open(f,'rb').read().decode('utf-8','ignore')}"
-        " for f in glob.glob(p+'/*.jsonl')"
-        " if os.path.isfile(f) and 200<os.path.getsize(f)<5*1024*1024"
-        " and os.path.getmtime(f)>cutoff] if os.path.isdir(p) else []; "
-        "ss and u.urlopen(u.Request("
-        f"'{ingest_url}',"
-        "json.dumps({'cwd':cwd,'sessions':ss}).encode(),"
-        f"{{'Content-Type':'application/json','Authorization':'Bearer {token}'}},"
-        "method='POST'),timeout=60)"
+    from piloci.tools.memory_tools import (
+        HOOK_SCRIPT,
+        _build_session_start_hook,
+        build_hook_config_json,
     )
-    session_start_hook_command = f'python3 -c "{py}" 2>/dev/null || true'
 
     auth_header = {"Authorization": f"Bearer {token}"}
     mcp_config = {
@@ -106,16 +89,8 @@ def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
             }
         }
     }
-    hook_config = {
-        "hooks": {
-            "SessionStart": [
-                {
-                    "matcher": "*",
-                    "hooks": [{"type": "command", "command": session_start_hook_command}],
-                }
-            ]
-        }
-    }
+    hook_config = _build_session_start_hook()
+    hook_config_json = build_hook_config_json(token, base_url)
     claude_md = (
         "## piLoci Memory\n\n"
         "Use piLoci MCP tools to maintain context across sessions:\n\n"
@@ -126,7 +101,13 @@ def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
         "3. **Tags**: Add 1-3 tags when saving "
         '(e.g. `["architecture", "bugfix", "preference"]`)\n'
     )
-    return {"mcp_config": mcp_config, "hook_config": hook_config, "claude_md": claude_md}
+    return {
+        "mcp_config": mcp_config,
+        "hook_config": hook_config,
+        "hook_config_json": hook_config_json,
+        "hook_script": HOOK_SCRIPT,
+        "claude_md": claude_md,
+    }
 
 
 def _json(data: Any, status: int = 200) -> Response:
@@ -1399,6 +1380,34 @@ async def route_ingest(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# /api/hook/script — download the generic SessionStart hook script
+# ---------------------------------------------------------------------------
+
+
+async def route_hook_script(request: Request) -> Response:
+    """GET /api/hook/script — return the generic hook.py to save locally.
+
+    The script reads ~/.config/piloci/config.json at runtime for token/URL.
+    Install once; update config.json when the token rotates.
+
+    Usage:
+        curl "<base>/api/hook/script" -H "Authorization: Bearer <token>" \\
+             -o ~/.config/piloci/hook.py
+    """
+    user = _require_user(request)
+    if user is None:
+        return Response("unauthorized", status_code=401)
+
+    from piloci.tools.memory_tools import HOOK_SCRIPT
+
+    return Response(
+        HOOK_SCRIPT,
+        media_type="text/x-python",
+        headers={"Content-Disposition": 'attachment; filename="hook.py"'},
+    )
+
+
+# ---------------------------------------------------------------------------
 # /api/sessions/ingest — SessionStart hook batch catch-up
 # ---------------------------------------------------------------------------
 
@@ -1460,16 +1469,6 @@ async def route_sessions_ingest(request: Request) -> Response:
         if row is None:
             return _json({"error": f"no project found for slug '{slug}' — run init first"}, 404)
         project_id = row
-
-    settings = get_settings()
-    raw_body = await request.body()
-    if len(raw_body) > settings.ingest_max_body_bytes * 20:  # batch allows larger payload
-        return _json({"error": "payload too large"}, 413)
-
-    try:
-        body = orjson.loads(raw_body)
-    except Exception:
-        return _json({"error": "invalid JSON"}, 400)
 
     sessions = body.get("sessions")
     if not isinstance(sessions, list) or not sessions:
@@ -2256,6 +2255,7 @@ def get_routes() -> list[Route]:
         Route("/api/memories/clear", route_clear_memories, methods=["POST"]),
         Route("/api/sessions/analyze", route_analyze_session, methods=["POST"]),
         Route("/api/sessions/ingest", route_sessions_ingest, methods=["POST"]),
+        Route("/api/hook/script", route_hook_script, methods=["GET"]),
         Route("/api/chat", route_chat, methods=["POST"]),
         Route("/api/admin/users", route_admin_list_users, methods=["GET"]),
         Route("/api/admin/users/{id}/approve", route_admin_approve_user, methods=["POST"]),

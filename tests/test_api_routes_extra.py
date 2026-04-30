@@ -84,9 +84,22 @@ def test_generate_token_setup_contains_mcp_and_hook_snippets() -> None:
         setup["mcp_config"]["mcpServers"]["piloci"]["headers"]["Authorization"]
         == "Bearer jwt-token"
     )
+    # hook_config points to script; token is NOT embedded in settings.json
     command = setup["hook_config"]["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-    assert "https://piloci.example.com/api/sessions/ingest" in command
-    assert "Authorization':'Bearer jwt-token" in command
+    assert "hook.py" in command
+    assert "jwt-token" not in command  # token lives in config.json, not hook command
+
+    # hook_config_json has the token for ~/.config/piloci/config.json
+    assert setup["hook_config_json"]["token"] == "jwt-token"
+    assert (
+        "https://piloci.example.com/api/sessions/ingest" in setup["hook_config_json"]["ingest_url"]
+    )
+
+    # hook_script is the generic script content (no token)
+    assert "hook_script" in setup
+    assert "config.json" in setup["hook_script"]
+    assert "jwt-token" not in setup["hook_script"]
+
     assert "claude_md" in setup
     assert "recall" in setup["claude_md"]
     assert "memory" in setup["claude_md"]

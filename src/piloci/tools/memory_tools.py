@@ -171,37 +171,121 @@ def _slugify(text: str) -> str:
     return slug[:40] or "project"
 
 
-def _build_session_start_hook(token: str, base_url: str) -> dict[str, Any]:
-    """Return hook_config dict for ~/.claude/settings.json SessionStart hook.
+_HOOK_SCRIPT_PATH = "~/.config/piloci/hook.py"
+_HOOK_CONFIG_PATH = "~/.config/piloci/config.json"
 
-    Scans ~/.claude/projects/<encoded-cwd>/*.jsonl and ships sessions modified
-    within 30 days that haven't been ingested yet. Files >5 MB are skipped.
-    Shell-level '|| true' ensures the hook never blocks Claude startup.
-    """
-    ingest_url = f"{base_url}/api/sessions/ingest"
-    py = (
-        "import os,json,glob,time,urllib.request as u; "
-        "cwd=os.getcwd(); "
-        "p=os.path.expanduser('~/.claude/projects/'+cwd.replace('/','-')); "
-        "cutoff=time.time()-30*86400; "
-        "ss=[{'session_id':os.path.basename(f)[:-6],"
-        "'transcript':open(f,'rb').read().decode('utf-8','ignore')}"
-        " for f in glob.glob(p+'/*.jsonl')"
-        " if os.path.isfile(f) and 200<os.path.getsize(f)<5*1024*1024"
-        " and os.path.getmtime(f)>cutoff] if os.path.isdir(p) else []; "
-        "ss and u.urlopen(u.Request("
-        f"'{ingest_url}',"
-        "json.dumps({'cwd':cwd,'sessions':ss}).encode(),"
-        f"{{'Content-Type':'application/json','Authorization':'Bearer {token}'}},"
-        "method='POST'),timeout=60)"
-    )
+# Generic script — no token. Reads ~/.config/piloci/config.json at runtime.
+# Install once, update config.json when token rotates.
+HOOK_SCRIPT = '''\
+#!/usr/bin/env python3
+"""piLoci SessionStart hook.
+
+Install once. Update ~/.config/piloci/config.json when token rotates.
+Tracks ingested sessions in ~/.config/piloci/state.json.
+Never blocks Claude startup.
+"""
+import json
+import os
+import glob
+import time
+import urllib.request
+from pathlib import Path
+
+_CONFIG = Path.home() / ".config" / "piloci" / "config.json"
+_STATE = Path.home() / ".config" / "piloci" / "state.json"
+MAX_FILE_BYTES = 5 * 1024 * 1024
+MAX_AGE_SEC = 30 * 86400
+MAX_SESSIONS = 10
+
+
+def _read(p):
+    try:
+        return json.loads(Path(p).read_text())
+    except Exception:
+        return {}
+
+
+def _write(p, data):
+    try:
+        Path(p).parent.mkdir(parents=True, exist_ok=True)
+        Path(p).write_text(json.dumps(data))
+    except Exception:
+        pass
+
+
+def main():
+    cfg = _read(_CONFIG)
+    token = cfg.get("token")
+    url = cfg.get("ingest_url")
+    if not token or not url:
+        return
+
+    cwd = os.getcwd()
+    project_dir = Path.home() / ".claude" / "projects" / cwd.replace("/", "-")
+    if not project_dir.is_dir():
+        return
+
+    state = _read(_STATE)
+    sent = state.get(cwd, {})
+    cutoff = time.time() - MAX_AGE_SEC
+    sessions, updated = [], dict(sent)
+
+    for path in sorted(project_dir.glob("*.jsonl")):
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        if not (200 < st.st_size < MAX_FILE_BYTES) or st.st_mtime < cutoff:
+            continue
+        sid = path.stem
+        fp = f"{st.st_size}:{st.st_mtime}"
+        if sent.get(sid) == fp:
+            continue
+        try:
+            sessions.append({"session_id": sid, "transcript": path.read_bytes().decode("utf-8", "ignore")})
+            updated[sid] = fp
+        except OSError:
+            continue
+        if len(sessions) >= MAX_SESSIONS:
+            break
+
+    if not sessions:
+        return
+
+    try:
+        payload = json.dumps({"cwd": cwd, "sessions": sessions}).encode()
+        req = urllib.request.Request(url, data=payload,
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+            method="POST")
+        urllib.request.urlopen(req, timeout=60)
+        state[cwd] = updated
+        _write(_STATE, state)
+    except Exception:
+        pass
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def build_hook_config_json(token: str, base_url: str) -> dict[str, str]:
+    """Return the config.json content to write to ~/.config/piloci/config.json."""
+    return {"token": token, "ingest_url": f"{base_url}/api/sessions/ingest"}
+
+
+def _build_session_start_hook() -> dict[str, Any]:
+    """Return hook_config dict for ~/.claude/settings.json — calls generic script."""
     return {
         "hooks": {
             "SessionStart": [
                 {
                     "matcher": "*",
                     "hooks": [
-                        {"type": "command", "command": f'python3 -c "{py}" 2>/dev/null || true'}
+                        {
+                            "type": "command",
+                            "command": f"python3 {_HOOK_SCRIPT_PATH} 2>/dev/null || true",
+                        }
                     ],
                 }
             ]
@@ -425,10 +509,8 @@ async def handle_init(
     project_id: str | None,
     projects_fn,
     create_project_fn,
-    raw_token: str | None = None,
-    base_url: str | None = None,
 ) -> dict[str, Any]:
-    """One-time project setup: returns CLAUDE.md, AGENTS.md, and SessionStart hook config."""
+    """One-time project setup: returns CLAUDE.md and AGENTS.md for the project root."""
     # Guard: refuse in home/root directories
     if args.cwd and _is_home_or_root(args.cwd):
         return {
@@ -484,7 +566,7 @@ async def handle_init(
     snippets = build_setup_snippets(project_name=display_name, project_slug=slug)
     anchor = "## piLoci Memory"
 
-    result: dict[str, Any] = {
+    return {
         "success": True,
         "project_id": project_id,
         "project_name": display_name,
@@ -495,15 +577,8 @@ async def handle_init(
         },
         "instructions": (
             f"For each file (CLAUDE.md, AGENTS.md) in the project root:\n"
-            f"1. If already contains '{anchor}' → SKIP.\n"
-            f"2. File exists but no '{anchor}' → APPEND at end.\n"
-            f"3. File missing → CREATE with content.\n"
-            f"Also merge hook_config into ~/.claude/settings.json "
-            f"under the 'hooks' key (do not overwrite other hooks)."
+            f"1. Already contains '{anchor}' → SKIP.\n"
+            f"2. File exists but no anchor → APPEND at end.\n"
+            f"3. Missing → CREATE with content."
         ),
     }
-
-    if raw_token and base_url:
-        result["hook_config"] = _build_session_start_hook(raw_token, base_url)
-
-    return result
