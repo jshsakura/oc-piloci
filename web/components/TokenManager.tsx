@@ -142,9 +142,10 @@ export function TokenManager() {
   const [createdToken, setCreatedToken] = useState<CreatedToken | null>(null);
   const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
 
-  const { data: tokens = [], isLoading } = useQuery<ApiToken[]>({
+  const { data: tokens = [], isLoading, isError, error, refetch } = useQuery<ApiToken[]>({
     queryKey: ["tokens"],
     queryFn: () => api.listTokens(),
+    retry: 1,
   });
 
   const { data: projects = [] } = useQuery<Project[]>({
@@ -303,6 +304,15 @@ export function TokenManager() {
             <Skeleton key={i} className="h-12 w-full" />
           ))}
         </div>
+      ) : isError ? (
+        <Card>
+          <CardContent className="py-6 text-center space-y-3">
+            <p className="text-sm text-destructive">
+              {(error as Error)?.message || "토큰 목록을 불러오지 못했습니다"}
+            </p>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>다시 시도</Button>
+          </CardContent>
+        </Card>
       ) : tokens.length === 0 ? (
         <Card>
           <CardContent className="py-8 text-center text-sm text-muted-foreground">
