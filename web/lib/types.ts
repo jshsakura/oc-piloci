@@ -37,7 +37,6 @@ interface McpServerConfig {
 
 export interface TokenSetup {
   mcp_config: McpServerConfig;
-  mcp_config_sse: McpServerConfig;
   hook_config: {
     hooks: {
       Stop: Array<{
@@ -46,6 +45,7 @@ export interface TokenSetup {
       }>;
     };
   };
+  claude_md?: string;
 }
 
 export interface ApiToken {

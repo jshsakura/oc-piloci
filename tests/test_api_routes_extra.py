@@ -87,6 +87,9 @@ def test_generate_token_setup_contains_mcp_and_hook_snippets() -> None:
     command = setup["hook_config"]["hooks"]["Stop"][0]["hooks"][0]["command"]
     assert "https://piloci.example.com/api/sessions/analyze" in command
     assert "Authorization':'Bearer jwt-token" in command
+    assert "claude_md" in setup
+    assert "recall" in setup["claude_md"]
+    assert "memory" in setup["claude_md"]
 
 
 def test_json_helper_serializes_payload_and_status() -> None:

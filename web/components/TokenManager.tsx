@@ -72,6 +72,7 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
   const configs = buildMcpConfigs(data.token, baseUrl);
   const hookJson = data.setup ? JSON.stringify(data.setup.hook_config, null, 2) : null;
+  const claudeMd = data.setup?.claude_md ?? null;
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -85,6 +86,7 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
             <TabsTrigger value="token" className="flex-1">{t.tokenManager.tabs.token}</TabsTrigger>
             <TabsTrigger value="mcp" className="flex-1">{t.tokenManager.tabs.mcpServer}</TabsTrigger>
             {hookJson && <TabsTrigger value="hook" className="flex-1">{t.tokenManager.tabs.stopHook}</TabsTrigger>}
+            {claudeMd && <TabsTrigger value="claudemd" className="flex-1">{t.tokenManager.tabs.claudeMd}</TabsTrigger>}
           </TabsList>
 
           <TabsContent value="token" className="space-y-3 pt-1">
@@ -123,6 +125,13 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
               <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
                 <strong>{t.tokenManager.hookCondition}</strong>
               </div>
+            </TabsContent>
+          )}
+
+          {claudeMd && (
+            <TabsContent value="claudemd" className="space-y-3 pt-1">
+              <p className="text-sm text-muted-foreground">{t.tokenManager.claudeMdInstructions}</p>
+              <CopyBlock value={claudeMd} />
             </TabsContent>
           )}
         </Tabs>
@@ -408,6 +417,17 @@ export function TokenManager() {
         const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
         const placeholder = "<여기에_토큰_붙여넣기>";
         const detailConfigs = buildMcpConfigs(placeholder, baseUrl);
+        const isProjectScoped = sel.scope === "project";
+
+        const claudeMdSnippet = isProjectScoped
+          ? "## piLoci Memory\n\n"
+            + "Use piLoci MCP tools to maintain context across sessions:\n\n"
+            + "1. **Session start**: Call `recall` with a query about the current task "
+            + "to load relevant memories from past sessions\n"
+            + "2. **Save actively**: Use `memory` throughout the conversation to save facts, "
+            + "decisions, preferences, code patterns, and insights. When in doubt, SAVE.\n"
+            + '3. **Tags**: Add 1-3 tags when saving (e.g. `["architecture", "bugfix", "preference"]`)\n'
+          : null;
 
         return (
           <div className="mt-4 space-y-3">
@@ -423,11 +443,12 @@ export function TokenManager() {
             <Card className="border bg-card shadow-sm">
               <CardContent className="p-4">
                 <Tabs defaultValue="claude-desktop">
-                  <TabsList>
+                  <TabsList className="flex-wrap h-auto">
                     <TabsTrigger value="claude-desktop">Claude Desktop</TabsTrigger>
                     <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
                     <TabsTrigger value="opencode">OpenCode</TabsTrigger>
                     <TabsTrigger value="cursor">Cursor</TabsTrigger>
+                    {claudeMdSnippet && <TabsTrigger value="claude-md">{t.tokenManager.tabs.claudeMd}</TabsTrigger>}
                   </TabsList>
 
                   <TabsContent value="claude-desktop" className="space-y-2 pt-3">
@@ -459,6 +480,13 @@ export function TokenManager() {
                     </div>
                     <CopyBlock value={detailConfigs.claude} />
                   </TabsContent>
+
+                  {claudeMdSnippet && (
+                    <TabsContent value="claude-md" className="space-y-3 pt-3">
+                      <p className="text-xs text-muted-foreground">{t.tokenManager.claudeMdInstructions}</p>
+                      <CopyBlock value={claudeMdSnippet} />
+                    </TabsContent>
+                  )}
                 </Tabs>
               </CardContent>
             </Card>

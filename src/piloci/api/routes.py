@@ -108,7 +108,17 @@ def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
             ]
         }
     }
-    return {"mcp_config": mcp_config, "hook_config": hook_config}
+    claude_md = (
+        "## piLoci Memory\n\n"
+        "Use piLoci MCP tools to maintain context across sessions:\n\n"
+        "1. **Session start**: Call `recall` with a query about the current task "
+        "to load relevant memories from past sessions\n"
+        "2. **Save actively**: Use `memory` throughout the conversation to save facts, "
+        "decisions, preferences, code patterns, and insights. When in doubt, SAVE.\n"
+        "3. **Tags**: Add 1-3 tags when saving "
+        '(e.g. `["architecture", "bugfix", "preference"]`)\n'
+    )
+    return {"mcp_config": mcp_config, "hook_config": hook_config, "claude_md": claude_md}
 
 
 def _json(data: Any, status: int = 200) -> Response:
