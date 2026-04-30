@@ -6,16 +6,16 @@ import { useAuthStore } from "@/lib/auth";
 import { api } from "@/lib/api";
 
 function SessionBootstrap() {
-  const { user, hasHydrated, setUser, setIsBootstrapping } = useAuthStore();
+  const { hasHydrated, setUser, setIsBootstrapping } = useAuthStore();
 
   useEffect(() => {
-    if (!hasHydrated || user) return;
+    if (!hasHydrated) return;
     setIsBootstrapping(true);
     api.me()
-      .then((u) => { setUser(u); })
-      .catch(() => {})
-      .finally(() => { setIsBootstrapping(false); });
-  }, [hasHydrated, user, setUser, setIsBootstrapping]);
+      .then((u) => setUser(u))
+      .catch(() => setUser(null))
+      .finally(() => setIsBootstrapping(false));
+  }, [hasHydrated, setUser, setIsBootstrapping]);
 
   return null;
 }
