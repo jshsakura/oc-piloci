@@ -18,10 +18,11 @@ def create_token(
     scope: Literal["project", "user"],
     settings: Settings,
     token_id: str,
+    expire_days: int | None = None,
 ) -> str:
-    """Create a signed JWT token with the standard piLoci payload."""
+    """Create a signed JWT token. expire_days=None means no expiry."""
     now = datetime.now(tz=timezone.utc)
-    expire = now + timedelta(days=settings.jwt_expire_days)
+    days = expire_days if expire_days is not None else settings.jwt_expire_days
 
     payload: dict = {
         "sub": user_id,
@@ -30,9 +31,10 @@ def create_token(
         "project_slug": project_slug,
         "scope": scope,
         "iat": int(now.timestamp()),
-        "exp": int(expire.timestamp()),
         "jti": token_id,
     }
+    if days > 0:
+        payload["exp"] = int((now + timedelta(days=days)).timestamp())
 
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 

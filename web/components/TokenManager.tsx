@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Copy, Trash2, Check, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, Copy, Trash2, Check, ChevronUp } from "lucide-react";
 import { api } from "@/lib/api";
 import type { ApiToken, CreatedToken, Project } from "@/lib/types";
 import { useTranslation } from "@/lib/i18n";
@@ -56,19 +56,11 @@ function CopyBlock({ value, label, sensitive }: { value: string; label?: string;
 function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => void }) {
   const { t } = useTranslation();
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
-  const hasSetup = !!data.setup;
   const mcpJson = data.setup
     ? JSON.stringify(data.setup.mcp_config, null, 2)
     : JSON.stringify({
         mcpServers: {
           piloci: { type: "http", url: `${baseUrl}/mcp/http`, headers: { Authorization: "Bearer <TOKEN>" } },
-        },
-      }, null, 2);
-  const mcpSseJson = data.setup
-    ? JSON.stringify(data.setup.mcp_config_sse, null, 2)
-    : JSON.stringify({
-        mcpServers: {
-          piloci: { type: "sse", url: `${baseUrl}/mcp/sse`, headers: { Authorization: "Bearer <TOKEN>" } },
         },
       }, null, 2);
   const hookJson = data.setup ? JSON.stringify(data.setup.hook_config, null, 2) : null;
@@ -97,18 +89,7 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
               <code className="rounded bg-muted px-1 py-0.5 text-xs">.mcp.json</code>
               {t.tokenManager.mcpInstructions}
             </p>
-            <Tabs defaultValue="http">
-              <TabsList className="h-7 text-xs">
-                <TabsTrigger value="http" className="px-3 text-xs">Streamable HTTP</TabsTrigger>
-                <TabsTrigger value="sse" className="px-3 text-xs">SSE (legacy)</TabsTrigger>
-              </TabsList>
-              <TabsContent value="http" className="mt-2">
-                <CopyBlock value={mcpJson} />
-              </TabsContent>
-              <TabsContent value="sse" className="mt-2">
-                <CopyBlock value={mcpSseJson} />
-              </TabsContent>
-            </Tabs>
+            <CopyBlock value={mcpJson} />
             <p className="text-xs text-muted-foreground">
               {t.tokenManager.mcpNote}
             </p>
@@ -139,6 +120,7 @@ export function TokenManager() {
   const [formName, setFormName] = useState("");
   const [formScope, setFormScope] = useState<"user" | "project">("user");
   const [formProjectId, setFormProjectId] = useState("");
+  const [formExpireDays, setFormExpireDays] = useState<number | null>(365);
   const [createdToken, setCreatedToken] = useState<CreatedToken | null>(null);
   const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
 
@@ -157,11 +139,13 @@ export function TokenManager() {
       name,
       scope,
       project_id,
+      expire_days,
     }: {
       name: string;
       scope: "user" | "project";
       project_id?: string;
-    }) => api.createToken(name, scope, project_id) as Promise<CreatedToken>,
+      expire_days?: number | null;
+    }) => api.createToken(name, scope, project_id, expire_days) as Promise<CreatedToken>,
     onSuccess: (data) => {
       setCreatedToken(data);
       queryClient.invalidateQueries({ queryKey: ["tokens"] });
@@ -169,6 +153,7 @@ export function TokenManager() {
       setFormName("");
       setFormScope("user");
       setFormProjectId("");
+      setFormExpireDays(365);
     },
   });
 
@@ -177,13 +162,14 @@ export function TokenManager() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tokens"] }),
   });
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = (e: { preventDefault(): void }) => {
     e.preventDefault();
     if (!formName.trim()) return;
     createMutation.mutate({
       name: formName.trim(),
       scope: formScope,
       project_id: formScope === "project" && formProjectId ? formProjectId : undefined,
+      expire_days: formExpireDays,
     });
   };
 
@@ -254,6 +240,24 @@ export function TokenManager() {
                   </Select>
                 </div>
               )}
+              <div className="space-y-1.5">
+                <Label>{t.tokenManager.formExpire}</Label>
+                <Select
+                  value={formExpireDays === null ? "none" : String(formExpireDays)}
+                  onValueChange={(v) => setFormExpireDays(v === "none" ? null : Number(v))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="30">{t.tokenManager.expireOptions.d30}</SelectItem>
+                    <SelectItem value="90">{t.tokenManager.expireOptions.d90}</SelectItem>
+                    <SelectItem value="180">{t.tokenManager.expireOptions.d180}</SelectItem>
+                    <SelectItem value="365">{t.tokenManager.expireOptions.d365}</SelectItem>
+                    <SelectItem value="none">{t.tokenManager.expireOptions.none}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
               {createMutation.error && (
                 <p className="text-sm text-destructive">
                   {(createMutation.error as Error).message}
@@ -296,6 +300,7 @@ export function TokenManager() {
                 <TableHead>{t.tokenManager.tableHeaders.scope}</TableHead>
                 <TableHead>{t.tokenManager.tableHeaders.issued}</TableHead>
                 <TableHead>{t.tokenManager.tableHeaders.lastUsed}</TableHead>
+                <TableHead>{t.tokenManager.tableHeaders.expires}</TableHead>
                 <TableHead className="w-16" />
               </TableRow>
             </TableHeader>
@@ -328,6 +333,13 @@ export function TokenManager() {
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {token.last_used_at ? formatDate(token.last_used_at) : "-"}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {token.expires_at
+                        ? new Date(token.expires_at) < new Date()
+                          ? <span className="text-destructive">{t.tokenManager.expired}</span>
+                          : formatDate(token.expires_at)
+                        : t.tokenManager.expiresNone}
                     </TableCell>
                     <TableCell>
                       <Button
@@ -369,7 +381,7 @@ export function TokenManager() {
           mcpServers: {
             piloci: {
               type: "http",
-              url: `${baseUrl}/mcp/sse`,
+              url: `${baseUrl}/mcp/http`,
               headers: { Authorization: "Bearer <여기에_토큰_붙여넣기>" },
             },
           },

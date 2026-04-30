@@ -55,6 +55,7 @@ export interface ApiToken {
   project_id?: string;
   created_at: string;
   last_used_at?: string;
+  expires_at?: string | null;
 }
 
 export interface CreatedToken {

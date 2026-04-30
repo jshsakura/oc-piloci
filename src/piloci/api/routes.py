@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 import orjson
@@ -73,7 +73,6 @@ logger = logging.getLogger(__name__)
 def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
     """Generate ready-to-paste config snippets for Claude Code integration."""
     analyze_url = f"{base_url}/api/sessions/analyze"
-    mcp_url = f"{base_url}/mcp/sse"
 
     # Python one-liner for the stop hook (uses only single-quoted strings so it
     # embeds cleanly inside a double-quoted shell command without extra escaping).
@@ -90,22 +89,11 @@ def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
     stop_hook_command = f'python3 -c "{py}" 2>/dev/null'
 
     auth_header = {"Authorization": f"Bearer {token}"}
-    # sse_config: legacy SSE transport (type:"sse")
-    # http_config: MCP Streamable HTTP transport (type:"http", Claude Code compatible)
     mcp_config = {
         "mcpServers": {
             "piloci": {
                 "type": "http",
                 "url": f"{base_url}/mcp/http",
-                "headers": auth_header,
-            }
-        }
-    }
-    mcp_config_sse = {
-        "mcpServers": {
-            "piloci": {
-                "type": "sse",
-                "url": mcp_url,
                 "headers": auth_header,
             }
         }
@@ -120,7 +108,7 @@ def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
             ]
         }
     }
-    return {"mcp_config": mcp_config, "mcp_config_sse": mcp_config_sse, "hook_config": hook_config}
+    return {"mcp_config": mcp_config, "hook_config": hook_config}
 
 
 def _json(data: Any, status: int = 200) -> Response:
@@ -602,6 +590,16 @@ async def route_create_token(request: Request) -> Response:
             _u = _r.scalar_one_or_none()
             user_email = _u.email if _u else ""
 
+    expire_days_raw = body.get("expire_days")
+    if expire_days_raw is None:
+        expire_days: int | None = 365
+    else:
+        expire_days = int(expire_days_raw)
+        if expire_days < 0:
+            expire_days = 365
+        elif expire_days > 365:
+            expire_days = 365
+
     token_id = str(uuid.uuid4())
     jwt_token = create_token(
         user_id=user_id_val,
@@ -611,6 +609,7 @@ async def route_create_token(request: Request) -> Response:
         scope=scope,
         settings=settings,
         token_id=token_id,
+        expire_days=expire_days,
     )
 
     # Store hash in api_tokens table
@@ -620,6 +619,7 @@ async def route_create_token(request: Request) -> Response:
 
     token_hash = hashlib.sha256(jwt_token.encode()).hexdigest()
     now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=expire_days) if expire_days and expire_days > 0 else None
 
     async with async_session() as db:
         db.add(
@@ -631,12 +631,18 @@ async def route_create_token(request: Request) -> Response:
                 token_hash=token_hash,
                 scope=scope,
                 created_at=now,
+                expires_at=expires_at,
             )
         )
 
     base_url = _resolve_base_url(request, settings)
     setup = _generate_token_setup(jwt_token, base_url) if scope == "project" else None
-    resp: dict[str, Any] = {"token": jwt_token, "token_id": token_id, "name": token_name}
+    resp: dict[str, Any] = {
+        "token": jwt_token,
+        "token_id": token_id,
+        "name": token_name,
+        "expires_at": expires_at.isoformat() if expires_at else None,
+    }
     if setup:
         resp["setup"] = setup
     return _json(resp, 201)
@@ -671,6 +677,7 @@ async def route_list_tokens(request: Request) -> Response:
                 "project_id": t.project_id,
                 "created_at": t.created_at.isoformat(),
                 "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None,
+                "expires_at": t.expires_at.isoformat() if t.expires_at else None,
             }
             for t in tokens
         ]

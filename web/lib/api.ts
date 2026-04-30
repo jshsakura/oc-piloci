@@ -59,8 +59,8 @@ export const api = {
 
   // Tokens
   listTokens: () => request<import("./types").ApiToken[]>("/api/tokens"),
-  createToken: (name: string, scope: "project" | "user", project_id?: string) =>
-    request("/api/tokens", { method: "POST", body: JSON.stringify({ name, scope, project_id }) }),
+  createToken: (name: string, scope: "project" | "user", project_id?: string, expire_days?: number | null) =>
+    request("/api/tokens", { method: "POST", body: JSON.stringify({ name, scope, project_id, expire_days }) }),
   revokeToken: (id: string) =>
     request(`/api/tokens/${id}`, { method: "DELETE" }),
 

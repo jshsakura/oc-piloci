@@ -79,10 +79,7 @@ def test_generate_token_setup_contains_mcp_and_hook_snippets() -> None:
     assert (
         setup["mcp_config"]["mcpServers"]["piloci"]["url"] == "https://piloci.example.com/mcp/http"
     )
-    assert (
-        setup["mcp_config_sse"]["mcpServers"]["piloci"]["url"]
-        == "https://piloci.example.com/mcp/sse"
-    )
+    assert "mcp_config_sse" not in setup
     assert (
         setup["mcp_config"]["mcpServers"]["piloci"]["headers"]["Authorization"]
         == "Bearer jwt-token"
@@ -788,6 +785,7 @@ async def test_route_create_token_success_with_project_setup(
         scope="project",
         settings=settings,
         token_id="token-uuid",
+        expire_days=365,
     )
     db.add.assert_called_once()
 
@@ -858,6 +856,7 @@ async def test_route_list_tokens_returns_active_tokens(monkeypatch: pytest.Monke
         project_id="project-1",
         created_at=created_at,
         last_used_at=last_used,
+        expires_at=None,
     )
     result = MagicMock()
     result.scalars.return_value.all.return_value = [token]
@@ -878,6 +877,7 @@ async def test_route_list_tokens_returns_active_tokens(monkeypatch: pytest.Monke
             "project_id": "project-1",
             "created_at": created_at.isoformat(),
             "last_used_at": last_used.isoformat(),
+            "expires_at": None,
         }
     ]
 

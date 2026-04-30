@@ -25,9 +25,12 @@ def create_streamable_http_app(mcp_server: Server) -> Callable:
         headers = dict(scope.get("headers", []))
         auth_header = headers.get(b"authorization", b"").decode()
 
+        _401_headers = [(b"www-authenticate", b'Bearer realm="piloci"')]
         if not auth_header.startswith("Bearer "):
             logger.warning("MCP HTTP missing bearer auth")
-            await Response("Unauthorized", status_code=401)(scope, receive, send)
+            await Response("Unauthorized", status_code=401, headers=dict(_401_headers))(
+                scope, receive, send
+            )
             return
 
         token = auth_header[7:]
@@ -36,7 +39,9 @@ def create_streamable_http_app(mcp_server: Server) -> Callable:
             auth_payload = verify_token(token, settings)
         except ValueError as e:
             logger.warning("MCP HTTP auth failed: %s", e)
-            await Response("Unauthorized", status_code=401)(scope, receive, send)
+            await Response("Unauthorized", status_code=401, headers=dict(_401_headers))(
+                scope, receive, send
+            )
             return
 
         http_transport = StreamableHTTPServerTransport(mcp_session_id=None)
