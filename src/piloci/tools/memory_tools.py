@@ -133,12 +133,6 @@ class InitInput(BaseModel):
         str | None,
         Field(description="Project name. Defaults to the current directory name."),
     ] = None
-    confirm_create_project: Annotated[
-        bool,
-        Field(
-            description="Set true to confirm creating a default project when none exists.",
-        ),
-    ] = False
 
 
 # ---------------------------------------------------------------------------
@@ -399,7 +393,7 @@ async def handle_init(
     # Resolve a friendly project name from cwd or explicit arg
     resolved_name = args.project_name or (_dir_name(args.cwd) if args.cwd else None)
 
-    # If no project-scoped token, guide the user to create or select a project
+    # If no project-scoped token, resolve or create a project automatically
     if not project_id:
         projects: list[dict[str, Any]] = []
         if projects_fn:
@@ -409,30 +403,26 @@ async def handle_init(
                 pass
 
         if not projects:
-            if not args.confirm_create_project:
-                return {
-                    "action_required": True,
-                    "message": (
-                        "No projects found and your token is not project-scoped. "
-                        "To create a default project and continue setup, call init again "
-                        "with confirm_create_project=true, or create a project via the "
-                        "piLoci web UI and re-issue a project-scoped token."
-                    ),
-                    "next_step": "Call init(confirm_create_project=true) to auto-create a 'default' project.",
-                }
-            # Auto-create a default project
+            # No projects at all — auto-create using resolved name (init is intentional)
+            slug = (resolved_name or "default").lower().replace(" ", "-")[:40]
+            name = resolved_name or "default"
             if create_project_fn:
                 try:
-                    new_proj = await create_project_fn(user_id, "default", "default")
+                    new_proj = await create_project_fn(user_id, name, slug)
                     project_id = new_proj.get("id") or new_proj.get("project_id")
                 except Exception as e:
                     return {"success": False, "error": f"Failed to create project: {e}"}
+        elif len(projects) == 1:
+            # Exactly one project — use it automatically
+            project_id = projects[0].get("id")
         else:
+            # Multiple projects, user-scoped token — ask the user to pick one
             return {
                 "action_required": True,
                 "message": (
-                    f"You have {len(projects)} project(s) but your token is user-scoped. "
-                    "Re-issue a project-scoped token from the piLoci web UI and call init again."
+                    f"You have {len(projects)} projects. "
+                    "Please re-issue a project-scoped token for the project you want to use, "
+                    "then run init again. Which project would you like to set up?"
                 ),
                 "projects": [
                     {"id": p.get("id"), "name": p.get("name"), "slug": p.get("slug")}
