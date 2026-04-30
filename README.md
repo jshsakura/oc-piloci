@@ -356,6 +356,78 @@ Expose port `8314` through your own reverse proxy or tunnel. Cloudflare Tunnel,
 Caddy, nginx, and similar edge services are managed outside `docker-compose.yml`.
 With the default settings they should proxy to `http://127.0.0.1:8314` on the Pi host.
 
+## Connecting MCP clients
+
+piLoci exposes a Streamable HTTP MCP endpoint at `/mcp/http`. The connection format differs by client.
+
+### 1. Issue a token
+
+Open the web UI → Settings → 토큰 tab → issue a new token. Choose **user scope** for cross-project access or **project scope** to lock the token to one project.
+
+### 2. Client-specific configuration
+
+#### Claude Desktop / Claude Code / Cursor
+
+All three use `"type": "http"` in their MCP config files.
+
+**Claude Desktop** — `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
+
+```json
+{
+  "mcpServers": {
+    "piloci": {
+      "type": "http",
+      "url": "https://piloci.example.com/mcp/http",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+**Claude Code** — `.mcp.json` in project root, or `~/.claude.json` for global scope
+
+```json
+{
+  "mcpServers": {
+    "piloci": {
+      "type": "http",
+      "url": "https://piloci.example.com/mcp/http",
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+**Cursor** — `~/.cursor/mcp.json`
+
+Same format as Claude Code above.
+
+#### OpenCode
+
+OpenCode uses `"type": "remote"` (not `"http"`) for all remote MCP servers.
+
+**`opencode.json`** (project root or `~/.config/opencode/opencode.json`)
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "piloci": {
+      "type": "remote",
+      "url": "https://piloci.example.com/mcp/http",
+      "enabled": true,
+      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
+    }
+  }
+}
+```
+
+> **Key difference**: Claude-family clients use `mcpServers` + `type: "http"`. OpenCode uses `mcp` + `type: "remote"`. The endpoint URL (`/mcp/http`) is the same for both.
+
+### 3. Auto-memory with Stop hook (Claude Code)
+
+To have memories saved automatically at the end of each Claude Code session, add the Stop hook from the token setup dialog to `~/.claude/settings.json`. The hook calls `/api/sessions/analyze` when the session ends.
+
 ## Development
 
 ### Backend + local stack

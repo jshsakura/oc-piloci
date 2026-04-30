@@ -53,16 +53,24 @@ function CopyBlock({ value, label, sensitive }: { value: string; label?: string;
   );
 }
 
+function buildMcpConfigs(token: string, baseUrl: string) {
+  const auth = `Bearer ${token}`;
+  const httpUrl = `${baseUrl}/mcp/http`;
+  return {
+    claude: JSON.stringify({
+      mcpServers: { piloci: { type: "http", url: httpUrl, headers: { Authorization: auth } } },
+    }, null, 2),
+    opencode: JSON.stringify({
+      $schema: "https://opencode.ai/config.json",
+      mcp: { piloci: { type: "remote", url: httpUrl, enabled: true, headers: { Authorization: auth } } },
+    }, null, 2),
+  };
+}
+
 function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => void }) {
   const { t } = useTranslation();
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
-  const mcpJson = data.setup
-    ? JSON.stringify(data.setup.mcp_config, null, 2)
-    : JSON.stringify({
-        mcpServers: {
-          piloci: { type: "http", url: `${baseUrl}/mcp/http`, headers: { Authorization: "Bearer <TOKEN>" } },
-        },
-      }, null, 2);
+  const configs = buildMcpConfigs(data.token, baseUrl);
   const hookJson = data.setup ? JSON.stringify(data.setup.hook_config, null, 2) : null;
 
   return (
@@ -84,15 +92,25 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
             <CopyBlock value={data.token} sensitive />
           </TabsContent>
 
-          <TabsContent value="mcp" className="space-y-3 pt-1">
-            <p className="text-sm text-muted-foreground">
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">.mcp.json</code>
-              {t.tokenManager.mcpInstructions}
-            </p>
-            <CopyBlock value={mcpJson} />
-            <p className="text-xs text-muted-foreground">
-              {t.tokenManager.mcpNote}
-            </p>
+          <TabsContent value="mcp" className="pt-1">
+            <Tabs defaultValue="claude">
+              <TabsList>
+                <TabsTrigger value="claude">Claude</TabsTrigger>
+                <TabsTrigger value="opencode">OpenCode</TabsTrigger>
+              </TabsList>
+              <TabsContent value="claude" className="space-y-2 pt-3">
+                <p className="text-xs text-muted-foreground">
+                  Claude Desktop / Claude Code / Cursor — <code className="rounded bg-muted px-1 py-0.5">.mcp.json</code> 또는 <code className="rounded bg-muted px-1 py-0.5">claude_desktop_config.json</code>
+                </p>
+                <CopyBlock value={configs.claude} />
+              </TabsContent>
+              <TabsContent value="opencode" className="space-y-2 pt-3">
+                <p className="text-xs text-muted-foreground">
+                  OpenCode — <code className="rounded bg-muted px-1 py-0.5">opencode.json</code> (<code className="rounded bg-muted px-1 py-0.5">type: &quot;remote&quot;</code> 사용)
+                </p>
+                <CopyBlock value={configs.opencode} />
+              </TabsContent>
+            </Tabs>
           </TabsContent>
 
           {hookJson && (
@@ -378,25 +396,8 @@ export function TokenManager() {
         const sel = tokens.find((t) => t.token_id === selectedTokenId);
         if (!sel) return null;
         const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
-        const makeConfig = (type: string) => JSON.stringify(type === "opencode" ? {
-          $schema: "https://opencode.ai/config.json",
-          mcp: {
-            piloci: {
-              type: "remote",
-              url: `${baseUrl}/mcp/sse`,
-              enabled: true,
-              headers: { Authorization: "Bearer <여기에_토큰_붙여넣기>" },
-            },
-          },
-        } : {
-          mcpServers: {
-            piloci: {
-              type: "http",
-              url: `${baseUrl}/mcp/http`,
-              headers: { Authorization: "Bearer <여기에_토큰_붙여넣기>" },
-            },
-          },
-        }, null, 2);
+        const placeholder = "<여기에_토큰_붙여넣기>";
+        const detailConfigs = buildMcpConfigs(placeholder, baseUrl);
 
         return (
           <div className="mt-4 space-y-3">
@@ -423,7 +424,7 @@ export function TokenManager() {
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="rounded bg-muted px-1.5 py-0.5 font-mono">~/Library/Application Support/Claude/claude_desktop_config.json</span>
                     </div>
-                    <CopyBlock value={makeConfig("default")} />
+                    <CopyBlock value={detailConfigs.claude} />
                   </TabsContent>
 
                   <TabsContent value="claude-code" className="space-y-2 pt-3">
@@ -432,21 +433,21 @@ export function TokenManager() {
                       <span className="text-border">|</span>
                       <span className="rounded bg-muted px-1.5 py-0.5 font-mono">.mcp.json</span>
                     </div>
-                    <CopyBlock value={makeConfig("default")} />
+                    <CopyBlock value={detailConfigs.claude} />
                   </TabsContent>
 
                   <TabsContent value="opencode" className="space-y-2 pt-3">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="rounded bg-muted px-1.5 py-0.5 font-mono">opencode.json</span>
                     </div>
-                    <CopyBlock value={makeConfig("opencode")} />
+                    <CopyBlock value={detailConfigs.opencode} />
                   </TabsContent>
 
                   <TabsContent value="cursor" className="space-y-2 pt-3">
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="rounded bg-muted px-1.5 py-0.5 font-mono">~/.cursor/mcp.json</span>
                     </div>
-                    <CopyBlock value={makeConfig("default")} />
+                    <CopyBlock value={detailConfigs.claude} />
                   </TabsContent>
                 </Tabs>
               </CardContent>
