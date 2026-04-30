@@ -1546,6 +1546,130 @@ async def route_clear_memories(request: Request) -> Response:
     return _json({"cleared": True, "count": count})
 
 
+async def route_chat(request: Request) -> Response:
+    """POST /api/chat — RAG over project memories.
+
+    Body: {"query": str, "top_k"?: int, "tags"?: [str], "stream"?: bool}
+    Stream mode (default true) returns text/event-stream with three events:
+      - ``citations`` : JSON array of memory snippets
+      - ``token``     : streamed text chunks
+      - ``done``      : end-of-response sentinel
+    Non-stream mode returns ``{answer, citations}`` JSON.
+    """
+    from starlette.responses import StreamingResponse
+
+    from piloci import chat as chat_mod
+    from piloci.llm import get_chat_provider
+    from piloci.storage.embed import embed_one
+
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "unauthorized"}, 401)
+    user_id = _uid(user)
+    project_id = user.get("project_id")
+    if not isinstance(user_id, str) or not user_id:
+        return _json({"error": "user_id required"}, 400)
+    if not isinstance(project_id, str) or not project_id:
+        return _json({"error": "project scope required"}, 400)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "invalid JSON"}, 400)
+    if not isinstance(body, dict):
+        return _json({"error": "invalid JSON"}, 400)
+
+    raw_query = body.get("query")
+    if not isinstance(raw_query, str) or not raw_query.strip():
+        return _json({"error": "query required"}, 400)
+    query = raw_query.strip()
+    top_k = body.get("top_k") if isinstance(body.get("top_k"), int) else chat_mod.DEFAULT_TOP_K
+    raw_tags = body.get("tags")
+    tags = [t for t in raw_tags if isinstance(t, str)] if isinstance(raw_tags, list) else None
+    stream_mode = body.get("stream", True) is not False
+
+    settings = get_settings()
+    store = request.app.state.store
+
+    try:
+        provider = get_chat_provider(settings)
+    except ValueError as e:
+        return _json({"error": f"chat provider misconfigured: {e}"}, 503)
+
+    async def _embed(text: str) -> list[float]:
+        return await embed_one(
+            text=text,
+            model=settings.embed_model,
+            cache_dir=settings.embed_cache_dir,
+            lru_size=settings.embed_lru_size,
+            executor_workers=settings.embed_executor_workers,
+            max_concurrency=settings.embed_max_concurrency,
+        )
+
+    try:
+        memories = await chat_mod.retrieve(
+            query=query,
+            user_id=user_id,
+            project_id=project_id,
+            store=store,
+            embed_fn=_embed,
+            top_k=top_k,
+            tags=tags,
+        )
+    except Exception:
+        logger.exception("chat retrieval failed")
+        return _json({"error": "retrieval failed"}, 500)
+
+    citations = chat_mod.format_citations(memories)
+
+    per_mem_limit = getattr(settings, "chat_max_memory_chars", chat_mod.DEFAULT_MAX_MEMORY_CHARS)
+    total_limit = getattr(settings, "chat_max_context_chars", chat_mod.DEFAULT_MAX_CONTEXT_CHARS)
+
+    if not stream_mode:
+        chunks: list[str] = []
+        try:
+            async for chunk in chat_mod.stream_answer(
+                query=query,
+                memories=memories,
+                provider=provider,
+                per_memory_limit=per_mem_limit,
+                total_context_limit=total_limit,
+            ):
+                chunks.append(chunk)
+        except Exception:
+            logger.exception("chat generation failed")
+            return _json({"error": "generation failed"}, 502)
+        return _json({"answer": "".join(chunks), "citations": citations})
+
+    async def _sse() -> Any:
+        # Emit citations first so the client can render before the first token.
+        yield f"event: citations\ndata: {orjson.dumps(citations).decode()}\n\n"
+        try:
+            async for chunk in chat_mod.stream_answer(
+                query=query,
+                memories=memories,
+                provider=provider,
+                per_memory_limit=per_mem_limit,
+                total_context_limit=total_limit,
+            ):
+                yield f"event: token\ndata: {orjson.dumps({'text': chunk}).decode()}\n\n"
+        except Exception as e:
+            logger.exception("chat stream failed")
+            yield f"event: error\ndata: {orjson.dumps({'error': str(e)[:200]}).decode()}\n\n"
+            return
+        yield "event: done\ndata: {}\n\n"
+
+    return StreamingResponse(
+        _sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
 async def route_analyze_session(request: Request) -> Response:
     """POST /api/sessions/analyze — extract instincts from a Claude Code session transcript.
 
@@ -1966,6 +2090,7 @@ def get_routes() -> list[Route]:
         Route("/api/memories/{id}", route_delete_memory, methods=["DELETE"]),
         Route("/api/memories/clear", route_clear_memories, methods=["POST"]),
         Route("/api/sessions/analyze", route_analyze_session, methods=["POST"]),
+        Route("/api/chat", route_chat, methods=["POST"]),
         Route("/api/admin/users", route_admin_list_users, methods=["GET"]),
         Route("/api/admin/users/{id}/approve", route_admin_approve_user, methods=["POST"]),
         Route("/api/admin/users/{id}/reject", route_admin_reject_user, methods=["POST"]),

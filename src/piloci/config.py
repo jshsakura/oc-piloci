@@ -43,6 +43,18 @@ class Settings(BaseSettings):
     # Gemma curator (local LLM for auto-distillation)
     gemma_endpoint: str = "http://localhost:9090/v1/chat/completions"
     gemma_model: str = "gemma"
+
+    # Chat (RAG over memories) — provider-neutral
+    chat_provider: Literal["gemma_local", "openai_compat", "anthropic"] = "gemma_local"
+    chat_max_memory_chars: int = 400  # per-snippet cap before truncation
+    chat_max_context_chars: int = 3500  # total budget across all snippets in prompt
+    # Optional remote providers (only used when chat_provider matches)
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-haiku-4-5"
+    openai_compat_endpoint: str | None = None
+    openai_compat_api_key: str | None = None
+    openai_compat_model: str = "gpt-4o-mini"
+
     curator_enabled: bool = True
     profile_refresh_min_interval_sec: int = 600  # 10 min debounce
     curator_queue_poll_timeout_sec: float = 5.0

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
@@ -73,3 +74,51 @@ async def chat_json(
                     if attempt + 1 < retries:
                         await asyncio.sleep(2**attempt)
     raise ValueError(f"Gemma call failed after {retries} retries: {last_err}")
+
+
+async def chat_stream(
+    messages: list[dict[str, str]],
+    endpoint: str = "http://localhost:9090/v1/chat/completions",
+    model: str = "gemma",
+    temperature: float = 0.2,
+    max_tokens: int = 1024,
+    timeout: float = 120.0,
+) -> AsyncIterator[str]:
+    """Stream Gemma response as plain-text token chunks.
+
+    Yields content deltas from the OpenAI-compatible streaming response.
+    Skips control chunks ([DONE], non-content deltas). Honors the same
+    semaphore as ``chat_json`` so streaming and JSON calls do not contend.
+    """
+    async with _get_semaphore():
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                endpoint,
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "stream": True,
+                },
+            ) as resp:
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line or not line.startswith("data:"):
+                        continue
+                    payload = line[5:].strip()
+                    if not payload or payload == "[DONE]":
+                        continue
+                    try:
+                        chunk = orjson.loads(payload)
+                    except orjson.JSONDecodeError:
+                        logger.debug("ignoring malformed stream chunk: %s", payload[:80])
+                        continue
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta") or {}
+                    text = delta.get("content")
+                    if text:
+                        yield text
