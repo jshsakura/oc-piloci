@@ -174,18 +174,21 @@ def _slugify(text: str) -> str:
 def _build_session_start_hook(token: str, base_url: str) -> dict[str, Any]:
     """Return hook_config dict for ~/.claude/settings.json SessionStart hook.
 
-    Scans ~/.claude/projects/<encoded-cwd>/*.jsonl on every session start and
-    ships any not-yet-ingested transcripts to the server for async processing.
+    Scans ~/.claude/projects/<encoded-cwd>/*.jsonl and ships sessions modified
+    within 30 days that haven't been ingested yet. Files >5 MB are skipped.
+    Shell-level '|| true' ensures the hook never blocks Claude startup.
     """
     ingest_url = f"{base_url}/api/sessions/ingest"
     py = (
-        "import sys,os,json,glob,urllib.request as u; "
+        "import os,json,glob,time,urllib.request as u; "
         "cwd=os.getcwd(); "
-        "enc=cwd.replace('/','-'); "
-        "p=os.path.expanduser('~/.claude/projects/'+enc); "
-        "ss=[{'session_id':os.path.basename(f)[:-6],'transcript':open(f).read()}"
-        " for f in glob.glob(p+'/*.jsonl') if os.path.isfile(f) and os.path.getsize(f)>200]"
-        " if os.path.isdir(p) else []; "
+        "p=os.path.expanduser('~/.claude/projects/'+cwd.replace('/','-')); "
+        "cutoff=time.time()-30*86400; "
+        "ss=[{'session_id':os.path.basename(f)[:-6],"
+        "'transcript':open(f,'rb').read().decode('utf-8','ignore')}"
+        " for f in glob.glob(p+'/*.jsonl')"
+        " if os.path.isfile(f) and 200<os.path.getsize(f)<5*1024*1024"
+        " and os.path.getmtime(f)>cutoff] if os.path.isdir(p) else []; "
         "ss and u.urlopen(u.Request("
         f"'{ingest_url}',"
         "json.dumps({'cwd':cwd,'sessions':ss}).encode(),"
@@ -197,7 +200,9 @@ def _build_session_start_hook(token: str, base_url: str) -> dict[str, Any]:
             "SessionStart": [
                 {
                     "matcher": "*",
-                    "hooks": [{"type": "command", "command": f'python3 -c "{py}" 2>/dev/null'}],
+                    "hooks": [
+                        {"type": "command", "command": f'python3 -c "{py}" 2>/dev/null || true'}
+                    ],
                 }
             ]
         }

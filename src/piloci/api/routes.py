@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
@@ -78,20 +79,22 @@ def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
     # not-yet-ingested sessions to the server. Catches window-close cases that
     # Stop hooks miss. Uses only single-quoted strings for clean shell embedding.
     py = (
-        "import sys,os,json,glob,urllib.request as u; "
+        "import os,json,glob,time,urllib.request as u; "
         "cwd=os.getcwd(); "
-        "enc=cwd.replace('/','-'); "
-        "p=os.path.expanduser('~/.claude/projects/'+enc); "
-        "ss=[{'session_id':os.path.basename(f)[:-6],'transcript':open(f).read()}"
-        " for f in glob.glob(p+'/*.jsonl') if os.path.isfile(f) and os.path.getsize(f)>200]"
-        " if os.path.isdir(p) else []; "
+        "p=os.path.expanduser('~/.claude/projects/'+cwd.replace('/','-')); "
+        "cutoff=time.time()-30*86400; "
+        "ss=[{'session_id':os.path.basename(f)[:-6],"
+        "'transcript':open(f,'rb').read().decode('utf-8','ignore')}"
+        " for f in glob.glob(p+'/*.jsonl')"
+        " if os.path.isfile(f) and 200<os.path.getsize(f)<5*1024*1024"
+        " and os.path.getmtime(f)>cutoff] if os.path.isdir(p) else []; "
         "ss and u.urlopen(u.Request("
         f"'{ingest_url}',"
         "json.dumps({'cwd':cwd,'sessions':ss}).encode(),"
         f"{{'Content-Type':'application/json','Authorization':'Bearer {token}'}},"
         "method='POST'),timeout=60)"
     )
-    session_start_hook_command = f'python3 -c "{py}" 2>/dev/null'
+    session_start_hook_command = f'python3 -c "{py}" 2>/dev/null || true'
 
     auth_header = {"Authorization": f"Bearer {token}"}
     mcp_config = {
@@ -1405,18 +1408,58 @@ async def route_sessions_ingest(request: Request) -> Response:
 
     Body: {cwd: str, sessions: [{session_id: str, transcript: str}]}
     Deduplicates by (user_id, project_id, session_id). Queues new sessions.
-    Requires a project-scoped token (project_id in JWT).
+    Accepts project-scoped tokens (project_id in JWT) or resolves project from
+    cwd slug for user-scoped tokens.
     """
     user = _require_user(request)
     if user is None:
         return _json({"error": "unauthorized"}, 401)
 
     user_id = _uid(user)
-    project_id = user.get("project_id")
     if not isinstance(user_id, str) or not user_id:
         return _json({"error": "user_id required"}, 400)
-    if not isinstance(project_id, str) or not project_id:
-        return _json({"error": "project-scoped token required"}, 400)
+
+    settings = get_settings()
+    raw_body = await request.body()
+    if len(raw_body) > settings.ingest_max_body_bytes * 20:
+        return _json({"error": "payload too large"}, 413)
+
+    try:
+        body = orjson.loads(raw_body)
+    except Exception:
+        return _json({"error": "invalid JSON"}, 400)
+
+    project_id: str | None = user.get("project_id")
+
+    # User-scoped token: resolve project from cwd slug
+    if not project_id:
+        cwd = (body.get("cwd") or "").strip()
+        if not cwd:
+            return _json({"error": "project-scoped token or cwd required"}, 400)
+        slug = (
+            re.sub(r"[^a-zA-Z0-9]+", "-", cwd.rsplit("/", 1)[-1].encode("ascii", "ignore").decode())
+            .strip("-")
+            .lower()[:40]
+            or "project"
+        )
+        from sqlalchemy import select as _slug_sel
+
+        from piloci.db.models import Project
+
+        async with async_session() as db:
+            row = (
+                await db.execute(
+                    _slug_sel(Project.id)
+                    .where(
+                        Project.user_id == user_id,
+                        Project.slug == slug,
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+        if row is None:
+            return _json({"error": f"no project found for slug '{slug}' — run init first"}, 404)
+        project_id = row
 
     settings = get_settings()
     raw_body = await request.body()
