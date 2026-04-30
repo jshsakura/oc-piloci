@@ -72,21 +72,26 @@ logger = logging.getLogger(__name__)
 
 def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
     """Generate ready-to-paste config snippets for Claude Code integration."""
-    analyze_url = f"{base_url}/api/sessions/analyze"
+    ingest_url = f"{base_url}/api/sessions/ingest"
 
-    # Python one-liner for the stop hook (uses only single-quoted strings so it
-    # embeds cleanly inside a double-quoted shell command without extra escaping).
+    # SessionStart hook: scans transcript files on session open and ships any
+    # not-yet-ingested sessions to the server. Catches window-close cases that
+    # Stop hooks miss. Uses only single-quoted strings for clean shell embedding.
     py = (
-        "import os,json,urllib.request as u; "
-        "t=os.environ.get('CLAUDE_SESSION_TRANSCRIPT',''); "
-        "f=open(t).read() if t and os.path.isfile(t) else ''; "
-        "f.count('role')>=5 and "
-        f"[u.urlopen(u.Request('{analyze_url}',"
-        "json.dumps({'transcript':f}).encode(),"
+        "import sys,os,json,glob,urllib.request as u; "
+        "cwd=os.getcwd(); "
+        "enc=cwd.replace('/','-'); "
+        "p=os.path.expanduser('~/.claude/projects/'+enc); "
+        "ss=[{'session_id':os.path.basename(f)[:-6],'transcript':open(f).read()}"
+        " for f in glob.glob(p+'/*.jsonl') if os.path.isfile(f) and os.path.getsize(f)>200]"
+        " if os.path.isdir(p) else []; "
+        "ss and u.urlopen(u.Request("
+        f"'{ingest_url}',"
+        "json.dumps({'cwd':cwd,'sessions':ss}).encode(),"
         f"{{'Content-Type':'application/json','Authorization':'Bearer {token}'}},"
-        "method='POST'),timeout=30) for _ in [0]]"
+        "method='POST'),timeout=60)"
     )
-    stop_hook_command = f'python3 -c "{py}" 2>/dev/null'
+    session_start_hook_command = f'python3 -c "{py}" 2>/dev/null'
 
     auth_header = {"Authorization": f"Bearer {token}"}
     mcp_config = {
@@ -100,10 +105,10 @@ def _generate_token_setup(token: str, base_url: str) -> dict[str, Any]:
     }
     hook_config = {
         "hooks": {
-            "Stop": [
+            "SessionStart": [
                 {
                     "matcher": "*",
-                    "hooks": [{"type": "command", "command": stop_hook_command}],
+                    "hooks": [{"type": "command", "command": session_start_hook_command}],
                 }
             ]
         }
@@ -1391,6 +1396,111 @@ async def route_ingest(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# /api/sessions/ingest — SessionStart hook batch catch-up
+# ---------------------------------------------------------------------------
+
+
+async def route_sessions_ingest(request: Request) -> Response:
+    """POST /api/sessions/ingest — SessionStart hook batch transcript catch-up.
+
+    Body: {cwd: str, sessions: [{session_id: str, transcript: str}]}
+    Deduplicates by (user_id, project_id, session_id). Queues new sessions.
+    Requires a project-scoped token (project_id in JWT).
+    """
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "unauthorized"}, 401)
+
+    user_id = _uid(user)
+    project_id = user.get("project_id")
+    if not isinstance(user_id, str) or not user_id:
+        return _json({"error": "user_id required"}, 400)
+    if not isinstance(project_id, str) or not project_id:
+        return _json({"error": "project-scoped token required"}, 400)
+
+    settings = get_settings()
+    raw_body = await request.body()
+    if len(raw_body) > settings.ingest_max_body_bytes * 20:  # batch allows larger payload
+        return _json({"error": "payload too large"}, 413)
+
+    try:
+        body = orjson.loads(raw_body)
+    except Exception:
+        return _json({"error": "invalid JSON"}, 400)
+
+    sessions = body.get("sessions")
+    if not isinstance(sessions, list) or not sessions:
+        return _json({"error": "sessions must be a non-empty list"}, 400)
+
+    from sqlalchemy import select as _sel
+
+    from piloci.db.models import RawSession
+
+    queued = 0
+    skipped = 0
+
+    for item in sessions[:50]:  # cap batch size
+        session_id = (item.get("session_id") or "").strip()
+        transcript_str = item.get("transcript") or ""
+        if not session_id or not transcript_str:
+            skipped += 1
+            continue
+
+        async with async_session() as db:
+            existing = (
+                await db.execute(
+                    _sel(RawSession.ingest_id)
+                    .where(
+                        RawSession.user_id == user_id,
+                        RawSession.project_id == project_id,
+                        RawSession.session_id == session_id,
+                    )
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+
+        if existing is not None:
+            skipped += 1
+            continue
+
+        try:
+            messages = [orjson.loads(line) for line in transcript_str.splitlines() if line.strip()]
+        except Exception:
+            skipped += 1
+            continue
+
+        if len(messages) < 5:
+            skipped += 1
+            continue
+
+        ingest_id = str(uuid.uuid4())
+        async with async_session() as db:
+            db.add(
+                RawSession(
+                    ingest_id=ingest_id,
+                    user_id=user_id,
+                    project_id=project_id,
+                    client="session-start-hook",
+                    session_id=session_id[:200],
+                    transcript_json=orjson.dumps(messages).decode(),
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+
+        job = IngestJob(ingest_id=ingest_id, user_id=user_id, project_id=project_id)
+        if try_enqueue_job(job, maxsize=settings.ingest_queue_maxsize):
+            queued += 1
+        else:
+            async with async_session() as db:
+                await db.execute(delete(RawSession).where(RawSession.ingest_id == ingest_id))
+                await db.commit()
+            skipped += 1
+
+    return _json({"queued": queued, "skipped": skipped})
+
+
+# ---------------------------------------------------------------------------
 # Memory management (REST — MCP-excluded admin surface)
 # ---------------------------------------------------------------------------
 
@@ -2102,6 +2212,7 @@ def get_routes() -> list[Route]:
         Route("/api/memories/{id}", route_delete_memory, methods=["DELETE"]),
         Route("/api/memories/clear", route_clear_memories, methods=["POST"]),
         Route("/api/sessions/analyze", route_analyze_session, methods=["POST"]),
+        Route("/api/sessions/ingest", route_sessions_ingest, methods=["POST"]),
         Route("/api/chat", route_chat, methods=["POST"]),
         Route("/api/admin/users", route_admin_list_users, methods=["GET"]),
         Route("/api/admin/users/{id}/approve", route_admin_approve_user, methods=["POST"]),
