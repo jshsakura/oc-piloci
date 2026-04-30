@@ -40,8 +40,8 @@ WHOAMI_DESC = (
 )
 
 INIT_DESC = (
-    "One-time project setup. Returns CLAUDE.md and AGENTS.md content to write "
-    "to project root. Enables auto-memory on every future session."
+    "One-time project setup. Pass cwd=$PWD. Returns CLAUDE.md and AGENTS.md "
+    "content to write to project root. Refused in home/root dirs."
 )
 
 
@@ -125,6 +125,14 @@ class WhoAmIInput(BaseModel):
 
 
 class InitInput(BaseModel):
+    cwd: Annotated[
+        str | None,
+        Field(description="Current working directory path. Pass $PWD value."),
+    ] = None
+    project_name: Annotated[
+        str | None,
+        Field(description="Project name. Defaults to the current directory name."),
+    ] = None
     confirm_create_project: Annotated[
         bool,
         Field(
@@ -137,22 +145,49 @@ class InitInput(BaseModel):
 # Shared snippet builder
 # ---------------------------------------------------------------------------
 
-_MEMORY_DIRECTIVE = """\
-## piLoci Memory
-
-Use piLoci MCP tools to maintain context across sessions:
-
-1. **Session start**: Call `recall` with a query about the current task \\
-to load relevant memories from past sessions
-2. **Save actively**: Use `memory` throughout the conversation to save facts, \\
-decisions, preferences, code patterns, and insights. When in doubt, SAVE.
-3. **Tags**: Add 1-3 tags when saving (e.g. `["architecture", "bugfix", "preference"]`)
-"""
+_HOME_PATTERNS = (
+    r"^/$",
+    r"^/root$",
+    r"^/home/[^/]+$",
+    r"^/Users/[^/]+$",
+    r"^[A-Za-z]:[/\\]Users[/\\][^/\\]+$",
+    r"^~$",
+)
 
 
-def build_setup_snippets() -> dict[str, str]:
+def _is_home_or_root(cwd: str) -> bool:
+    import re
+
+    normalized = cwd.replace("\\", "/").rstrip("/")
+    return any(re.match(p, normalized) for p in _HOME_PATTERNS)
+
+
+def _dir_name(cwd: str) -> str:
+    """Extract the last path component as a project name."""
+    normalized = cwd.replace("\\", "/").rstrip("/")
+    return normalized.rsplit("/", 1)[-1] or "project"
+
+
+def build_setup_snippets(
+    project_name: str | None = None, project_slug: str | None = None
+) -> dict[str, str]:
     """Return CLAUDE.md and AGENTS.md content for project-root setup."""
-    return {"claude_md": _MEMORY_DIRECTIVE, "agents_md": _MEMORY_DIRECTIVE}
+    header = "## piLoci Memory"
+    project_line = ""
+    if project_name:
+        slug_hint = f" (piLoci: {project_slug})" if project_slug else ""
+        project_line = f"\n**Project**: {project_name}{slug_hint}\n"
+
+    content = (
+        f"{header}{project_line}\n"
+        "Use piLoci MCP tools to maintain context across sessions:\n\n"
+        "1. **Session start**: Call `recall` with a query about the current task "
+        "to load relevant memories from past sessions\n"
+        "2. **Save actively**: Use `memory` throughout the conversation to save facts, "
+        "decisions, preferences, code patterns, and insights. When in doubt, SAVE.\n"
+        '3. **Tags**: Add 1-3 tags when saving (e.g. `["architecture", "bugfix", "preference"]`)\n'
+    )
+    return {"claude_md": content, "agents_md": content}
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +386,19 @@ async def handle_init(
     create_project_fn,  # async callable: (user_id, name, slug) -> dict
 ) -> dict[str, Any]:
     """One-time project setup: returns CLAUDE.md + AGENTS.md content to write."""
+    # Guard: refuse to init in home or root directories
+    if args.cwd and _is_home_or_root(args.cwd):
+        return {
+            "success": False,
+            "error": (
+                f"init refused: '{args.cwd}' looks like a home or root directory. "
+                "Navigate to your project directory first, then run init again."
+            ),
+        }
+
+    # Resolve a friendly project name from cwd or explicit arg
+    resolved_name = args.project_name or (_dir_name(args.cwd) if args.cwd else None)
+
     # If no project-scoped token, guide the user to create or select a project
     if not project_id:
         projects: list[dict[str, Any]] = []
@@ -392,11 +440,25 @@ async def handle_init(
                 ],
             }
 
-    snippets = build_setup_snippets()
+    # Resolve project slug for the snippet header
+    project_slug: str | None = None
+    if projects_fn and project_id:
+        try:
+            all_projects = await projects_fn(user_id, False)
+            matched = next((p for p in all_projects if p.get("id") == project_id), None)
+            if matched:
+                project_slug = matched.get("slug")
+                if not resolved_name:
+                    resolved_name = matched.get("name")
+        except Exception:
+            pass
+
+    snippets = build_setup_snippets(project_name=resolved_name, project_slug=project_slug)
     anchor = "## piLoci Memory"
     return {
         "success": True,
         "project_id": project_id,
+        "project_name": resolved_name,
         "anchor": anchor,
         "files": {
             "CLAUDE.md": snippets["claude_md"],
