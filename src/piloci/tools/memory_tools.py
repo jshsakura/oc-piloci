@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""piloci v0.3 MCP tools — 4 tools: memory, recall, listProjects, whoAmI.
+"""piloci v0.3 MCP tools — 5 tools: memory, recall, listProjects, whoAmI, init.
 
 All queries enforce (user_id, project_id) isolation. Recall uses 3-phase
 token-saving strategy: preview → fetch → to_file.
@@ -37,6 +37,11 @@ LIST_PROJECTS_DESC = (
 WHOAMI_DESC = (
     "Get the current logged-in user's information. Returns userId, email, "
     "name, client info, session id."
+)
+
+INIT_DESC = (
+    "One-time project setup. Returns CLAUDE.md and AGENTS.md content to write "
+    "to project root. Enables auto-memory on every future session."
 )
 
 
@@ -117,6 +122,37 @@ class ListProjectsInput(BaseModel):
 
 class WhoAmIInput(BaseModel):
     pass
+
+
+class InitInput(BaseModel):
+    confirm_create_project: Annotated[
+        bool,
+        Field(
+            description="Set true to confirm creating a default project when none exists.",
+        ),
+    ] = False
+
+
+# ---------------------------------------------------------------------------
+# Shared snippet builder
+# ---------------------------------------------------------------------------
+
+_MEMORY_DIRECTIVE = """\
+## piLoci Memory
+
+Use piLoci MCP tools to maintain context across sessions:
+
+1. **Session start**: Call `recall` with a query about the current task \\
+to load relevant memories from past sessions
+2. **Save actively**: Use `memory` throughout the conversation to save facts, \\
+decisions, preferences, code patterns, and insights. When in doubt, SAVE.
+3. **Tags**: Add 1-3 tags when saving (e.g. `["architecture", "bugfix", "preference"]`)
+"""
+
+
+def build_setup_snippets() -> dict[str, str]:
+    """Return CLAUDE.md and AGENTS.md content for project-root setup."""
+    return {"claude_md": _MEMORY_DIRECTIVE, "agents_md": _MEMORY_DIRECTIVE}
 
 
 # ---------------------------------------------------------------------------
@@ -304,4 +340,73 @@ async def handle_whoami(
         "scope": (auth_payload or {}).get("scope"),
         "sessionId": session_id,
         "client": client_info,
+    }
+
+
+async def handle_init(
+    args: InitInput,
+    user_id: str,
+    project_id: str | None,
+    projects_fn,  # async callable: (user_id, refresh) -> list[dict]
+    create_project_fn,  # async callable: (user_id, name, slug) -> dict
+) -> dict[str, Any]:
+    """One-time project setup: returns CLAUDE.md + AGENTS.md content to write."""
+    # If no project-scoped token, guide the user to create or select a project
+    if not project_id:
+        projects: list[dict[str, Any]] = []
+        if projects_fn:
+            try:
+                projects = await projects_fn(user_id, False)
+            except Exception:
+                pass
+
+        if not projects:
+            if not args.confirm_create_project:
+                return {
+                    "action_required": True,
+                    "message": (
+                        "No projects found and your token is not project-scoped. "
+                        "To create a default project and continue setup, call init again "
+                        "with confirm_create_project=true, or create a project via the "
+                        "piLoci web UI and re-issue a project-scoped token."
+                    ),
+                    "next_step": "Call init(confirm_create_project=true) to auto-create a 'default' project.",
+                }
+            # Auto-create a default project
+            if create_project_fn:
+                try:
+                    new_proj = await create_project_fn(user_id, "default", "default")
+                    project_id = new_proj.get("id") or new_proj.get("project_id")
+                except Exception as e:
+                    return {"success": False, "error": f"Failed to create project: {e}"}
+        else:
+            return {
+                "action_required": True,
+                "message": (
+                    f"You have {len(projects)} project(s) but your token is user-scoped. "
+                    "Re-issue a project-scoped token from the piLoci web UI and call init again."
+                ),
+                "projects": [
+                    {"id": p.get("id"), "name": p.get("name"), "slug": p.get("slug")}
+                    for p in projects
+                ],
+            }
+
+    snippets = build_setup_snippets()
+    anchor = "## piLoci Memory"
+    return {
+        "success": True,
+        "project_id": project_id,
+        "anchor": anchor,
+        "files": {
+            "CLAUDE.md": snippets["claude_md"],
+            "AGENTS.md": snippets["agents_md"],
+        },
+        "instructions": (
+            f"For each file (CLAUDE.md, AGENTS.md) in the project root:\n"
+            f"1. If the file already contains '{anchor}' → SKIP (already configured).\n"
+            f"2. If the file exists but lacks '{anchor}' → APPEND the content at the end.\n"
+            f"3. If the file does not exist → CREATE it with the content.\n"
+            f"After writing, piLoci will automatically recall memories at session start."
+        ),
     }

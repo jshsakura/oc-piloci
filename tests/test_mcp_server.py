@@ -23,12 +23,20 @@ def test_make_tool_returns_valid_tool():
 
 
 def test_tool_definitions_count():
-    assert len(TOOL_DEFINITIONS) == 6
+    assert len(TOOL_DEFINITIONS) == 7
 
 
 def test_tool_definitions_names():
     names = {t.name for t in TOOL_DEFINITIONS}
-    assert names == {"memory", "recall", "listProjects", "whoAmI", "recommend", "contradict"}
+    assert names == {
+        "memory",
+        "recall",
+        "listProjects",
+        "whoAmI",
+        "init",
+        "recommend",
+        "contradict",
+    }
 
 
 def test_resource_list_returns_three():

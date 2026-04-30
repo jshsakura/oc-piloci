@@ -29,14 +29,17 @@ from piloci.tools.instinct_tools import (
     handle_recommend,
 )
 from piloci.tools.memory_tools import (
+    INIT_DESC,
     LIST_PROJECTS_DESC,
     MEMORY_DESC,
     RECALL_DESC,
     WHOAMI_DESC,
+    InitInput,
     ListProjectsInput,
     MemoryInput,
     RecallInput,
     WhoAmIInput,
+    handle_init,
     handle_list_projects,
     handle_memory,
     handle_recall,
@@ -60,6 +63,7 @@ TOOL_DEFINITIONS = [
     _make_tool("recall", RECALL_DESC, RecallInput),
     _make_tool("listProjects", LIST_PROJECTS_DESC, ListProjectsInput),
     _make_tool("whoAmI", WHOAMI_DESC, WhoAmIInput),
+    _make_tool("init", INIT_DESC, InitInput),
     _make_tool("recommend", RECOMMEND_DESC, RecommendInput),
     _make_tool("contradict", CONTRADICT_DESC, ContradictInput),
 ]
@@ -152,6 +156,7 @@ def create_mcp_server(
     projects_fn=None,
     recent_fn=None,
     instincts_store=None,
+    create_project_fn=None,
 ) -> Server:
     """Build the MCP server with tools, resources, and prompts registered.
 
@@ -162,6 +167,7 @@ def create_mcp_server(
         projects_fn: async (user_id, refresh: bool) -> list[dict]
         recent_fn: async (user_id, project_id, limit: int) -> list[dict]
         instincts_store: InstinctsStore instance for recommend/contradict tools
+        create_project_fn: async (user_id, name, slug) -> dict — for init tool
     """
     server = Server("piloci")
 
@@ -241,6 +247,15 @@ def create_mcp_server(
             args = WhoAmIInput.model_validate(arguments)
             result = await handle_whoami(
                 args, user_id, project_id, auth_payload, session_id, client_info=None
+            )
+        elif name == "init":
+            args = InitInput.model_validate(arguments)
+            result = await handle_init(
+                args,
+                user_id,
+                project_id,
+                projects_fn=projects_fn,
+                create_project_fn=create_project_fn,
             )
         elif name == "recommend":
             args = RecommendInput.model_validate(arguments)

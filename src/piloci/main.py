@@ -115,6 +115,39 @@ def _build_mcp(settings, store: MemoryStore, instincts_store: InstinctsStore | N
         rows.sort(key=lambda m: m.get("updated_at", 0), reverse=True)
         return rows
 
+    async def create_project_fn(user_id: str, name: str, slug: str) -> dict[str, Any]:
+        import uuid
+        from datetime import datetime, timezone
+
+        from sqlalchemy.exc import IntegrityError
+
+        from piloci.db.models import Project
+
+        now = datetime.now(timezone.utc)
+        project = Project(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            slug=slug,
+            name=name,
+            created_at=now,
+            updated_at=now,
+        )
+        async with async_session() as db:
+            db.add(project)
+            try:
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                row = (
+                    await db.execute(
+                        select(Project).where(Project.user_id == user_id, Project.slug == slug)
+                    )
+                ).scalar_one_or_none()
+                if row:
+                    return {"id": row.id, "slug": row.slug, "name": row.name}
+                raise
+        return {"id": project.id, "slug": project.slug, "name": project.name}
+
     return create_mcp_server(
         settings,
         store,
@@ -122,6 +155,7 @@ def _build_mcp(settings, store: MemoryStore, instincts_store: InstinctsStore | N
         projects_fn=projects_fn,
         recent_fn=recent_fn,
         instincts_store=instincts_store,
+        create_project_fn=create_project_fn,
     )
 
 
