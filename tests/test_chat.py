@@ -198,6 +198,57 @@ async def test_route_chat_rejects_blank_query():
 
 
 @pytest.mark.asyncio
+async def test_route_chat_resolves_project_slug_for_session_users():
+    from piloci.api.routes import route_chat
+
+    store = MagicMock()
+    store.search = AsyncMock(return_value=[{"memory_id": "x", "content": "y", "score": 0.5}])
+    req = _make_request(
+        {"query": "hi", "project_slug": "demo", "stream": False},
+        user={"user_id": "u1"},  # no project_id in session — slug resolves it
+        store=store,
+    )
+
+    async def fake_get_proj(user_id, slug):
+        assert user_id == "u1" and slug == "demo"
+        return {"id": "proj-resolved", "slug": "demo", "name": "Demo"}
+
+    async def fake_embed(**kwargs):
+        return [0.0]
+
+    provider = _StubProvider(["ok"])
+    with (
+        patch("piloci.api.routes._get_user_project_by_slug", new=fake_get_proj),
+        patch("piloci.storage.embed.embed_one", new=fake_embed),
+        patch("piloci.llm.get_chat_provider", return_value=provider),
+    ):
+        resp = await route_chat(req)
+
+    assert resp.status_code == 200
+    # Search was called with the resolved project_id
+    assert store.search.call_args.kwargs["project_id"] == "proj-resolved"
+
+
+@pytest.mark.asyncio
+async def test_route_chat_returns_404_for_unknown_project_slug():
+    from piloci.api.routes import route_chat
+
+    req = _make_request(
+        {"query": "hi", "project_slug": "ghost"},
+        user={"user_id": "u1"},
+        store=MagicMock(),
+    )
+
+    async def fake_get_proj(user_id, slug):
+        return None
+
+    with patch("piloci.api.routes._get_user_project_by_slug", new=fake_get_proj):
+        resp = await route_chat(req)
+
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_route_chat_returns_503_when_provider_misconfigured():
     from piloci.api.routes import route_chat
 

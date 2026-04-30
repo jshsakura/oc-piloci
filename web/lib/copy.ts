@@ -594,7 +594,7 @@ const copy = {
       },
     },
     appShell: {
-      nav: { dashboard: '대시보드', projects: '프로젝트' },
+      nav: { dashboard: '대시보드', projects: '프로젝트', chat: '대화' },
       dropdown: { settings: '설정', activity: '활동 기록', logout: '로그아웃' },
       footer: { privacy: '개인정보 처리방침', terms: '서비스 약관' },
     },
@@ -1295,7 +1295,7 @@ const copy = {
       },
     },
     appShell: {
-      nav: { dashboard: 'Dashboard', projects: 'Projects' },
+      nav: { dashboard: 'Dashboard', projects: 'Projects', chat: 'Chat' },
       dropdown: { settings: 'Settings', activity: 'Activity', logout: 'Log Out' },
       footer: { privacy: 'Privacy Policy', terms: 'Terms of Service' },
     },

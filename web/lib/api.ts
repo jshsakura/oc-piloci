@@ -1,6 +1,115 @@
 const BASE = "";
 
 export type AuthProviderName = "kakao" | "naver" | "google" | "github";
+
+export type ChatCitation = {
+  ref: string;
+  memory_id: string | null;
+  content: string;
+  score: number | null;
+  tags: string[];
+};
+
+export type ChatStreamHandlers = {
+  onCitations?: (citations: ChatCitation[]) => void;
+  onToken?: (text: string) => void;
+  onError?: (message: string) => void;
+  onDone?: () => void;
+  signal?: AbortSignal;
+};
+
+/**
+ * Open a streaming chat against the user's selected project.
+ *
+ * Backend sends SSE with three event types: `citations`, `token`, `done`.
+ * This helper parses them and dispatches to the provided callbacks.
+ */
+export async function chatStream(
+  args: { query: string; project_slug: string; top_k?: number; tags?: string[] },
+  handlers: ChatStreamHandlers = {}
+): Promise<void> {
+  const res = await fetch(`${BASE}/api/chat`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify({ ...args, stream: true }),
+    signal: handlers.signal,
+  });
+
+  if (!res.ok) {
+    const errPayload = await res.json().catch(() => ({ error: "Chat request failed" }));
+    handlers.onError?.(errPayload.error ?? "Chat request failed");
+    return;
+  }
+  if (!res.body) {
+    handlers.onError?.("Streaming not supported by this browser");
+    return;
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    // Read until the stream ends. Each SSE message is delimited by \n\n.
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      let sep: number;
+      while ((sep = buffer.indexOf("\n\n")) !== -1) {
+        const block = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        dispatchSseBlock(block, handlers);
+      }
+    }
+    if (buffer.trim().length > 0) {
+      dispatchSseBlock(buffer, handlers);
+    }
+  } finally {
+    handlers.onDone?.();
+  }
+}
+
+function dispatchSseBlock(block: string, handlers: ChatStreamHandlers): void {
+  let event = "message";
+  let data = "";
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) {
+      event = line.slice(6).trim();
+    } else if (line.startsWith("data:")) {
+      data += line.slice(5).trimStart();
+    }
+  }
+  if (!data) return;
+
+  if (event === "citations") {
+    try {
+      const parsed = JSON.parse(data) as ChatCitation[];
+      handlers.onCitations?.(parsed);
+    } catch {
+      // ignore malformed citations chunk
+    }
+  } else if (event === "token") {
+    try {
+      const parsed = JSON.parse(data) as { text?: string };
+      if (parsed.text) handlers.onToken?.(parsed.text);
+    } catch {
+      // ignore malformed token chunk
+    }
+  } else if (event === "error") {
+    try {
+      const parsed = JSON.parse(data) as { error?: string };
+      handlers.onError?.(parsed.error ?? "stream error");
+    } catch {
+      handlers.onError?.("stream error");
+    }
+  }
+}
 export type AuthProviderStatus = {
   name: AuthProviderName;
   configured: boolean;
@@ -75,6 +184,9 @@ export const api = {
   // OAuth
   disconnectProvider: (provider: AuthProviderName) =>
     request<{ status: string }>(`/auth/${provider}/disconnect`, { method: "POST" }),
+
+  // Chat (SSE streaming)
+  chatStream: chatStream,
 
   // Admin
   adminListUsers: (status?: string) =>

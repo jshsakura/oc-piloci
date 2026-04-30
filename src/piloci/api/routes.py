@@ -1566,11 +1566,8 @@ async def route_chat(request: Request) -> Response:
     if user is None:
         return _json({"error": "unauthorized"}, 401)
     user_id = _uid(user)
-    project_id = user.get("project_id")
     if not isinstance(user_id, str) or not user_id:
         return _json({"error": "user_id required"}, 400)
-    if not isinstance(project_id, str) or not project_id:
-        return _json({"error": "project scope required"}, 400)
 
     try:
         body = orjson.loads(await request.body())
@@ -1578,6 +1575,21 @@ async def route_chat(request: Request) -> Response:
         return _json({"error": "invalid JSON"}, 400)
     if not isinstance(body, dict):
         return _json({"error": "invalid JSON"}, 400)
+
+    # Project resolution: prefer explicit project_slug from body (web flow),
+    # fall back to project-scoped token's bound project_id (MCP flow).
+    project_slug = body.get("project_slug")
+    project_id_raw = user.get("project_id")
+    project_id: str | None = None
+    if isinstance(project_slug, str) and project_slug.strip():
+        proj = await _get_user_project_by_slug(user_id, project_slug.strip())
+        if proj is None:
+            return _json({"error": "project not found"}, 404)
+        project_id = proj["id"]
+    elif isinstance(project_id_raw, str) and project_id_raw:
+        project_id = project_id_raw
+    if not project_id:
+        return _json({"error": "project scope required"}, 400)
 
     raw_query = body.get("query")
     if not isinstance(raw_query, str) or not raw_query.strip():

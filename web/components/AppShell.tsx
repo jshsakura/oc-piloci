@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, FolderKanban, Settings, ClipboardList, LogOut, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, FolderKanban, Settings, ClipboardList, LogOut, ShieldCheck, MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -27,6 +27,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const navItems: { href: string; label: string; icon: typeof LayoutDashboard }[] = [
     { href: "/dashboard", label: t.appShell.nav.dashboard, icon: LayoutDashboard },
+    { href: "/chat", label: t.appShell.nav.chat, icon: MessageSquareText },
   ];
 
   if (user?.is_admin) {
