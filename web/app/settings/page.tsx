@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
 import { TokenManager } from "@/components/TokenManager";
 import { useAuthStore } from "@/lib/auth";
 import { api, type AuthProviderName } from "@/lib/api";
+import type { AuditLog } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import RoutePending from "@/components/RoutePending";
@@ -15,16 +17,24 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 
-const MCP_EXAMPLE = `{
-  "mcpServers": {
-    "piloci": {
-      "type": "http",
-      "url": "https://piloci.jshsakura.com/sse",
-      "headers": { "Authorization": "Bearer YOUR_TOKEN_HERE" }
-    }
-  }
-}`;
+function ActionBadge({ action }: { action: string }) {
+  const isSuccess = action.includes("success") || action.includes("created") || action === "signup";
+  const isFail = action.includes("fail") || action.includes("deleted") || action.includes("revoked");
+  if (isSuccess) return <Badge variant="default" className="text-xs">{action}</Badge>;
+  if (isFail) return <Badge variant="destructive" className="text-xs">{action}</Badge>;
+  return <Badge variant="secondary" className="text-xs">{action}</Badge>;
+}
+
+function formatKST(iso: string): string {
+  try {
+    return new Date(iso).toLocaleString("ko-KR", {
+      timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    });
+  } catch { return iso; }
+}
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -48,10 +58,15 @@ export default function SettingsPage() {
   const [disableCode, setDisableCode] = useState("");
   const [disableError, setDisableError] = useState("");
 
-  const [copiedMcp, setCopiedMcp] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [disconnectError, setDisconnectError] = useState("");
   const [disconnectSuccess, setDisconnectSuccess] = useState(false);
+
+  const { data: recentLogs, isLoading: auditLoading } = useQuery<AuditLog[]>({
+    queryKey: ["audit-recent"],
+    queryFn: () => api.listAudit(20, 0),
+    enabled: !!user,
+  });
 
   useEffect(() => {
     if (hasHydrated && !isBootstrapping && !user) router.replace("/login");
@@ -133,12 +148,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleCopyMcp = async () => {
-    await navigator.clipboard.writeText(MCP_EXAMPLE);
-    setCopiedMcp(true);
-    setTimeout(() => setCopiedMcp(false), 2000);
-  };
-
   const handleDisconnect = async () => {
     if (!user?.oauth_provider) return;
     setDisconnectError("");
@@ -167,11 +176,11 @@ export default function SettingsPage() {
       <p className="text-sm text-muted-foreground">계정 및 보안 설정을 관리합니다</p>
 
       <Tabs defaultValue="account" className="mt-6">
-        <TabsList>
-          <TabsTrigger value="account">계정</TabsTrigger>
-          <TabsTrigger value="security">보안</TabsTrigger>
-          <TabsTrigger value="tokens">토큰</TabsTrigger>
-          <TabsTrigger value="audit">활동</TabsTrigger>
+        <TabsList className="w-full">
+          <TabsTrigger value="account" className="flex-1">계정</TabsTrigger>
+          <TabsTrigger value="security" className="flex-1">보안</TabsTrigger>
+          <TabsTrigger value="tokens" className="flex-1">토큰</TabsTrigger>
+          <TabsTrigger value="audit" className="flex-1">활동</TabsTrigger>
         </TabsList>
 
         <TabsContent value="account" className="mt-4 space-y-4">
@@ -334,27 +343,40 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="audit" className="mt-4">
-          <Card>
-            <CardContent className="flex items-center justify-between py-6">
-              <p className="text-sm text-muted-foreground">세션 활동 및 접근 로그를 확인합니다</p>
-              <Button variant="outline" asChild>
-                <Link href="/audit">활동 기록 보기</Link>
-              </Button>
-            </CardContent>
-          </Card>
+        <TabsContent value="audit" className="mt-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">최근 활동 기록 (최대 20건)</p>
+            <Button variant="outline" size="sm" asChild>
+              <Link href="/audit">전체 보기</Link>
+            </Button>
+          </div>
+          {auditLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-16 w-full" />)}
+            </div>
+          ) : !recentLogs || recentLogs.length === 0 ? (
+            <Card>
+              <CardContent className="py-8 text-center text-sm text-muted-foreground">
+                활동 기록이 없습니다
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2">
+              {recentLogs.map((log) => (
+                <Card key={log.id} className="shadow-none">
+                  <CardContent className="flex items-start justify-between gap-3 px-4 py-3">
+                    <div className="min-w-0">
+                      <p className="text-xs text-muted-foreground">{formatKST(log.created_at)}</p>
+                      <p className="mt-0.5 truncate text-xs text-muted-foreground">{log.ip_address ?? "-"}</p>
+                    </div>
+                    <ActionBadge action={log.action} />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
       </Tabs>
-
-      <div className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold">MCP 설정</h2>
-        <div className="relative rounded-md bg-muted p-4">
-          <pre className="overflow-x-auto font-mono text-sm">{MCP_EXAMPLE}</pre>
-          <Button size="sm" variant="outline" className="absolute right-3 top-3" onClick={handleCopyMcp}>
-            {copiedMcp ? "복사됨" : "복사"}
-          </Button>
-        </div>
-      </div>
     </AppShell>
   );
 }

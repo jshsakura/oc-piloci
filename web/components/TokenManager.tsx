@@ -292,14 +292,14 @@ export function TokenManager() {
           </CardContent>
         </Card>
       ) : (
-        <div className="rounded-md border">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>{t.tokenManager.tableHeaders.name}</TableHead>
-                <TableHead>{t.tokenManager.tableHeaders.scope}</TableHead>
-                <TableHead>{t.tokenManager.tableHeaders.issued}</TableHead>
-                <TableHead>{t.tokenManager.tableHeaders.lastUsed}</TableHead>
+                <TableHead className="hidden sm:table-cell">{t.tokenManager.tableHeaders.scope}</TableHead>
+                <TableHead className="hidden md:table-cell">{t.tokenManager.tableHeaders.issued}</TableHead>
+                <TableHead className="hidden md:table-cell">{t.tokenManager.tableHeaders.lastUsed}</TableHead>
                 <TableHead>{t.tokenManager.tableHeaders.expires}</TableHead>
                 <TableHead className="w-16" />
               </TableRow>
@@ -309,6 +309,7 @@ export function TokenManager() {
                 const project = token.project_id
                   ? projects.find((p) => p.id === token.project_id)
                   : undefined;
+                const isExpired = token.expires_at ? new Date(token.expires_at) < new Date() : false;
                 return (
                   <TableRow
                     key={token.token_id}
@@ -316,27 +317,36 @@ export function TokenManager() {
                     onClick={() => setSelectedTokenId(selectedTokenId === token.token_id ? null : token.token_id)}
                   >
                     <TableCell className="font-medium">
-                      {token.name}
-                      {project && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          ({project.slug})
+                      <div className="flex flex-col gap-0.5">
+                        <span>
+                          {token.name}
+                          {project && (
+                            <span className="ml-2 text-xs text-muted-foreground">
+                              ({project.slug})
+                            </span>
+                          )}
                         </span>
-                      )}
+                        <span className="sm:hidden">
+                          <Badge variant={token.scope === "user" ? "default" : "secondary"} className="text-xs">
+                            {token.scope}
+                          </Badge>
+                        </span>
+                      </div>
                     </TableCell>
-                    <TableCell>
+                    <TableCell className="hidden sm:table-cell">
                       <Badge variant={token.scope === "user" ? "default" : "secondary"}>
                         {token.scope}
                       </Badge>
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
                       {formatDate(token.created_at)}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
+                    <TableCell className="hidden md:table-cell text-sm text-muted-foreground">
                       {token.last_used_at ? formatDate(token.last_used_at) : "-"}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {token.expires_at
-                        ? new Date(token.expires_at) < new Date()
+                        ? isExpired
                           ? <span className="text-destructive">{t.tokenManager.expired}</span>
                           : formatDate(token.expires_at)
                         : t.tokenManager.expiresNone}
@@ -346,7 +356,8 @@ export function TokenManager() {
                         variant="ghost"
                         size="icon"
                         className="text-muted-foreground hover:text-destructive"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           if (window.confirm(`"${token.name}" ${t.tokenManager.confirmRevoke}`)) {
                             revokeMutation.mutate(token.token_id);
                           }
