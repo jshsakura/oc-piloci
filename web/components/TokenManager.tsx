@@ -71,7 +71,12 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
   const { t } = useTranslation();
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
   const configs = buildMcpConfigs(data.token, baseUrl);
-  const hookJson = data.setup ? JSON.stringify(data.setup.hook_config, null, 2) : null;
+  const hasHook = !!data.setup?.hook_config;
+  const hookSettingsJson = data.setup ? JSON.stringify(data.setup.hook_config, null, 2) : null;
+  const hookConfigJson = data.setup?.hook_config_json
+    ? JSON.stringify(data.setup.hook_config_json, null, 2)
+    : null;
+  const hookInstallCmd = `mkdir -p ~/.config/piloci && curl -sSL -H "Authorization: Bearer ${data.token}" ${baseUrl}/api/hook/script -o ~/.config/piloci/hook.py`;
   const claudeMd = data.setup?.claude_md ?? null;
 
   return (
@@ -85,7 +90,7 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
           <TabsList className="w-full">
             <TabsTrigger value="token" className="flex-1">{t.tokenManager.tabs.token}</TabsTrigger>
             <TabsTrigger value="mcp" className="flex-1">{t.tokenManager.tabs.mcpServer}</TabsTrigger>
-            {hookJson && <TabsTrigger value="hook" className="flex-1">{t.tokenManager.tabs.stopHook}</TabsTrigger>}
+            {hasHook && <TabsTrigger value="hook" className="flex-1">{t.tokenManager.tabs.sessionStartHook}</TabsTrigger>}
             {claudeMd && <TabsTrigger value="claudemd" className="flex-1">{t.tokenManager.tabs.claudeMd}</TabsTrigger>}
           </TabsList>
 
@@ -115,16 +120,27 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
             </Tabs>
           </TabsContent>
 
-          {hookJson && (
-            <TabsContent value="hook" className="space-y-3 pt-1">
-              <p className="text-sm text-muted-foreground">
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">~/.claude/settings.json</code>
-                {t.tokenManager.hookInstructions}
-              </p>
-              <CopyBlock value={hookJson} />
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-                <strong>{t.tokenManager.hookCondition}</strong>
+          {hasHook && (
+            <TabsContent value="hook" className="space-y-4 pt-1">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-foreground">{t.tokenManager.hookStep1}</p>
+                <p className="text-xs text-muted-foreground">{t.tokenManager.hookStep1Desc}</p>
+                <CopyBlock value={hookInstallCmd} />
               </div>
+              {hookConfigJson && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-foreground">{t.tokenManager.hookStep2}</p>
+                  <p className="text-xs text-muted-foreground">{t.tokenManager.hookStep2Desc}</p>
+                  <CopyBlock value={hookConfigJson} />
+                </div>
+              )}
+              {hookSettingsJson && (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-foreground">{t.tokenManager.hookStep3}</p>
+                  <p className="text-xs text-muted-foreground">{t.tokenManager.hookStep3Desc}</p>
+                  <CopyBlock value={hookSettingsJson} />
+                </div>
+              )}
             </TabsContent>
           )}
 

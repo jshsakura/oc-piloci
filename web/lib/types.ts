@@ -39,12 +39,14 @@ export interface TokenSetup {
   mcp_config: McpServerConfig;
   hook_config: {
     hooks: {
-      Stop: Array<{
+      SessionStart: Array<{
         matcher: string;
         hooks: Array<{ type: string; command: string }>;
       }>;
     };
   };
+  hook_config_json?: { token: string; ingest_url: string };
+  hook_script?: string;
   claude_md?: string;
 }
 
