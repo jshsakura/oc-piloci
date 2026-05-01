@@ -807,6 +807,64 @@ async def test_route_create_token_success_with_project_setup(
 
 
 @pytest.mark.asyncio
+async def test_route_hook_script_authenticated_returns_python_script() -> None:
+    """GET /api/hook/script returns the generic hook.py for authed users."""
+    from piloci.api import routes
+
+    response = await routes.route_hook_script(_make_request(method="GET", user={"sub": "user-1"}))
+    assert response.status_code == 200
+    assert response.media_type == "text/x-python"
+    body = response.body.decode() if isinstance(response.body, bytes) else response.body
+    # Script must be token-free — token lives in config.json
+    assert "config.json" in body
+    assert "ingest_url" in body
+    # Content-Disposition lets browsers download as hook.py
+    assert response.headers.get("Content-Disposition", "").startswith("attachment")
+
+
+@pytest.mark.asyncio
+async def test_route_hook_script_unauthenticated_returns_401() -> None:
+    from piloci.api import routes
+
+    response = await routes.route_hook_script(_make_request(method="GET", user=None))
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_route_create_token_user_scope_returns_setup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """User-scoped token must also return hook + MCP setup (global install path)."""
+    from piloci.api import routes
+
+    db = _db_session()
+    settings = SimpleNamespace(base_url="https://piloci.example.com")
+    create = MagicMock(return_value="user-jwt")
+
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+    monkeypatch.setattr(routes, "get_settings", lambda: settings)
+    monkeypatch.setattr(routes, "create_token", create)
+    monkeypatch.setattr(routes.uuid, "uuid4", lambda: "token-uuid")
+
+    response = await routes.route_create_token(
+        _make_request(
+            {"name": "Global", "scope": "user"},
+            user={"sub": "user-1", "email": "user@example.com"},
+        )
+    )
+    payload = orjson.loads(response.body)
+
+    assert response.status_code == 201
+    assert payload["token"] == "user-jwt"
+    assert "setup" in payload, "user-scoped token must receive setup for global install"
+    assert payload["setup"]["hook_config_json"]["token"] == "user-jwt"
+    assert "hook_script" in payload["setup"]
+    assert payload["setup"]["mcp_config"]["mcpServers"]["piloci"]["headers"] == {
+        "Authorization": "Bearer user-jwt"
+    }
+
+
+@pytest.mark.asyncio
 async def test_route_create_token_validation_and_missing_project(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

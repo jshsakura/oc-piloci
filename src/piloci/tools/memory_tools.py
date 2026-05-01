@@ -171,8 +171,16 @@ def _slugify(text: str) -> str:
     return slug[:40] or "project"
 
 
+def cwd_to_slug(cwd: str) -> str:
+    """Derive the canonical project slug from a working directory path.
+
+    Single source of truth for cwd→slug — used by both `init` and
+    `/api/sessions/ingest` so the hook always lands in the right project.
+    """
+    return _slugify(_dir_name(cwd))
+
+
 _HOOK_SCRIPT_PATH = "~/.config/piloci/hook.py"
-_HOOK_CONFIG_PATH = "~/.config/piloci/config.json"
 
 # Generic script — no token. Reads ~/.config/piloci/config.json at runtime.
 # Install once, update config.json when token rotates.
@@ -525,7 +533,7 @@ async def handle_init(
     # Slug is always ASCII-safe, derived from cwd folder name
     cwd_folder = _dir_name(args.cwd) if args.cwd else None
     display_name = args.project_name or cwd_folder
-    slug = _slugify(cwd_folder or display_name or "project")
+    slug = cwd_to_slug(args.cwd) if args.cwd else _slugify(display_name or "project")
 
     # If no project-scoped token, resolve or create a project by cwd slug
     if not project_id:

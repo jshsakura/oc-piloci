@@ -9,6 +9,7 @@ from piloci.tools.memory_tools import (
     MemoryInput,
     RecallInput,
     WhoAmIInput,
+    cwd_to_slug,
     handle_list_projects,
     handle_memory,
     handle_recall,
@@ -201,6 +202,28 @@ async def test_list_projects():
     result = await handle_list_projects(ListProjectsInput(refresh=True), USER, projects_fn)
     assert result["projects"][0]["slug"] == "web"
     assert captured == {"uid": USER, "refresh": True}
+
+
+# ---------------------------------------------------------------------------
+# cwd_to_slug — single source of truth for hook + init project resolution
+# ---------------------------------------------------------------------------
+
+
+def test_cwd_to_slug_basic():
+    assert cwd_to_slug("/home/pi/app/my-project") == "my-project"
+    assert cwd_to_slug("/home/pi/app/My Project") == "my-project"
+    assert cwd_to_slug("/home/pi/app/proj_v2") == "proj-v2"
+
+
+def test_cwd_to_slug_trailing_slash_and_unicode():
+    # Trailing slash must not break dir extraction
+    assert cwd_to_slug("/home/pi/app/example/") == "example"
+    # Non-ASCII (Korean) is stripped — hook + init must agree on this fallback
+    assert cwd_to_slug("/home/pi/app/한글프로젝트") == "project"
+
+
+def test_cwd_to_slug_windows_paths():
+    assert cwd_to_slug("C:\\Users\\me\\Repo") == "repo"
 
 
 # ---------------------------------------------------------------------------

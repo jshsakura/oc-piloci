@@ -387,8 +387,6 @@ async def route_create_project(request: Request) -> Response:
     if not slug or not name:
         return _json({"error": "slug and name are required"}, 400)
 
-    import re
-
     if not re.match(r"^[a-z0-9][a-z0-9-]{0,48}[a-z0-9]$", slug) and len(slug) > 1:
         if not re.match(r"^[a-z0-9]$", slug):
             return _json({"error": "slug must be lowercase alphanumeric with hyphens"}, 422)
@@ -635,7 +633,9 @@ async def route_create_token(request: Request) -> Response:
         )
 
     base_url = _resolve_base_url(request, settings)
-    setup = _generate_token_setup(jwt_token, base_url) if scope == "project" else None
+    # SessionStart hook (install once, global) applies to both user- and project-scoped
+    # tokens. The user picks the scope; the install flow is identical.
+    setup = _generate_token_setup(jwt_token, base_url)
     resp: dict[str, Any] = {
         "token": jwt_token,
         "token_id": token_id,
@@ -929,7 +929,6 @@ async def route_change_password(request: Request) -> Response:
         return _json({"error": "current_password and new_password required"}, 400)
 
     # 비밀번호 정책 검증 (12자, 대소문자, 숫자)
-    import re
 
     if (
         len(new_pw) < 12
@@ -1445,12 +1444,9 @@ async def route_sessions_ingest(request: Request) -> Response:
         cwd = (body.get("cwd") or "").strip()
         if not cwd:
             return _json({"error": "project-scoped token or cwd required"}, 400)
-        slug = (
-            re.sub(r"[^a-zA-Z0-9]+", "-", cwd.rsplit("/", 1)[-1].encode("ascii", "ignore").decode())
-            .strip("-")
-            .lower()[:40]
-            or "project"
-        )
+        from piloci.tools.memory_tools import cwd_to_slug
+
+        slug = cwd_to_slug(cwd)
         from sqlalchemy import select as _slug_sel
 
         from piloci.db.models import Project
