@@ -1737,3 +1737,728 @@ async def test_route_oauth_disconnect_success_and_guards(monkeypatch: pytest.Mon
     assert user.oauth_access_token is None
     assert user.oauth_refresh_token is None
     db.add.assert_called_with(user)
+
+
+# ---------------------------------------------------------------------------
+# /api/sessions/ingest — SessionStart hook batch catch-up
+# ---------------------------------------------------------------------------
+
+
+def _ingest_settings(maxsize: int = 128) -> SimpleNamespace:
+    return SimpleNamespace(
+        ingest_max_body_bytes=10 * 1024 * 1024,
+        ingest_queue_maxsize=maxsize,
+    )
+
+
+def _valid_transcript(n: int = 6) -> str:
+    """JSONL transcript with n messages (>= 5 required by ingest)."""
+    return "\n".join(orjson.dumps({"role": "user", "content": f"m{i}"}).decode() for i in range(n))
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_unauthorized() -> None:
+    from piloci.api import routes
+
+    response = await routes.route_sessions_ingest(_make_request({}, user=None))
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_invalid_json(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from piloci.api import routes
+
+    monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings())
+
+    request = _make_request(method="POST", user={"sub": "u1", "project_id": "p1"})
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"not-json", "more_body": False}
+
+    request._receive = receive  # type: ignore[attr-defined]
+
+    response = await routes.route_sessions_ingest(request)
+    assert response.status_code == 400
+    assert orjson.loads(response.body)["error"] == "invalid JSON"
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_payload_too_large(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from piloci.api import routes
+
+    monkeypatch.setattr(
+        routes,
+        "get_settings",
+        lambda: SimpleNamespace(ingest_max_body_bytes=10, ingest_queue_maxsize=128),
+    )
+    response = await routes.route_sessions_ingest(
+        _make_request({"sessions": [{}], "cwd": "/p" * 100}, user={"sub": "u1", "project_id": "p1"})
+    )
+    assert response.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_user_scoped_requires_cwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from piloci.api import routes
+
+    monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings())
+    response = await routes.route_sessions_ingest(
+        _make_request({"sessions": [{}]}, user={"sub": "u1"})
+    )
+    assert response.status_code == 400
+    assert "cwd required" in orjson.loads(response.body)["error"]
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_user_scoped_unknown_slug(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from piloci.api import routes
+
+    db = _db_session()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = None
+    db.execute.return_value = result
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+    monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings())
+
+    response = await routes.route_sessions_ingest(
+        _make_request({"cwd": "/work/unknown", "sessions": [{}]}, user={"sub": "u1"})
+    )
+    assert response.status_code == 404
+    assert "no project found for slug 'unknown'" in orjson.loads(response.body)["error"]
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_empty_sessions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from piloci.api import routes
+
+    monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings())
+    response = await routes.route_sessions_ingest(
+        _make_request({"sessions": []}, user={"sub": "u1", "project_id": "p1"})
+    )
+    assert response.status_code == 400
+    assert orjson.loads(response.body)["error"] == "sessions must be a non-empty list"
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_queues_new_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Happy path: new session gets enqueued and recorded."""
+    from piloci.api import routes
+
+    db = _db_session()
+    # First execute (existence check) returns None (not seen)
+    not_seen = MagicMock()
+    not_seen.scalar_one_or_none.return_value = None
+    db.execute.return_value = not_seen
+
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+    monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings())
+    monkeypatch.setattr(routes, "try_enqueue_job", lambda job, maxsize: True)
+
+    response = await routes.route_sessions_ingest(
+        _make_request(
+            {"sessions": [{"session_id": "sess-1", "transcript": _valid_transcript()}]},
+            user={"sub": "u1", "project_id": "p1"},
+        )
+    )
+    assert response.status_code == 200
+    payload = orjson.loads(response.body)
+    assert payload == {"queued": 1, "skipped": 0}
+    db.add.assert_called_once()
+    db.commit.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_dedup_already_seen(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Already-ingested session_id is skipped (dedup by (user, project, session))."""
+    from piloci.api import routes
+
+    db = _db_session()
+    seen = MagicMock()
+    seen.scalar_one_or_none.return_value = "existing-ingest-id"
+    db.execute.return_value = seen
+
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+    monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings())
+
+    response = await routes.route_sessions_ingest(
+        _make_request(
+            {"sessions": [{"session_id": "sess-1", "transcript": _valid_transcript()}]},
+            user={"sub": "u1", "project_id": "p1"},
+        )
+    )
+    assert orjson.loads(response.body) == {"queued": 0, "skipped": 1}
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_skips_short_transcripts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Transcripts with <5 messages are skipped."""
+    from piloci.api import routes
+
+    db = _db_session()
+    not_seen = MagicMock()
+    not_seen.scalar_one_or_none.return_value = None
+    db.execute.return_value = not_seen
+
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+    monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings())
+
+    response = await routes.route_sessions_ingest(
+        _make_request(
+            {
+                "sessions": [
+                    {"session_id": "sess-short", "transcript": _valid_transcript(n=3)},
+                    {"session_id": "sess-empty", "transcript": ""},
+                    {"session_id": "", "transcript": _valid_transcript()},  # missing id
+                    {"session_id": "sess-bad", "transcript": "not-json-at-all\nbad"},
+                ]
+            },
+            user={"sub": "u1", "project_id": "p1"},
+        )
+    )
+    assert orjson.loads(response.body) == {"queued": 0, "skipped": 4}
+
+
+@pytest.mark.asyncio
+async def test_route_sessions_ingest_queue_full_rolls_back(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If queue is full, the inserted RawSession is deleted to keep state consistent."""
+    from piloci.api import routes
+
+    db = _db_session()
+    not_seen = MagicMock()
+    not_seen.scalar_one_or_none.return_value = None
+    db.execute.return_value = not_seen
+
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+    monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings(maxsize=1))
+    monkeypatch.setattr(routes, "try_enqueue_job", lambda job, maxsize: False)
+
+    response = await routes.route_sessions_ingest(
+        _make_request(
+            {"sessions": [{"session_id": "sess-rb", "transcript": _valid_transcript()}]},
+            user={"sub": "u1", "project_id": "p1"},
+        )
+    )
+    assert orjson.loads(response.body) == {"queued": 0, "skipped": 1}
+    # Insert + delete both committed
+    assert db.commit.await_count >= 2
+
+
+# ---------------------------------------------------------------------------
+# handle_init — project resolution flows
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_handle_init_refuses_home_directory() -> None:
+    from piloci.tools.memory_tools import InitInput, handle_init
+
+    result = await handle_init(
+        InitInput(cwd="/home/alice"),
+        user_id="u1",
+        project_id=None,
+        projects_fn=None,
+        create_project_fn=None,
+    )
+    assert result["success"] is False
+    assert "home or root" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_handle_init_refuses_root() -> None:
+    from piloci.tools.memory_tools import InitInput, handle_init
+
+    result = await handle_init(
+        InitInput(cwd="/"),
+        user_id="u1",
+        project_id=None,
+        projects_fn=None,
+        create_project_fn=None,
+    )
+    assert result["success"] is False
+
+
+@pytest.mark.asyncio
+async def test_handle_init_matches_existing_slug() -> None:
+    """When a project with same slug exists, init resolves to it (no create)."""
+    from piloci.tools.memory_tools import InitInput, handle_init
+
+    async def projects_fn(_uid: str, _refresh: bool) -> list[dict[str, object]]:
+        return [{"id": "proj-existing", "slug": "my-project", "name": "My Project"}]
+
+    create_calls: list[object] = []
+
+    async def create_project_fn(*args: object) -> dict[str, object]:
+        create_calls.append(args)
+        return {"id": "should-not-be-used"}
+
+    result = await handle_init(
+        InitInput(cwd="/work/my-project"),
+        user_id="u1",
+        project_id=None,
+        projects_fn=projects_fn,
+        create_project_fn=create_project_fn,
+    )
+    assert result["success"] is True
+    assert result["project_id"] == "proj-existing"
+    assert result["project_name"] == "My Project"
+    assert create_calls == [], "must not create when slug already exists"
+    assert "## piLoci Memory" in result["files"]["CLAUDE.md"]
+    assert "## piLoci Memory" in result["files"]["AGENTS.md"]
+
+
+@pytest.mark.asyncio
+async def test_handle_init_creates_when_no_match() -> None:
+    """No matching slug → create_project_fn is called with derived slug."""
+    from piloci.tools.memory_tools import InitInput, handle_init
+
+    async def projects_fn(_uid: str, _refresh: bool) -> list[dict[str, object]]:
+        return []
+
+    create_args: dict[str, object] = {}
+
+    async def create_project_fn(uid: str, name: str, slug: str) -> dict[str, object]:
+        create_args.update({"uid": uid, "name": name, "slug": slug})
+        return {"id": "proj-new"}
+
+    result = await handle_init(
+        InitInput(cwd="/work/Brand New"),
+        user_id="u1",
+        project_id=None,
+        projects_fn=projects_fn,
+        create_project_fn=create_project_fn,
+    )
+    assert result["success"] is True
+    assert result["project_id"] == "proj-new"
+    assert create_args == {"uid": "u1", "name": "Brand New", "slug": "brand-new"}
+
+
+@pytest.mark.asyncio
+async def test_handle_init_create_failure_returns_error() -> None:
+    from piloci.tools.memory_tools import InitInput, handle_init
+
+    async def projects_fn(_uid: str, _refresh: bool) -> list[dict[str, object]]:
+        return []
+
+    async def create_project_fn(*_args: object) -> dict[str, object]:
+        raise RuntimeError("db down")
+
+    result = await handle_init(
+        InitInput(cwd="/work/x"),
+        user_id="u1",
+        project_id=None,
+        projects_fn=projects_fn,
+        create_project_fn=create_project_fn,
+    )
+    assert result["success"] is False
+    assert "Failed to create project" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_handle_init_with_project_scoped_token_skips_resolution() -> None:
+    """Project-scoped token: project_id already known, skip create/lookup logic."""
+    from piloci.tools.memory_tools import InitInput, handle_init
+
+    lookups: list[object] = []
+
+    async def projects_fn(_uid: str, _refresh: bool) -> list[dict[str, object]]:
+        lookups.append("called")
+        return [{"id": "proj-scoped", "slug": "scoped", "name": "Scoped"}]
+
+    result = await handle_init(
+        InitInput(cwd="/work/scoped", project_name="Scoped"),
+        user_id="u1",
+        project_id="proj-scoped",
+        projects_fn=projects_fn,
+        create_project_fn=None,
+    )
+    assert result["success"] is True
+    assert result["project_id"] == "proj-scoped"
+    # projects_fn called only for enrichment, not for resolution
+    assert len(lookups) == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_init_no_cwd_uses_project_name() -> None:
+    """Without cwd, slug is derived from project_name."""
+    from piloci.tools.memory_tools import InitInput, handle_init
+
+    create_args: dict[str, object] = {}
+
+    async def projects_fn(_uid: str, _refresh: bool) -> list[dict[str, object]]:
+        return []
+
+    async def create_project_fn(uid: str, name: str, slug: str) -> dict[str, object]:
+        create_args.update({"name": name, "slug": slug})
+        return {"id": "p-new"}
+
+    result = await handle_init(
+        InitInput(project_name="My Cool App"),
+        user_id="u1",
+        project_id=None,
+        projects_fn=projects_fn,
+        create_project_fn=create_project_fn,
+    )
+    assert result["success"] is True
+    assert create_args["slug"] == "my-cool-app"
+
+
+# ---------------------------------------------------------------------------
+# Memory REST routes — guard paths (auth, scope, validation)
+# ---------------------------------------------------------------------------
+
+
+def _request_with_user(
+    user: dict[str, object] | None,
+    body: dict[str, object] | None = None,
+    method: str = "POST",
+    path_params: dict[str, str] | None = None,
+    query_string: bytes = b"",
+) -> Request:
+    return _make_request(
+        body or {},
+        user=user,
+        method=method,
+        path_params=path_params or {},
+        query_string=query_string,
+    )
+
+
+@pytest.mark.asyncio
+async def test_route_get_memory_guards() -> None:
+    from piloci.api import routes
+
+    # Unauth
+    r = _request_with_user(None, method="GET", path_params={"id": "m1"})
+    r.state.user = None
+    response = await routes.route_get_memory(r)
+    assert response.status_code == 401
+
+    # No project scope
+    r = _request_with_user({"sub": "u1"}, method="GET", path_params={"id": "m1"})
+    response = await routes.route_get_memory(r)
+    assert response.status_code == 400
+    assert orjson.loads(response.body)["error"] == "project_id required"
+
+
+@pytest.mark.asyncio
+async def test_route_get_memory_not_found() -> None:
+    from piloci.api import routes
+
+    store = MagicMock()
+    store.get = AsyncMock(return_value=None)
+    request = _make_request(
+        method="GET",
+        user={"sub": "u1", "project_id": "p1"},
+        path_params={"id": "m-missing"},
+        app=SimpleNamespace(state=SimpleNamespace(store=store)),
+    )
+    response = await routes.route_get_memory(request)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_route_get_memory_returns_payload() -> None:
+    from piloci.api import routes
+
+    store = MagicMock()
+    store.get = AsyncMock(return_value={"memory_id": "m1", "content": "hi"})
+    request = _make_request(
+        method="GET",
+        user={"sub": "u1", "project_id": "p1"},
+        path_params={"id": "m1"},
+        app=SimpleNamespace(state=SimpleNamespace(store=store)),
+    )
+    response = await routes.route_get_memory(request)
+    assert response.status_code == 200
+    assert orjson.loads(response.body)["memory_id"] == "m1"
+
+
+@pytest.mark.asyncio
+async def test_route_update_memory_guards(monkeypatch: pytest.MonkeyPatch) -> None:
+    from piloci.api import routes
+
+    # Unauth
+    r = _request_with_user(None, method="PATCH", path_params={"id": "m1"})
+    r.state.user = None
+    response = await routes.route_update_memory(r)
+    assert response.status_code == 401
+
+    # Missing scope
+    r = _request_with_user({"sub": "u1"}, method="PATCH", path_params={"id": "m1"})
+    response = await routes.route_update_memory(r)
+    assert response.status_code == 400
+
+    # Invalid JSON body
+    request = _make_request(
+        method="PATCH",
+        user={"sub": "u1", "project_id": "p1"},
+        path_params={"id": "m1"},
+    )
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"not-json", "more_body": False}
+
+    request._receive = receive  # type: ignore[attr-defined]
+    response = await routes.route_update_memory(request)
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_route_update_memory_no_content_skips_embed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When body has no `content`, embedding is skipped and update goes through."""
+    from piloci.api import routes
+
+    store = MagicMock()
+    store.update = AsyncMock(return_value=True)
+    request = _make_request(
+        {"tags": ["new"]},
+        method="PATCH",
+        user={"sub": "u1", "project_id": "p1"},
+        path_params={"id": "m1"},
+        app=SimpleNamespace(state=SimpleNamespace(store=store)),
+    )
+    captured: dict[str, object] = {}
+
+    async def fake_invalidate(*args: object) -> None:
+        captured["called"] = True
+
+    monkeypatch.setattr(routes, "invalidate_project_vault_cache", fake_invalidate)
+    monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(vault_dir="/tmp"))
+
+    response = await routes.route_update_memory(request)
+    assert response.status_code == 200
+    store.update.assert_awaited_once()
+    assert captured.get("called") is True
+
+
+@pytest.mark.asyncio
+async def test_route_delete_memory_guards_and_paths() -> None:
+    from piloci.api import routes
+
+    # Unauth
+    r = _request_with_user(None, method="DELETE", path_params={"id": "m1"})
+    r.state.user = None
+    assert (await routes.route_delete_memory(r)).status_code == 401
+
+    # Missing scope
+    r = _request_with_user({"sub": "u1"}, method="DELETE", path_params={"id": "m1"})
+    assert (await routes.route_delete_memory(r)).status_code == 400
+
+    # Not found
+    store = MagicMock()
+    store.delete = AsyncMock(return_value=False)
+    request = _make_request(
+        method="DELETE",
+        user={"sub": "u1", "project_id": "p1"},
+        path_params={"id": "missing"},
+        app=SimpleNamespace(state=SimpleNamespace(store=store)),
+    )
+    response = await routes.route_delete_memory(request)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_route_clear_memories_requires_confirm() -> None:
+    from piloci.api import routes
+
+    # Unauth
+    r = _request_with_user(None, method="POST")
+    r.state.user = None
+    assert (await routes.route_clear_memories(r)).status_code == 401
+
+    # Missing scope
+    assert (await routes.route_clear_memories(_request_with_user({"sub": "u1"}))).status_code == 400
+
+    # Without confirm
+    request = _make_request({}, user={"sub": "u1", "project_id": "p1"})
+    response = await routes.route_clear_memories(request)
+    assert response.status_code == 400
+    assert "confirm: true required" in orjson.loads(response.body)["error"]
+
+
+# ---------------------------------------------------------------------------
+# session_analyze — guard paths
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_route_analyze_session_guards() -> None:
+    from piloci.api import routes
+
+    # Unauth
+    response = await routes.route_analyze_session(_make_request(user=None))
+    assert response.status_code == 401
+
+    # Missing project scope
+    response = await routes.route_analyze_session(_make_request({}, user={"sub": "u1"}))
+    assert response.status_code == 400
+
+    # Invalid JSON
+    request = _make_request(user={"sub": "u1", "project_id": "p1"})
+
+    async def receive() -> dict[str, object]:
+        return {"type": "http.request", "body": b"junk", "more_body": False}
+
+    request._receive = receive  # type: ignore[attr-defined]
+    response = await routes.route_analyze_session(request)
+    assert response.status_code == 400
+
+    # Empty transcript
+    response = await routes.route_analyze_session(
+        _make_request({"transcript": "  "}, user={"sub": "u1", "project_id": "p1"})
+    )
+    assert response.status_code == 400
+
+    # No instincts store
+    request = _make_request(
+        {"transcript": "hello"},
+        user={"sub": "u1", "project_id": "p1"},
+        app=SimpleNamespace(state=SimpleNamespace()),
+    )
+    response = await routes.route_analyze_session(request)
+    assert response.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Admin routes — Forbidden guard for non-admins
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "handler_name",
+    [
+        "route_admin_list_users",
+        "route_admin_approve_user",
+        "route_admin_reject_user",
+        "route_admin_toggle_admin",
+        "route_admin_toggle_active",
+        "route_admin_delete_user",
+    ],
+)
+async def test_admin_routes_forbid_non_admins(handler_name: str) -> None:
+    from piloci.api import routes
+
+    handler = getattr(routes, handler_name)
+    request = _make_request(
+        method="POST",
+        user={"sub": "u1", "is_admin": False},
+        path_params={"id": "target"},
+    )
+    response = await handler(request)
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_admin_toggle_admin_self_blocked() -> None:
+    from piloci.api import routes
+
+    request = _make_request(
+        method="POST",
+        user={"sub": "self-id", "is_admin": True, "user_id": "self-id"},
+        path_params={"id": "self-id"},
+    )
+    response = await routes.route_admin_toggle_admin(request)
+    assert response.status_code == 400
+    assert "Cannot change own admin status" in orjson.loads(response.body)["error"]
+
+
+@pytest.mark.asyncio
+async def test_admin_toggle_active_self_blocked() -> None:
+    from piloci.api import routes
+
+    request = _make_request(
+        method="POST",
+        user={"sub": "self-id", "is_admin": True, "user_id": "self-id"},
+        path_params={"id": "self-id"},
+    )
+    response = await routes.route_admin_toggle_active(request)
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_admin_delete_user_self_blocked() -> None:
+    from piloci.api import routes
+
+    request = _make_request(
+        method="DELETE",
+        user={"sub": "self-id", "is_admin": True, "user_id": "self-id"},
+        path_params={"id": "self-id"},
+    )
+    response = await routes.route_admin_delete_user(request)
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_admin_approve_user_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    from piloci.api import routes
+
+    db = _db_session()
+    # Both lookups (admin + target) return None — admin path tolerates, target 404s
+    not_found = MagicMock()
+    not_found.scalar_one_or_none.return_value = None
+    db.execute.return_value = not_found
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+
+    request = _make_request(
+        method="POST",
+        user={"sub": "admin-1", "is_admin": True, "user_id": "admin-1"},
+        path_params={"id": "missing-user"},
+    )
+    response = await routes.route_admin_approve_user(request)
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_list_users_returns_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    from piloci.api import routes
+
+    user = SimpleNamespace(
+        id="u1",
+        email="u@e",
+        name="User",
+        is_admin=False,
+        is_active=True,
+        approval_status="approved",
+        reviewed_by=None,
+        reviewed_at=None,
+        rejection_reason=None,
+        created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        last_login_at=None,
+        oauth_provider=None,
+        totp_enabled=False,
+    )
+    result = MagicMock()
+    result.scalars.return_value.all.return_value = [user]
+    db = _db_session()
+    db.execute.return_value = result
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+
+    request = _make_request(
+        method="GET",
+        user={"sub": "admin-1", "is_admin": True},
+    )
+    response = await routes.route_admin_list_users(request)
+    assert response.status_code == 200
+    rows = orjson.loads(response.body)
+    assert rows[0]["email"] == "u@e"

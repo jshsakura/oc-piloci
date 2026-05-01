@@ -152,7 +152,8 @@ _HOME_PATTERNS = (
 def _is_home_or_root(cwd: str) -> bool:
     import re
 
-    normalized = cwd.replace("\\", "/").rstrip("/")
+    # rstrip("/") would turn "/" into "" — preserve lone slash so the ^/$ pattern matches.
+    normalized = cwd.replace("\\", "/").rstrip("/") or "/"
     return any(re.match(p, normalized) for p in _HOME_PATTERNS)
 
 
