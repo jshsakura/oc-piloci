@@ -532,6 +532,93 @@ async def route_vault_export(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# Data portability — per-user export/import (Phase 10)
+# ---------------------------------------------------------------------------
+
+
+async def route_data_export(request: Request) -> Response:
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    user_id = _uid(user)
+    if not user_id:
+        return _json({"error": "user_id required"}, 400)
+
+    from piloci.api.data_portability import build_export_archive
+    from piloci.version import __version__ as piloci_version
+
+    settings = get_settings()
+    store = request.app.state.store
+    archive = await build_export_archive(
+        user_id=user_id,
+        store=store,
+        settings=settings,
+        piloci_version=piloci_version,
+    )
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    filename = f"piloci-export-{user_id[:8]}-{timestamp}.zip"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(archive, media_type="application/zip", headers=headers)
+
+
+async def route_data_import(request: Request) -> Response:
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    user_id = _uid(user)
+    if not user_id:
+        return _json({"error": "user_id required"}, 400)
+
+    settings = get_settings()
+    raw_body = await request.body()
+    if not raw_body:
+        return _json({"error": "empty body"}, 400)
+    if len(raw_body) > settings.ingest_max_body_bytes:
+        return _json({"error": "payload too large"}, 413)
+
+    allow_reembed = _truthy(request.query_params.get("reembed"))
+
+    from piloci.api.data_portability import ArchiveError, import_archive
+    from piloci.storage import embed
+
+    async def _embed_one(text: str) -> list[float]:
+        return await embed.embed_one(
+            text=text,
+            model=settings.embed_model,
+            cache_dir=settings.embed_cache_dir,
+            lru_size=settings.embed_lru_size,
+            executor_workers=settings.embed_executor_workers,
+            max_concurrency=settings.embed_max_concurrency,
+        )
+
+    store = request.app.state.store
+    try:
+        summary = await import_archive(
+            raw_body,
+            user_id=user_id,
+            store=store,
+            settings=settings,
+            embed_one_fn=_embed_one,
+            allow_reembed=allow_reembed,
+        )
+    except ArchiveError as exc:
+        return _json({"error": str(exc)}, exc.status)
+
+    return _json(
+        {
+            "imported": True,
+            "projects_imported": summary.projects_imported,
+            "projects_renamed": summary.projects_renamed,
+            "memories_imported": summary.memories_imported,
+            "profiles_imported": summary.profiles_imported,
+            "re_embedded": summary.re_embedded,
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
 # Token API
 # ---------------------------------------------------------------------------
 
@@ -636,6 +723,24 @@ async def route_create_token(request: Request) -> Response:
     # SessionStart hook (install once, global) applies to both user- and project-scoped
     # tokens. The user picks the scope; the install flow is identical.
     setup = _generate_token_setup(jwt_token, base_url)
+
+    # One-time install code so the user copies a short URL instead of a JWT.
+    # The token never appears in shell history, server logs, or copied URLs —
+    # only the short-lived code does, and it works exactly once.
+    try:
+        from piloci.auth.install_pairing import get_install_pairing_store
+
+        pairing = get_install_pairing_store(settings)
+        install_code = await pairing.create(token=jwt_token, base_url=base_url)
+        install_url = f"{base_url.rstrip('/')}/install/{install_code}"
+        setup["install_code"] = install_code
+        setup["install_url"] = install_url
+        setup["install_command"] = f"curl -sSL {install_url} | bash"
+    except Exception:
+        # Redis hiccup must not block token creation — the user can still
+        # fall back to the manual setup snippets in ``setup``.
+        logger.exception("install_code generation failed; manual setup still available")
+
     resp: dict[str, Any] = {
         "token": jwt_token,
         "token_id": token_id,
@@ -1403,6 +1508,67 @@ async def route_hook_script(request: Request) -> Response:
         HOOK_SCRIPT,
         media_type="text/x-python",
         headers={"Content-Disposition": 'attachment; filename="hook.py"'},
+    )
+
+
+async def route_hook_stop_script(request: Request) -> Response:
+    """GET /api/hook/stop-script — return the generic stop-hook.sh to save locally.
+
+    The script reads ~/.config/piloci/config.json at runtime for token + analyze_url.
+    Companion to hook.py: SessionStart catches up, Stop pushes live per turn.
+    """
+    user = _require_user(request)
+    if user is None:
+        return Response("unauthorized", status_code=401)
+
+    from piloci.tools.install_script import STOP_HOOK_SCRIPT
+
+    return Response(
+        STOP_HOOK_SCRIPT,
+        media_type="text/x-shellscript",
+        headers={"Content-Disposition": 'attachment; filename="stop-hook.sh"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# /install/{code} — one-time install code → bash installer
+# ---------------------------------------------------------------------------
+
+
+async def route_install(request: Request) -> Response:
+    """GET /install/{code} — exchange a one-time install code for a bash installer.
+
+    The code is consumed atomically; subsequent requests with the same code
+    return 410 Gone. No auth required — the code IS the credential.
+    """
+    code = (request.path_params.get("code") or "").strip()
+    if not code or len(code) > 64 or any(c.isspace() for c in code):
+        return Response(
+            "#!/usr/bin/env bash\necho '[piloci] invalid install code' >&2\nexit 1\n",
+            status_code=400,
+            media_type="text/x-shellscript",
+        )
+
+    from piloci.auth.install_pairing import get_install_pairing_store
+    from piloci.tools.install_script import build_install_script
+
+    settings = get_settings()
+    store = get_install_pairing_store(settings)
+    payload = await store.consume(code)
+    if payload is None:
+        gone = (
+            "#!/usr/bin/env bash\n"
+            "echo '[piloci] 이 install code는 만료되었거나 이미 사용됐습니다.' >&2\n"
+            "echo '         웹에서 새 토큰을 발급해 주세요.' >&2\n"
+            "exit 1\n"
+        )
+        return Response(gone, status_code=410, media_type="text/x-shellscript")
+
+    script = build_install_script(token=payload["token"], base_url=payload["base_url"])
+    return Response(
+        script,
+        media_type="text/x-shellscript",
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -2219,6 +2385,8 @@ def get_routes() -> list[Route]:
         ),
         Route("/api/projects/slug/{slug}/workspace", route_project_workspace, methods=["GET"]),
         Route("/api/vault/{slug}/export", route_vault_export, methods=["GET"]),
+        Route("/api/data/export", route_data_export, methods=["GET"]),
+        Route("/api/data/import", route_data_import, methods=["POST"]),
         Route("/api/projects/{id}", route_delete_project, methods=["DELETE"]),
         Route("/api/tokens", route_list_tokens, methods=["GET"]),
         Route("/api/tokens", route_create_token, methods=["POST"]),
@@ -2252,6 +2420,8 @@ def get_routes() -> list[Route]:
         Route("/api/sessions/analyze", route_analyze_session, methods=["POST"]),
         Route("/api/sessions/ingest", route_sessions_ingest, methods=["POST"]),
         Route("/api/hook/script", route_hook_script, methods=["GET"]),
+        Route("/api/hook/stop-script", route_hook_stop_script, methods=["GET"]),
+        Route("/install/{code}", route_install, methods=["GET"]),
         Route("/api/chat", route_chat, methods=["POST"]),
         Route("/api/admin/users", route_admin_list_users, methods=["GET"]),
         Route("/api/admin/users/{id}/approve", route_admin_approve_user, methods=["POST"]),

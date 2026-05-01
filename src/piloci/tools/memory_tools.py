@@ -189,14 +189,18 @@ HOOK_SCRIPT = '''\
 #!/usr/bin/env python3
 """piLoci SessionStart hook.
 
-Install once. Update ~/.config/piloci/config.json when token rotates.
+Install once. Update ~/.config/piloci/config.json when the token rotates.
 Tracks ingested sessions in ~/.config/piloci/state.json.
-Never blocks Claude startup.
+Never blocks Claude startup; failures are silent.
+
+On 401 (token revoked or expired) the script records ``_auth_invalid`` in
+state.json so the surface that surveys hook health can flag it. The
+script does not retry until config.json is updated.
 """
 import json
 import os
-import glob
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -235,7 +239,11 @@ def main():
         return
 
     state = _read(_STATE)
+    if not isinstance(state, dict):
+        state = {}
     sent = state.get(cwd, {})
+    if not isinstance(sent, dict):
+        sent = {}
     cutoff = time.time() - MAX_AGE_SEC
     sessions, updated = [], dict(sent)
 
@@ -261,16 +269,31 @@ def main():
     if not sessions:
         return
 
+    payload = json.dumps({"cwd": cwd, "sessions": sessions}).encode()
+    req = urllib.request.Request(
+        url,
+        data=payload,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        },
+        method="POST",
+    )
     try:
-        payload = json.dumps({"cwd": cwd, "sessions": sessions}).encode()
-        req = urllib.request.Request(url, data=payload,
-            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
-            method="POST")
         urllib.request.urlopen(req, timeout=60)
-        state[cwd] = updated
-        _write(_STATE, state)
-    except Exception:
-        pass
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            state["_auth_invalid"] = {"at": time.time(), "url": url}
+            _write(_STATE, state)
+        # On any HTTP error: do not advance sent fingerprints — we will retry next session.
+        return
+    except (urllib.error.URLError, OSError):
+        # Transient network problem; retry naturally on next session.
+        return
+
+    state[cwd] = updated
+    state.pop("_auth_invalid", None)
+    _write(_STATE, state)
 
 
 if __name__ == "__main__":
@@ -279,8 +302,17 @@ if __name__ == "__main__":
 
 
 def build_hook_config_json(token: str, base_url: str) -> dict[str, str]:
-    """Return the config.json content to write to ~/.config/piloci/config.json."""
-    return {"token": token, "ingest_url": f"{base_url}/api/sessions/ingest"}
+    """Return the config.json content to write to ~/.config/piloci/config.json.
+
+    Includes both ingest (SessionStart catch-up) and analyze (Stop live push) URLs
+    so a single config file feeds both hook scripts.
+    """
+    base = base_url.rstrip("/")
+    return {
+        "token": token,
+        "ingest_url": f"{base}/api/sessions/ingest",
+        "analyze_url": f"{base}/api/sessions/analyze",
+    }
 
 
 def _build_session_start_hook() -> dict[str, Any]:

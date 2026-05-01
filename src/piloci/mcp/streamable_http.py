@@ -19,16 +19,24 @@ def create_streamable_http_app(mcp_server: Server) -> Callable:
     """Pure ASGI app for MCP Streamable HTTP — compatible with Claude Code type:'http'."""
 
     async def app(scope, receive, send):
+        if scope["type"] == "lifespan":
+            while True:
+                message = await receive()
+                if message["type"] == "lifespan.startup":
+                    await send({"type": "lifespan.startup.complete"})
+                elif message["type"] == "lifespan.shutdown":
+                    await send({"type": "lifespan.shutdown.complete"})
+                    return
         if scope["type"] != "http":
             return
 
         headers = dict(scope.get("headers", []))
         auth_header = headers.get(b"authorization", b"").decode()
 
-        _401_headers = [(b"www-authenticate", b'Bearer realm="piloci"')]
+        _401_headers = {"WWW-Authenticate": 'Bearer realm="piloci"'}
         if not auth_header.startswith("Bearer "):
             logger.warning("MCP HTTP missing bearer auth")
-            await Response("Unauthorized", status_code=401, headers=dict(_401_headers))(
+            await Response("Unauthorized", status_code=401, headers=_401_headers)(
                 scope, receive, send
             )
             return
@@ -40,7 +48,7 @@ def create_streamable_http_app(mcp_server: Server) -> Callable:
             auth_payload["_raw_token"] = token
         except ValueError as e:
             logger.warning("MCP HTTP auth failed: %s", e)
-            await Response("Unauthorized", status_code=401, headers=dict(_401_headers))(
+            await Response("Unauthorized", status_code=401, headers=_401_headers)(
                 scope, receive, send
             )
             return

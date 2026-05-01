@@ -45,9 +45,15 @@ export interface TokenSetup {
       }>;
     };
   };
-  hook_config_json?: { token: string; ingest_url: string };
+  hook_config_json?: { token: string; ingest_url: string; analyze_url?: string };
   hook_script?: string;
   claude_md?: string;
+  /** One-time install code that exchanges for the bash installer (single-use, ~10 min TTL). */
+  install_code?: string;
+  /** Full URL clients pipe to bash. Token is never embedded — only the short code is. */
+  install_url?: string;
+  /** Ready-to-paste one-liner: ``curl -sSL <install_url> | bash``. */
+  install_command?: string;
 }
 
 export interface ApiToken {

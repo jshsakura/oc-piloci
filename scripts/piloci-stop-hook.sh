@@ -1,63 +1,62 @@
 #!/usr/bin/env bash
-# piloci Stop hook — send Claude Code session to piLoci for instinct extraction.
+# piloci Stop hook — pushes the current session's transcript at end of turn.
+# Reads token + URL from ~/.config/piloci/config.json (no secrets in this file).
 #
-# Setup (add to ~/.claude/settings.json):
-#
-#   "hooks": {
-#     "Stop": [{
-#       "matcher": "*",
-#       "hooks": [{
-#         "type": "command",
-#         "command": "/path/to/piloci-stop-hook.sh"
-#       }]
-#     }]
-#   }
-#
-# Required env vars (set in ~/.claude/settings.json or shell profile):
-#   PILOCI_URL    — e.g. http://localhost:8314  (default: http://localhost:8314)
-#   PILOCI_TOKEN  — project-scoped API token from piLoci Settings > Tokens
-
+# This script is the canonical Stop hook served by ``/api/hook/stop-script`` and
+# laid down at ``~/.config/piloci/stop-hook.sh`` by the install flow. The copy
+# kept in this repo exists for visibility — keep it in sync with the
+# ``STOP_HOOK_SCRIPT`` constant in ``src/piloci/tools/install_script.py``.
 set -euo pipefail
 
-PILOCI_URL="${PILOCI_URL:-http://localhost:8314}"
-PILOCI_TOKEN="${PILOCI_TOKEN:-}"
+CFG="$HOME/.config/piloci/config.json"
+[ -f "$CFG" ] || exit 0
 
-if [ -z "$PILOCI_TOKEN" ]; then
-    exit 0
+CFG_OUT=$(python3 - "$CFG" <<'PYEOF' 2>/dev/null || true
+import json
+import sys
+try:
+    d = json.load(open(sys.argv[1]))
+    print(d.get("token", ""))
+    print(d.get("analyze_url", ""))
+except Exception:
+    pass
+PYEOF
+)
+PILOCI_TOKEN=$(printf '%s\n' "$CFG_OUT" | sed -n '1p')
+PILOCI_URL=$(printf '%s\n' "$CFG_OUT" | sed -n '2p')
+[ -n "$PILOCI_TOKEN" ] || exit 0
+[ -n "$PILOCI_URL" ] || exit 0
+
+STDIN_DATA=$(cat 2>/dev/null || true)
+TRANSCRIPT_FILE=""
+if [ -n "$STDIN_DATA" ]; then
+    TRANSCRIPT_FILE=$(printf '%s' "$STDIN_DATA" | python3 -c \
+        "import sys, json; d=json.load(sys.stdin); print(d.get('transcript_path',''))" \
+        2>/dev/null || true)
 fi
+[ -n "$TRANSCRIPT_FILE" ] || exit 0
+[ -f "$TRANSCRIPT_FILE" ] || exit 0
 
-# Claude Code provides session transcript path via env or stdin JSON
-TRANSCRIPT_FILE="${CLAUDE_SESSION_TRANSCRIPT:-}"
-
-# Fall back to stdin (Claude Code Stop hook passes JSON to stdin)
-if [ -z "$TRANSCRIPT_FILE" ]; then
-    STDIN_DATA=$(cat 2>/dev/null || true)
-    if [ -n "$STDIN_DATA" ]; then
-        TRANSCRIPT_FILE=$(echo "$STDIN_DATA" | python3 -c \
-            "import sys,json; d=json.load(sys.stdin); print(d.get('transcript_path',''))" 2>/dev/null || true)
-    fi
-fi
-
-if [ -z "$TRANSCRIPT_FILE" ] || [ ! -f "$TRANSCRIPT_FILE" ]; then
-    exit 0
-fi
-
-# Skip short sessions (< 10 exchanges)
+# Skip turns with too little content.
 MSG_COUNT=$(grep -c '"role"' "$TRANSCRIPT_FILE" 2>/dev/null || echo "0")
-if [ "$MSG_COUNT" -lt 10 ]; then
+if [ "$MSG_COUNT" -lt 4 ]; then
     exit 0
 fi
 
-# Read transcript and send to piLoci
-TRANSCRIPT=$(cat "$TRANSCRIPT_FILE")
+PILOCI_TOKEN="$PILOCI_TOKEN" PILOCI_URL="$PILOCI_URL" \
+    PILOCI_TRANSCRIPT="$TRANSCRIPT_FILE" python3 - <<'PYEOF'
+import json
+import os
+import urllib.error
+import urllib.request
 
-python3 - <<'PYEOF'
-import os, sys, json, urllib.request, urllib.error
-
-url = os.environ["PILOCI_URL"].rstrip("/") + "/api/sessions/analyze"
+url = os.environ["PILOCI_URL"]
 token = os.environ["PILOCI_TOKEN"]
-transcript = sys.stdin.read() if not sys.stdin.isatty() else os.environ.get("_TRANSCRIPT", "")
-
+fn = os.environ["PILOCI_TRANSCRIPT"]
+try:
+    transcript = open(fn, "rb").read().decode("utf-8", "ignore")
+except OSError:
+    raise SystemExit(0)
 payload = json.dumps({"transcript": transcript}).encode()
 req = urllib.request.Request(
     url,
@@ -69,13 +68,8 @@ req = urllib.request.Request(
     method="POST",
 )
 try:
-    with urllib.request.urlopen(req, timeout=30) as resp:
-        result = json.loads(resp.read())
-        extracted = result.get("extracted", 0)
-        if extracted > 0:
-            print(f"[piloci] extracted {extracted} instinct(s) from session", file=sys.stderr)
-except urllib.error.URLError:
-    pass  # piLoci not running — silently skip
+    urllib.request.urlopen(req, timeout=30)
+except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+    pass
 PYEOF
-
 exit 0

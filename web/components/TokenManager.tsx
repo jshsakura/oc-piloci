@@ -69,6 +69,7 @@ function buildMcpConfigs(token: string, baseUrl: string) {
 
 function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => void }) {
   const { t } = useTranslation();
+  const [showManual, setShowManual] = useState(false);
   const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
   const configs = buildMcpConfigs(data.token, baseUrl);
   const hasHook = !!data.setup?.hook_config;
@@ -78,6 +79,8 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
     : null;
   const hookInstallCmd = `mkdir -p ~/.config/piloci && curl -sSL -H "Authorization: Bearer ${data.token}" ${baseUrl}/api/hook/script -o ~/.config/piloci/hook.py`;
   const claudeMd = data.setup?.claude_md ?? null;
+  const installCommand = data.setup?.install_command ?? null;
+  const defaultTab = installCommand ? "install" : hasHook ? "install" : "token";
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -86,18 +89,83 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
           <DialogTitle>{t.tokenManager.tokenCreated}</DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="token">
+        <Tabs defaultValue={defaultTab}>
           <TabsList className="w-full">
-            <TabsTrigger value="token" className="flex-1">{t.tokenManager.tabs.token}</TabsTrigger>
+            {hasHook && (
+              <TabsTrigger value="install" className="flex-1">
+                {t.tokenManager.tabs.install}
+              </TabsTrigger>
+            )}
             <TabsTrigger value="mcp" className="flex-1">{t.tokenManager.tabs.mcpServer}</TabsTrigger>
-            {hasHook && <TabsTrigger value="hook" className="flex-1">{t.tokenManager.tabs.sessionStartHook}</TabsTrigger>}
+            <TabsTrigger value="token" className="flex-1">{t.tokenManager.tabs.token}</TabsTrigger>
             {claudeMd && <TabsTrigger value="claudemd" className="flex-1">{t.tokenManager.tabs.claudeMd}</TabsTrigger>}
           </TabsList>
 
-          <TabsContent value="token" className="space-y-3 pt-1">
-            <p className="text-sm text-destructive">{t.tokenManager.tokenWarning}</p>
-            <CopyBlock value={data.token} sensitive />
-          </TabsContent>
+          {hasHook && (
+            <TabsContent value="install" className="space-y-4 pt-1">
+              <div className="space-y-2">
+                <p className="text-sm font-semibold text-foreground">
+                  {t.tokenManager.quickInstallTitle}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t.tokenManager.quickInstallDesc}
+                </p>
+                {installCommand ? (
+                  <CopyBlock value={installCommand} />
+                ) : (
+                  <p className="text-xs text-destructive">
+                    {t.tokenManager.quickInstallNoCode}
+                  </p>
+                )}
+              </div>
+
+              <div className="border-t pt-3">
+                <button
+                  type="button"
+                  onClick={() => setShowManual((v) => !v)}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  {showManual ? (
+                    <>
+                      <ChevronUp className="size-3" />
+                      {t.tokenManager.manualInstallHide}
+                    </>
+                  ) : (
+                    <>
+                      <ChevronUp className="size-3 rotate-180" />
+                      {t.tokenManager.manualInstallToggle}
+                    </>
+                  )}
+                </button>
+                {showManual && (
+                  <div className="mt-3 space-y-4">
+                    <p className="text-xs text-muted-foreground">
+                      {t.tokenManager.manualInstallNote}
+                    </p>
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-foreground">{t.tokenManager.hookStep1}</p>
+                      <p className="text-xs text-muted-foreground">{t.tokenManager.hookStep1Desc}</p>
+                      <CopyBlock value={hookInstallCmd} />
+                    </div>
+                    {hookConfigJson && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-foreground">{t.tokenManager.hookStep2}</p>
+                        <p className="text-xs text-muted-foreground">{t.tokenManager.hookStep2Desc}</p>
+                        <CopyBlock value={hookConfigJson} />
+                      </div>
+                    )}
+                    {hookSettingsJson && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-foreground">{t.tokenManager.hookStep3}</p>
+                        <p className="text-xs text-muted-foreground">{t.tokenManager.hookStep3Desc}</p>
+                        <CopyBlock value={hookSettingsJson} />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </TabsContent>
+          )}
 
           <TabsContent value="mcp" className="pt-1">
             <Tabs defaultValue="claude">
@@ -120,29 +188,10 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
             </Tabs>
           </TabsContent>
 
-          {hasHook && (
-            <TabsContent value="hook" className="space-y-4 pt-1">
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-foreground">{t.tokenManager.hookStep1}</p>
-                <p className="text-xs text-muted-foreground">{t.tokenManager.hookStep1Desc}</p>
-                <CopyBlock value={hookInstallCmd} />
-              </div>
-              {hookConfigJson && (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-foreground">{t.tokenManager.hookStep2}</p>
-                  <p className="text-xs text-muted-foreground">{t.tokenManager.hookStep2Desc}</p>
-                  <CopyBlock value={hookConfigJson} />
-                </div>
-              )}
-              {hookSettingsJson && (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-foreground">{t.tokenManager.hookStep3}</p>
-                  <p className="text-xs text-muted-foreground">{t.tokenManager.hookStep3Desc}</p>
-                  <CopyBlock value={hookSettingsJson} />
-                </div>
-              )}
-            </TabsContent>
-          )}
+          <TabsContent value="token" className="space-y-3 pt-1">
+            <p className="text-sm text-destructive">{t.tokenManager.tokenWarning}</p>
+            <CopyBlock value={data.token} sensitive />
+          </TabsContent>
 
           {claudeMd && (
             <TabsContent value="claudemd" className="space-y-3 pt-1">

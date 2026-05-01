@@ -170,9 +170,9 @@ export default function ChatClient() {
 
   return (
     <AppShell>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-4 pt-6">
-        <header className="flex flex-col gap-1.5 sm:flex-row sm:items-end sm:justify-between">
-          <div>
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 pb-4 pt-4">
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
             <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
               <MessageSquareText className="size-5 text-muted-foreground" />
               대화로 메모리 꺼내기
@@ -181,32 +181,32 @@ export default function ChatClient() {
               저장된 메모리에서 답을 가져옵니다. 인용 번호로 출처를 확인하세요.
             </p>
           </div>
-          <div className="flex min-w-[14rem] flex-col gap-1">
-            <span className="text-xs text-muted-foreground">프로젝트</span>
-            <Select value={projectSlug} onValueChange={setProjectSlug} disabled={busy}>
-              <SelectTrigger>
-                <SelectValue placeholder="프로젝트 선택" />
-              </SelectTrigger>
-              <SelectContent>
-                {projectOptions.length === 0 ? (
-                  <SelectItem value="__empty" disabled>
-                    아직 만든 프로젝트가 없습니다
+          <Select value={projectSlug} onValueChange={setProjectSlug} disabled={busy}>
+            <SelectTrigger
+              className="h-8 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:text-foreground focus:ring-0 focus:ring-offset-0"
+              aria-label="프로젝트 선택"
+            >
+              <SelectValue placeholder="프로젝트" />
+            </SelectTrigger>
+            <SelectContent align="end">
+              {projectOptions.length === 0 ? (
+                <SelectItem value="__empty" disabled>
+                  아직 만든 프로젝트가 없습니다
+                </SelectItem>
+              ) : (
+                projectOptions.map((p) => (
+                  <SelectItem key={p.slug} value={p.slug}>
+                    {p.name}
                   </SelectItem>
-                ) : (
-                  projectOptions.map((p) => (
-                    <SelectItem key={p.slug} value={p.slug}>
-                      {p.name}
-                    </SelectItem>
-                  ))
-                )}
-              </SelectContent>
-            </Select>
-          </div>
+                ))
+              )}
+            </SelectContent>
+          </Select>
         </header>
 
         <div
           ref={transcriptRef}
-          className="flex min-h-[55vh] flex-1 flex-col gap-5 overflow-y-auto rounded-2xl border bg-card/40 p-5"
+          className="flex min-h-[55vh] flex-1 flex-col gap-5 overflow-y-auto py-2"
         >
           {empty ? (
             <EmptyState />
