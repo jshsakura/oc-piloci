@@ -62,6 +62,18 @@ export default function SettingsPage() {
   const [disconnectError, setDisconnectError] = useState("");
   const [disconnectSuccess, setDisconnectSuccess] = useState(false);
 
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importResult, setImportResult] = useState<{
+    projects_imported: number;
+    projects_renamed: number;
+    memories_imported: number;
+    re_embedded: boolean;
+  } | null>(null);
+  const [reembed, setReembed] = useState(false);
+
   const { data: recentLogs, isLoading: auditLoading } = useQuery<AuditLog[]>({
     queryKey: ["audit-recent"],
     queryFn: () => api.listAudit(20, 0),
@@ -148,6 +160,66 @@ export default function SettingsPage() {
     }
   };
 
+  const handleExport = async () => {
+    setExportError("");
+    setExporting(true);
+    try {
+      const { blob, filename } = await api.exportUserData();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "내보내기에 실패했습니다";
+      const status = (err as { status?: number })?.status;
+      setExportError(status === 429 ? "잠시 후 다시 시도해주세요" : message);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const handleImport = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fileInput = form.elements.namedItem("archive") as HTMLInputElement | null;
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      setImportError("불러올 .zip 파일을 선택해주세요");
+      return;
+    }
+    setImportError("");
+    setImportResult(null);
+    setImporting(true);
+    try {
+      const result = await api.importUserData(file, { reembed });
+      setImportResult({
+        projects_imported: result.projects_imported,
+        projects_renamed: result.projects_renamed,
+        memories_imported: result.memories_imported,
+        re_embedded: result.re_embedded,
+      });
+      form.reset();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "가져오기에 실패했습니다";
+      const status = (err as { status?: number })?.status;
+      if (status === 409) {
+        setImportError("내보낸 서버와 임베딩 모델이 다릅니다. 다시 임베딩을 켜고 시도해주세요.");
+      } else if (status === 413) {
+        setImportError("파일이 너무 큽니다. 더 작게 나눠 내보내주세요.");
+      } else if (status === 429) {
+        setImportError("잠시 후 다시 시도해주세요");
+      } else {
+        setImportError(message);
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     if (!user?.oauth_provider) return;
     setDisconnectError("");
@@ -180,6 +252,7 @@ export default function SettingsPage() {
           <TabsTrigger value="account" className="flex-1">계정</TabsTrigger>
           <TabsTrigger value="security" className="flex-1">보안</TabsTrigger>
           <TabsTrigger value="tokens" className="flex-1">토큰</TabsTrigger>
+          <TabsTrigger value="data" className="flex-1">데이터</TabsTrigger>
           <TabsTrigger value="audit" className="flex-1">활동</TabsTrigger>
         </TabsList>
 
@@ -339,6 +412,59 @@ export default function SettingsPage() {
           <Card>
             <CardContent className="pt-6">
               <TokenManager />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="data" className="mt-4 space-y-4">
+          <Card>
+            <CardHeader><CardTitle>내 데이터 내보내기</CardTitle></CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                지금까지 piLoci가 정리해 둔 내 프로젝트와 기억을 한 묶음 zip 파일로 받습니다.
+                다른 서버로 옮기거나 백업해 둘 때 사용합니다.
+              </p>
+              <Button onClick={handleExport} disabled={exporting}>
+                {exporting ? "내보내는 중..." : "내보내기"}
+              </Button>
+              {exportError && <p className="text-sm text-destructive">{exportError}</p>}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader><CardTitle>가져오기</CardTitle></CardHeader>
+            <CardContent>
+              <form onSubmit={handleImport} className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  다른 piLoci에서 내려받은 zip을 올려두면 현재 계정 안으로 조용히 합쳐집니다.
+                  이름이 같은 프로젝트는 자동으로 새 이름으로 들여옵니다.
+                </p>
+                <div className="space-y-1.5">
+                  <Label htmlFor="archive">아카이브 (.zip)</Label>
+                  <Input id="archive" name="archive" type="file" accept=".zip,application/zip" />
+                </div>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={reembed}
+                    onChange={(e) => setReembed(e.target.checked)}
+                    className="size-4"
+                  />
+                  <span>임베딩 모델이 다르면 다시 계산해서 합치기</span>
+                </label>
+                {importError && <p className="text-sm text-destructive">{importError}</p>}
+                {importResult && (
+                  <div className="rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
+                    프로젝트 {importResult.projects_imported}개
+                    (이름 변경 {importResult.projects_renamed}개) ·
+                    기억 {importResult.memories_imported}개
+                    {importResult.re_embedded ? " · 다시 임베딩됨" : ""}
+                  </div>
+                )}
+                <Button type="submit" disabled={importing}>
+                  {importing ? "가져오는 중..." : "가져오기"}
+                </Button>
+              </form>
             </CardContent>
           </Card>
         </TabsContent>

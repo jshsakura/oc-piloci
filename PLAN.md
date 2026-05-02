@@ -1717,10 +1717,13 @@ Import: POST /api/data/import (multipart) → 현재 계정으로 병합
 Phase 1-8은 원본 계획 유지. 다음 Phase 추가:
 
 **Phase 10: 사용자 데이터 이식**
-- [ ] `GET /api/data/export` — LanceDB 필터링 + Parquet 직렬화 + manifest 생성
-- [ ] `POST /api/data/import` — 업로드 수신 → 파싱 → 현재 사용자 ID로 병합
-- [ ] embed 모델 버전 비교 → 불일치 시 재임베드 옵션
-- [ ] `tests/test_data_portability.py`
+- [x] `GET /api/data/export` — LanceDB 필터링 + Parquet 직렬화 + manifest 생성
+- [x] `POST /api/data/import` — 업로드 수신 → 파싱 → 현재 사용자 ID로 병합
+- [x] embed 모델 버전 비교 → 불일치 시 재임베드 옵션
+- [x] `tests/test_data_portability.py`
+- [x] `tests/test_api_data_portability.py` (라우트 레벨 회귀)
+- [x] `/api/data/import` rate limit
+- [x] 설정 페이지 export/import UI
 
 **Phase 11: Vault 캐시 + Obsidian 내보내기**
 - [x] `build_project_vault()` 결과를 `/data/vaults/{slug}/vault.json`에 캐시

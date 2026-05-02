@@ -13,7 +13,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from piloci.api.ratelimit import RATE_LOGIN, RATE_PASSWORD_RESET, RATE_SIGNUP, limiter
+from piloci.api.ratelimit import RATE_DATA_IO, RATE_LOGIN, RATE_PASSWORD_RESET, RATE_SIGNUP, limiter
 from piloci.auth.jwt_utils import create_token
 from piloci.auth.local import (
     AccountLockedError,
@@ -2564,6 +2564,8 @@ def get_routes() -> list[Route]:
     login_limited = limiter.limit(RATE_LOGIN)(route_login)
     forgot_password_limited = limiter.limit(RATE_PASSWORD_RESET)(route_forgot_password)
     reset_password_limited = limiter.limit(RATE_PASSWORD_RESET)(route_reset_password)
+    data_export_limited = limiter.limit(RATE_DATA_IO)(route_data_export)
+    data_import_limited = limiter.limit(RATE_DATA_IO)(route_data_import)
 
     return [
         Route("/healthz", route_healthz),
@@ -2584,8 +2586,8 @@ def get_routes() -> list[Route]:
         ),
         Route("/api/projects/slug/{slug}/workspace", route_project_workspace, methods=["GET"]),
         Route("/api/vault/{slug}/export", route_vault_export, methods=["GET"]),
-        Route("/api/data/export", route_data_export, methods=["GET"]),
-        Route("/api/data/import", route_data_import, methods=["POST"]),
+        Route("/api/data/export", data_export_limited, methods=["GET"]),
+        Route("/api/data/import", data_import_limited, methods=["POST"]),
         Route("/api/projects/{id}", route_delete_project, methods=["DELETE"]),
         Route("/api/tokens", route_list_tokens, methods=["GET"]),
         Route("/api/tokens", route_create_token, methods=["POST"]),

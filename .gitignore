@@ -5,6 +5,10 @@
 .envrc
 secrets/
 
+# Local MCP client config — contains personal Bearer JWT
+.mcp.json
+!.mcp.json.example
+
 # ── Python ────────────────────────────────────────
 __pycache__/
 *.py[cod]
@@ -79,6 +83,8 @@ node_modules/
 web/.next/
 web/out/
 web/tsconfig.tsbuildinfo
+web/playwright-report/
+web/test-results/
 .pnpm-store/
 .npm/
 # web/pnpm-lock.yaml is intentionally committed for reproducible installs

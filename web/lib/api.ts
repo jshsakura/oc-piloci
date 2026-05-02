@@ -188,6 +188,47 @@ export const api = {
   // Chat (SSE streaming)
   chatStream: chatStream,
 
+  // Data portability — per-user export/import
+  exportUserData: async (): Promise<{ blob: Blob; filename: string }> => {
+    const res = await fetch(`${BASE}/api/data/export`, {
+      method: "GET",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Export failed" }));
+      throw Object.assign(new Error(err.error || "Export failed"), { status: res.status });
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get("content-disposition") || "";
+    const match = cd.match(/filename="?([^";]+)"?/);
+    const filename = match?.[1] || "piloci-export.zip";
+    return { blob, filename };
+  },
+  importUserData: async (
+    file: File,
+    opts: { reembed?: boolean } = {}
+  ): Promise<{
+    imported: boolean;
+    projects_imported: number;
+    projects_renamed: number;
+    memories_imported: number;
+    profiles_imported: number;
+    re_embedded: boolean;
+  }> => {
+    const qs = opts.reembed ? "?reembed=true" : "";
+    const res = await fetch(`${BASE}/api/data/import${qs}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/zip" },
+      body: file,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Import failed" }));
+      throw Object.assign(new Error(err.error || "Import failed"), { status: res.status });
+    }
+    return res.json();
+  },
+
   // Admin
   adminListUsers: (status?: string) =>
     request<import("./types").AdminUser[]>(`/api/admin/users${status ? `?status=${status}` : ""}`),

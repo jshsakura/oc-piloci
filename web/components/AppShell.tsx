@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, FolderKanban, Settings, ClipboardList, LogOut, ShieldCheck, MessageSquareText } from "lucide-react";
+import { LayoutDashboard, Settings, ClipboardList, LogOut, ShieldCheck, MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -29,10 +29,6 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     { href: "/dashboard", label: t.appShell.nav.dashboard, icon: LayoutDashboard },
     { href: "/chat", label: t.appShell.nav.chat, icon: MessageSquareText },
   ];
-
-  if (user?.is_admin) {
-    navItems.push({ href: "/admin/users", label: t.admin.title, icon: ShieldCheck });
-  }
 
   const handleLogout = async () => {
     try {
@@ -90,6 +86,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     {t.appShell.dropdown.activity}
                   </Link>
                 </DropdownMenuItem>
+                {user?.is_admin && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin/users">
+                        <ShieldCheck className="mr-2 size-4" />
+                        {t.appShell.dropdown.admin}
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive">
                   <LogOut className="mr-2 size-4" />

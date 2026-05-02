@@ -10,6 +10,7 @@ RATE_SIGNUP = "3/minute"
 RATE_PASSWORD_RESET = "3/hour"
 RATE_MCP_SSE = "60/minute"
 RATE_MCP_TOOL = "100/minute"
+RATE_DATA_IO = "6/hour"
 
 limiter = Limiter(key_func=get_remote_address)
 

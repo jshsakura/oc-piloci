@@ -1,5 +1,13 @@
 # MEMORY
 
+## 2026-05-03
+
+- Closed Phase 10 (data portability): `src/piloci/api/data_portability.py` already provided per-user zip export (manifest + projects.json + memories.parquet w/ vectors + profiles.json) and import-with-merge that renames colliding project slugs and re-embeds when the archive's embed model differs; routes `GET /api/data/export` and `POST /api/data/import` are wired in `src/piloci/api/routes.py` and unit-tested via `tests/test_data_portability.py` (13 passed, 1 intentionally skipped).
+- Hardened the public deployment surface for the slice: `.mcp.json` (which contained a real long-lived user-scope JWT) is now in `.gitignore` alongside `web/playwright-report/` and `web/test-results/`, and `.mcp.json.example` was added with a placeholder Bearer.
+- Added route-level regression coverage in `tests/test_api_data_portability.py` for 401 unauth, 400 empty body, 413 oversize import, 200 round-trip export→import, reembed query flag, and 409 embed-model mismatch.
+- Applied slowapi rate limit `RATE_DATA_IO` to both `/api/data/export` and `/api/data/import` so bulk export/import cannot be abused for DoS, and reduced export memory pressure on Pi 5 by streaming directly into the pyarrow row dict instead of materializing two intermediate `dict[str, Any]` lists.
+- Added `web/app/settings` data portability section with download/upload buttons, reembed toggle, and Korean/English copy that follows the “quiet curator” voice rule.
+
 ## 2026-04-27
 
 - Added comprehensive backend API regression coverage for `src/piloci/api/audit.py` and `src/piloci/api/routes.py` via new `tests/test_api_audit.py` and expanded `tests/test_api_routes_extra.py`, covering audit logging, auth/project/token helpers, workspace/vault routes, audit listing, 2FA flows, password change, and OAuth login/callback/disconnect branches without modifying `src/`.

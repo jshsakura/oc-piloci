@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "piloci": {
+      "type": "http",
+      "url": "https://piloci.example.com/mcp/http",
+      "headers": {
+        "Authorization": "Bearer <PASTE-YOUR-USER-OR-PROJECT-JWT-HERE>"
+      }
+    }
+  }
+}
