@@ -118,6 +118,51 @@ def install_claude_hooks(
     return hook_py, stop_sh, settings_path
 
 
+def install_claude_mcp(base_url: str, token: str, *, home: Path | None = None) -> Path:
+    """Register the piloci MCP server in ``~/.claude.json``.
+
+    Claude Code reads this file at startup and exposes any ``mcpServers`` it
+    finds — without it, the LLM sees the auto-captured memories on disk but
+    has no live ``memory``/``recall``/``recommend`` tools to act on them.
+    """
+    h = home or Path.home()
+    cfg_path = h / ".claude.json"
+
+    existing: dict = {}
+    if cfg_path.exists():
+        raw = cfg_path.read_text()
+        try:
+            loaded = json.loads(raw)
+            if isinstance(loaded, dict):
+                existing = loaded
+        except json.JSONDecodeError:
+            cfg_path.with_suffix(".json.piloci-corrupt-bak").write_text(raw)
+            existing = {}
+
+    backup = cfg_path.with_suffix(".json.piloci-bak")
+    if not backup.exists() and cfg_path.exists():
+        backup.write_text(cfg_path.read_text())
+
+    servers = existing.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        servers = {}
+        existing["mcpServers"] = servers
+
+    base = base_url.rstrip("/")
+    servers["piloci"] = {
+        "type": "http",
+        "url": base + "/mcp/http",
+        "headers": {"Authorization": "Bearer " + token},
+    }
+
+    cfg_path.write_text(json.dumps(existing, indent=2))
+    try:
+        cfg_path.chmod(0o600)
+    except PermissionError:
+        pass
+    return cfg_path
+
+
 def _merge_claude_settings(settings_path: Path) -> None:
     """Add piloci's SessionStart + Stop hooks while preserving anything else."""
     existing: dict = {}
@@ -227,10 +272,13 @@ def run_install(token: str, base_url: str, *, home: Path | None = None) -> Insta
     if has_claude:
         try:
             install_claude_hooks(base_url, token, home=h)
+            install_claude_mcp(base_url, token, home=h)
             report.claude_configured = True
-            report.notes.append("Claude Code: 새 세션 시작 시 자동 메모 적재")
+            report.notes.append(
+                "Claude Code: 자동 캡처 훅(SessionStart+Stop) + MCP 서버(memory/recall/recommend) 등록"
+            )
         except (urllib.error.URLError, OSError) as e:
-            report.notes.append(f"Claude 훅 설치 실패: {e}")
+            report.notes.append(f"Claude 설정 실패: {e}")
 
     if has_opencode:
         try:

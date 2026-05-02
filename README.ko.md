@@ -98,7 +98,18 @@ piLoci는 MCP가 활성화된 Python 기반 API 서버와 가벼운 프론트엔
 
 ## 시작하기
 
-Docker Hub 이미지를 기준으로 compose 파일을 내려받고 설정을 실행한 후, 아래 [Docker로 배포](#docker로-배포) 섹션의 안내에 따라 Docker Compose로 배포합니다. Raspberry Pi 5에서 로컬로 구동되며 Cloudflare Tunnel을 통해 외부에 노출하는 옵션도 있습니다. 단계별 계획과 현재 상태는 [PLAN.md](./PLAN.md)를 참조하세요.
+piLoci 설치는 두 갈래로 나뉘고, 둘이 이어집니다.
+
+1. **서버 측** — 이미지 풀 + Docker Compose 배포 ([Docker로 배포](#docker로-배포) 섹션). Raspberry Pi 5에서 로컬 구동, Cloudflare Tunnel로 공개 가능.
+2. **클라이언트 측** — Claude Code / OpenCode가 깔린 머신에서 한 줄 페어링 ([AI 클라이언트 연결](#ai-클라이언트-연결) 섹션). 토큰 글자 노출 0.
+
+"연결"이 실제로 하는 일:
+
+- `~/.config/piloci/config.json`에 토큰 + ingest/analyze URL 기록 (양쪽 클라이언트 공유).
+- **Claude Code**: `~/.claude.json` 에 MCP 서버 등록 (`memory` / `recall` / `recommend` 도구) **+** `~/.claude/settings.json` 에 자동 캡처 훅 (SessionStart는 과거 transcript 일괄 회수, Stop은 매 턴 라이브 푸시).
+- **OpenCode**: `~/.config/opencode/opencode.json` 에 MCP 서버 등록. OpenCode는 훅 메커니즘이 없어 라이브 캡처 N/A — 그래도 LLM이 메모리 도구는 그대로 사용 가능.
+
+단계별 계획과 현재 상태는 [PLAN.md](./PLAN.md)를 참조하세요.
 
 ## 빠른 링크
 
@@ -262,6 +273,47 @@ LOG_FORMAT=json
 리버스 프록시 없이 LAN에서 직접 접근하려면 `PILOCI_BIND_HOST=0.0.0.0`으로 바꾸세요.
 
 앱은 첫 시작 시 SQLite와 LanceDB를 자동 초기화하므로 별도의 데이터베이스 부트스트랩 단계가 없습니다.
+
+## AI 클라이언트 연결
+
+서버가 뜬 후, Claude Code 또는 OpenCode를 쓰는 머신마다 한 줄로 페어링합니다. 토큰은 셸 히스토리·브라우저 URL 어디에도 안 남고, 10분짜리 단발 코드만 노출됩니다.
+
+### 권장: device-flow CLI (크로스 플랫폼)
+
+```bash
+uvx --from oc-piloci piloci setup --server https://piloci.example.com
+```
+
+CLI가 `ABCD-1234` 코드를 출력하고 브라우저로 `/device` 페이지를 엽니다 — 거기서 로그인 + 승인하면, CLI가 폴링해서 토큰을 받고 감지된 모든 클라이언트를 자동 설정합니다. `piloci login` + `piloci install` 합친 명령.
+
+### 대안: bash 한 줄
+
+웹 UI **설정 → 토큰** 에서 토큰을 발급하고 같이 표시되는 install 명령을 복사:
+
+```bash
+curl -sSL https://piloci.example.com/install/<install_code> | bash
+```
+
+install code는 10분 단발성. CLI 버전과 기능 동일 — 환경에 맞는 거 선택 (CLI는 Windows에서도 작동, bash는 안 됨).
+
+### 디스크에 떨어지는 것들
+
+```
+~/.config/piloci/
+├── config.json     # 토큰 + ingest/analyze URL (mode 0600)
+├── hook.py         # SessionStart catch-up (Claude 전용)
+└── stop-hook.sh    # Stop 라이브 푸시 (Claude 전용)
+
+~/.claude.json              # MCP 서버 엔트리 — Claude 전용
+~/.claude/settings.json     # SessionStart + Stop 훅 — Claude 전용
+~/.config/opencode/opencode.json  # MCP 서버 엔트리 — OpenCode 전용
+```
+
+머지하는 모든 파일은 **기존 엔트리 보존**, 처음 건드릴 때 `*.piloci-bak` 1회 백업.
+
+### 토큰 회전
+
+웹에서 토큰을 폐기/재발급하면 `piloci setup`을 다시 한 번 실행 (또는 `piloci login`만으로 `config.json` 갱신). 훅 스크립트와 MCP 엔트리는 토큰을 `config.json`에서 런타임에 읽기 때문에 재설치 불필요.
 
 ### 필수 런타임 구성
 

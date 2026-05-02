@@ -83,6 +83,8 @@ cfg.write_text(json.dumps(data, indent=2))
 cfg.chmod(0o600)
 PYEOF
 
+CLAUDE_MCP="$HOME/.claude.json"
+
 if [ "$HAS_CLAUDE" -eq 1 ]; then
     echo "[piloci] Claude Code 감지 — hook.py / stop-hook.sh 다운로드…"
     mkdir -p "$CLAUDE_DIR"
@@ -150,6 +152,47 @@ install_hook(
 
 settings_path.parent.mkdir(parents=True, exist_ok=True)
 settings_path.write_text(json.dumps(existing, indent=2))
+PYEOF
+
+    echo "[piloci] ~/.claude.json (MCP 서버) 머지…"
+    PILOCI_BASE="$PILOCI_BASE" PILOCI_TOKEN="$PILOCI_TOKEN" python3 - "$CLAUDE_MCP" <<'PYEOF'
+import json
+import os
+import sys
+from pathlib import Path
+
+cfg_path = Path(sys.argv[1])
+base = os.environ["PILOCI_BASE"].rstrip("/")
+token = os.environ["PILOCI_TOKEN"]
+
+existing = {}
+if cfg_path.exists():
+    raw = cfg_path.read_text()
+    try:
+        existing = json.loads(raw) or {}
+    except json.JSONDecodeError:
+        cfg_path.with_suffix(".json.piloci-corrupt-bak").write_text(raw)
+        existing = {}
+
+backup = cfg_path.with_suffix(".json.piloci-bak")
+if not backup.exists() and cfg_path.exists():
+    backup.write_text(cfg_path.read_text())
+
+if not isinstance(existing, dict):
+    existing = {}
+servers = existing.setdefault("mcpServers", {})
+if not isinstance(servers, dict):
+    servers = {}
+    existing["mcpServers"] = servers
+
+servers["piloci"] = {
+    "type": "http",
+    "url": base + "/mcp/http",
+    "headers": {"Authorization": "Bearer " + token},
+}
+
+cfg_path.write_text(json.dumps(existing, indent=2))
+cfg_path.chmod(0o600)
 PYEOF
 fi
 

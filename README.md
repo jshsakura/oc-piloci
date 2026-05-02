@@ -105,7 +105,18 @@ piLoci combines a Python-based MCP-enabled API server with a lightweight fronten
 
 ## Getting started
 
-Pull the published image from Docker Hub, download the compose files, then deploy with Docker Compose as described in the [Deploy with Docker](#deploy-with-docker) section below. It runs locally on Raspberry Pi 5 with optional public exposure via Cloudflare Tunnel. See [PLAN.md](./PLAN.md) for the phased plan and current status.
+piLoci has two install paths that hand off to each other:
+
+1. **Server side** — pull the image and deploy via Docker Compose ([Deploy with Docker](#deploy-with-docker)). Runs locally on Raspberry Pi 5; optional public exposure via Cloudflare Tunnel.
+2. **Client side** — on the machine where Claude Code / OpenCode lives, pair with a single command ([Connect your AI client](#connect-your-ai-client)). No copy-paste of tokens.
+
+What "connect" actually does:
+
+- Drops `~/.config/piloci/config.json` (token + ingest/analyze URLs) — shared by both clients.
+- **Claude Code**: registers the MCP server in `~/.claude.json` (`memory` / `recall` / `recommend` tools) **and** installs auto-capture hooks in `~/.claude/settings.json` (SessionStart catches up on past transcripts, Stop pushes each turn live).
+- **OpenCode**: registers the MCP server in `~/.config/opencode/opencode.json`. OpenCode has no hook events, so live capture is not applicable — the LLM still gets the memory tools.
+
+See [PLAN.md](./PLAN.md) for the phased plan and current status.
 
 ## Quick Links
 
@@ -289,6 +300,47 @@ The default is `127.0.0.1:8314`, which is ideal when nginx, Caddy, or a tunnel r
 If you want direct LAN access without a reverse proxy, set `PILOCI_BIND_HOST=0.0.0.0`.
 
 The app auto-initializes SQLite and LanceDB on first startup, so there is no separate database bootstrap step.
+
+## Connect your AI client
+
+After the server is up, every machine that runs Claude Code or OpenCode pairs with one command. The token never appears in your shell history or browser URL bar — only a 10-minute single-use code does.
+
+### Recommended: device-flow CLI (cross-platform)
+
+```bash
+uvx --from oc-piloci piloci setup --server https://piloci.example.com
+```
+
+The CLI prints an `ABCD-1234` code, opens your browser to `/device`, polls for approval, and configures every detected client. Equivalent to running `piloci login` followed by `piloci install`.
+
+### Alternative: bash one-liner
+
+Issue an API token from **Settings → Tokens** in the web UI and copy the install command shown:
+
+```bash
+curl -sSL https://piloci.example.com/install/<install_code> | bash
+```
+
+The install code expires in 10 minutes and is single-use. The bash variant matches the CLI feature-by-feature; pick whichever fits your environment (the CLI works on Windows, bash does not).
+
+### What lands on disk
+
+```
+~/.config/piloci/
+├── config.json     # token + ingest/analyze URLs (mode 0600)
+├── hook.py         # SessionStart catch-up (Claude only)
+└── stop-hook.sh    # Stop live push (Claude only)
+
+~/.claude.json              # MCP server entry — Claude only
+~/.claude/settings.json     # SessionStart + Stop hooks — Claude only
+~/.config/opencode/opencode.json  # MCP server entry — OpenCode only
+```
+
+Existing entries in any of those files are preserved; piLoci writes a one-time `*.piloci-bak` next to anything it modifies.
+
+### Token rotation
+
+If you revoke a token from the web UI, just regenerate it and run `piloci setup` again (or `piloci login` to refresh `config.json` only). The hook scripts and MCP entries do not need to be reinstalled — they read the token from `config.json` at runtime.
 
 ### Required runtime configuration
 

@@ -93,6 +93,33 @@ def test_merge_claude_settings_replaces_prior_piloci_entry(tmp_path: Path) -> No
     assert len(piloci_entries) == 1
 
 
+def test_install_claude_mcp_writes_entry(tmp_path: Path) -> None:
+    cfg = installer.install_claude_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg.read_text())
+    assert data["mcpServers"]["piloci"]["url"] == "https://x.example/mcp/http"
+    assert data["mcpServers"]["piloci"]["type"] == "http"
+    assert data["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer JWT.tok"
+
+
+def test_install_claude_mcp_preserves_other_servers(tmp_path: Path) -> None:
+    cfg_path = tmp_path / ".claude.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "other": {"type": "http", "url": "https://other.example"},
+                },
+                "someUserSetting": "keep me",
+            }
+        )
+    )
+    installer.install_claude_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg_path.read_text())
+    assert data["someUserSetting"] == "keep me"
+    assert "other" in data["mcpServers"]
+    assert "piloci" in data["mcpServers"]
+
+
 def test_install_opencode_mcp_writes_entry(tmp_path: Path) -> None:
     cfg = installer.install_opencode_mcp("https://x.example", "JWT.tok", home=tmp_path)
     data = json.loads(cfg.read_text())
@@ -140,6 +167,10 @@ def test_run_install_claude_only(tmp_path: Path) -> None:
     assert (tmp_path / installer.PILOCI_DIR_NAME / "stop-hook.sh").read_bytes() == fake_stop
     settings = json.loads((tmp_path / installer.CLAUDE_DIR_NAME / "settings.json").read_text())
     assert "SessionStart" in settings["hooks"]
+    # MCP server registration must also land on .claude.json so memory/recall
+    # tools are available, not just the auto-capture hooks.
+    claude_json = json.loads((tmp_path / ".claude.json").read_text())
+    assert "piloci" in claude_json["mcpServers"]
 
 
 def test_get_default_server_from_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
