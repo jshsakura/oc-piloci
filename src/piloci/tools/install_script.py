@@ -25,6 +25,12 @@ _TOKEN_PLACEHOLDER = "__PILOCI_TOKEN__"
 
 _INSTALL_TEMPLATE = """#!/usr/bin/env bash
 # piloci installer (generated per install code, single-use).
+#
+# Auto-detects which client(s) are present and configures each:
+#   * Claude Code  → ~/.claude/settings.json (SessionStart + Stop hooks)
+#                    + ~/.config/piloci/{hook.py, stop-hook.sh}
+#   * OpenCode     → ~/.config/opencode/opencode.json (mcp.piloci entry)
+# Both clients share the same ~/.config/piloci/config.json (token + URLs).
 set -euo pipefail
 
 PILOCI_BASE="__PILOCI_BASE__"
@@ -32,10 +38,12 @@ PILOCI_TOKEN="__PILOCI_TOKEN__"
 
 CFG_DIR="$HOME/.config/piloci"
 CLAUDE_DIR="$HOME/.claude"
-SETTINGS="$CLAUDE_DIR/settings.json"
+CLAUDE_SETTINGS="$CLAUDE_DIR/settings.json"
+OPENCODE_DIR="$HOME/.config/opencode"
+OPENCODE_CONFIG="$OPENCODE_DIR/opencode.json"
 
 if ! command -v python3 >/dev/null 2>&1; then
-    echo "[piloci] python3 가 필요합니다 (settings.json 머지에 사용)." >&2
+    echo "[piloci] python3 가 필요합니다 (JSON 머지에 사용)." >&2
     exit 1
 fi
 if ! command -v curl >/dev/null 2>&1; then
@@ -43,20 +51,20 @@ if ! command -v curl >/dev/null 2>&1; then
     exit 1
 fi
 
-mkdir -p "$CFG_DIR" "$CLAUDE_DIR"
+# Detect which clients exist on this machine.
+HAS_CLAUDE=0
+HAS_OPENCODE=0
+[ -d "$CLAUDE_DIR" ] && HAS_CLAUDE=1
+{ [ -d "$OPENCODE_DIR" ] || command -v opencode >/dev/null 2>&1; } && HAS_OPENCODE=1
+
+if [ "$HAS_CLAUDE" -eq 0 ] && [ "$HAS_OPENCODE" -eq 0 ]; then
+    echo "[piloci] 감지된 클라이언트가 없습니다." >&2
+    echo "         Claude Code(~/.claude) 또는 OpenCode(~/.config/opencode 또는 'opencode' CLI)를 설치한 뒤 다시 실행해 주세요." >&2
+    exit 1
+fi
+
+mkdir -p "$CFG_DIR"
 chmod 700 "$CFG_DIR"
-
-echo "[piloci] hook.py 다운로드…"
-curl -sfL -H "Authorization: Bearer $PILOCI_TOKEN" \\
-    "$PILOCI_BASE/api/hook/script" -o "$CFG_DIR/hook.py.tmp"
-mv "$CFG_DIR/hook.py.tmp" "$CFG_DIR/hook.py"
-chmod 644 "$CFG_DIR/hook.py"
-
-echo "[piloci] stop-hook.sh 다운로드…"
-curl -sfL -H "Authorization: Bearer $PILOCI_TOKEN" \\
-    "$PILOCI_BASE/api/hook/stop-script" -o "$CFG_DIR/stop-hook.sh.tmp"
-mv "$CFG_DIR/stop-hook.sh.tmp" "$CFG_DIR/stop-hook.sh"
-chmod 755 "$CFG_DIR/stop-hook.sh"
 
 echo "[piloci] config.json 작성…"
 PILOCI_BASE="$PILOCI_BASE" PILOCI_TOKEN="$PILOCI_TOKEN" python3 - <<'PYEOF'
@@ -75,8 +83,21 @@ cfg.write_text(json.dumps(data, indent=2))
 cfg.chmod(0o600)
 PYEOF
 
-echo "[piloci] ~/.claude/settings.json 머지…"
-python3 - "$SETTINGS" <<'PYEOF'
+if [ "$HAS_CLAUDE" -eq 1 ]; then
+    echo "[piloci] Claude Code 감지 — hook.py / stop-hook.sh 다운로드…"
+    mkdir -p "$CLAUDE_DIR"
+    curl -sfL -H "Authorization: Bearer $PILOCI_TOKEN" \\
+        "$PILOCI_BASE/api/hook/script" -o "$CFG_DIR/hook.py.tmp"
+    mv "$CFG_DIR/hook.py.tmp" "$CFG_DIR/hook.py"
+    chmod 644 "$CFG_DIR/hook.py"
+
+    curl -sfL -H "Authorization: Bearer $PILOCI_TOKEN" \\
+        "$PILOCI_BASE/api/hook/stop-script" -o "$CFG_DIR/stop-hook.sh.tmp"
+    mv "$CFG_DIR/stop-hook.sh.tmp" "$CFG_DIR/stop-hook.sh"
+    chmod 755 "$CFG_DIR/stop-hook.sh"
+
+    echo "[piloci] ~/.claude/settings.json 머지…"
+    python3 - "$CLAUDE_SETTINGS" <<'PYEOF'
 import json
 import sys
 from pathlib import Path
@@ -99,6 +120,7 @@ if not backup.exists() and settings_path.exists():
 
 PILOCI_PATH_TAG = "~/.config/piloci/"
 
+
 def install_hook(hooks_section, event_name, command):
     arr = hooks_section.setdefault(event_name, [])
     arr[:] = [h for h in arr if PILOCI_PATH_TAG not in json.dumps(h)]
@@ -106,6 +128,7 @@ def install_hook(hooks_section, event_name, command):
         "matcher": "*",
         "hooks": [{"type": "command", "command": command}],
     })
+
 
 if not isinstance(existing, dict):
     existing = {}
@@ -128,6 +151,54 @@ install_hook(
 settings_path.parent.mkdir(parents=True, exist_ok=True)
 settings_path.write_text(json.dumps(existing, indent=2))
 PYEOF
+fi
+
+if [ "$HAS_OPENCODE" -eq 1 ]; then
+    echo "[piloci] OpenCode 감지 — opencode.json 머지…"
+    mkdir -p "$OPENCODE_DIR"
+    PILOCI_BASE="$PILOCI_BASE" PILOCI_TOKEN="$PILOCI_TOKEN" python3 - "$OPENCODE_CONFIG" <<'PYEOF'
+import json
+import os
+import sys
+from pathlib import Path
+
+cfg_path = Path(sys.argv[1])
+base = os.environ["PILOCI_BASE"].rstrip("/")
+token = os.environ["PILOCI_TOKEN"]
+
+existing = {}
+if cfg_path.exists():
+    raw = cfg_path.read_text()
+    try:
+        existing = json.loads(raw) or {}
+    except json.JSONDecodeError:
+        cfg_path.with_suffix(".json.piloci-corrupt-bak").write_text(raw)
+        existing = {}
+
+backup = cfg_path.with_suffix(".json.piloci-bak")
+if not backup.exists() and cfg_path.exists():
+    backup.write_text(cfg_path.read_text())
+
+if not isinstance(existing, dict):
+    existing = {}
+existing.setdefault("$schema", "https://opencode.ai/config.json")
+mcp = existing.setdefault("mcp", {})
+if not isinstance(mcp, dict):
+    mcp = {}
+    existing["mcp"] = mcp
+
+mcp["piloci"] = {
+    "type": "remote",
+    "url": base + "/mcp/http",
+    "enabled": True,
+    "headers": {"Authorization": "Bearer " + token},
+}
+
+cfg_path.parent.mkdir(parents=True, exist_ok=True)
+cfg_path.write_text(json.dumps(existing, indent=2))
+cfg_path.chmod(0o600)
+PYEOF
+fi
 
 echo "[piloci] 연결 확인…"
 if curl -sf -H "Authorization: Bearer $PILOCI_TOKEN" \\
@@ -140,7 +211,8 @@ fi
 
 echo ""
 echo "✓ piloci 설치 완료"
-echo "  새 Claude Code 세션을 시작하면 자동으로 메모가 적재됩니다."
+[ "$HAS_CLAUDE" -eq 1 ] && echo "  • Claude Code: 새 세션 시작 시 자동 메모 적재"
+[ "$HAS_OPENCODE" -eq 1 ] && echo "  • OpenCode: opencode.json 의 mcp.piloci 엔트리로 MCP 연결"
 echo "  토큰 회전 시 ~/.config/piloci/config.json 만 갱신하세요."
 """
 
