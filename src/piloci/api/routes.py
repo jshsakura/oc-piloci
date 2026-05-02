@@ -1540,9 +1540,20 @@ async def route_install(request: Request) -> Response:
 
     The code is consumed atomically; subsequent requests with the same code
     return 410 Gone. No auth required — the code IS the credential.
+
+    Response format is content-negotiated:
+      * ``Accept: application/json`` (or ``?format=json``) → ``{token, base_url}``
+        for the Python CLI installer.
+      * default → bash one-liner that ``curl ... | bash`` consumes.
     """
     code = (request.path_params.get("code") or "").strip()
+    accept = request.headers.get("accept", "").lower()
+    fmt = request.query_params.get("format", "").lower()
+    wants_json = "application/json" in accept or fmt == "json"
+
     if not code or len(code) > 64 or any(c.isspace() for c in code):
+        if wants_json:
+            return _json({"error": "invalid install code"}, 400)
         return Response(
             "#!/usr/bin/env bash\necho '[piloci] invalid install code' >&2\nexit 1\n",
             status_code=400,
@@ -1556,6 +1567,11 @@ async def route_install(request: Request) -> Response:
     store = get_install_pairing_store(settings)
     payload = await store.consume(code)
     if payload is None:
+        if wants_json:
+            return _json(
+                {"error": "이 install code는 만료되었거나 이미 사용됐습니다."},
+                410,
+            )
         gone = (
             "#!/usr/bin/env bash\n"
             "echo '[piloci] 이 install code는 만료되었거나 이미 사용됐습니다.' >&2\n"
@@ -1564,12 +1580,175 @@ async def route_install(request: Request) -> Response:
         )
         return Response(gone, status_code=410, media_type="text/x-shellscript")
 
+    if wants_json:
+        return _json(
+            {"token": payload["token"], "base_url": payload["base_url"]},
+            200,
+        )
+
     script = build_install_script(token=payload["token"], base_url=payload["base_url"])
     return Response(
         script,
         media_type="text/x-shellscript",
         headers={"Cache-Control": "no-store"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Device flow — /auth/device/code, /auth/device/poll, /api/device/approve
+# ---------------------------------------------------------------------------
+
+
+async def route_device_code(request: Request) -> Response:
+    """POST /auth/device/code — start a device flow pairing. No auth required."""
+    from piloci.auth.device_pairing import DEVICE_TTL_SEC, get_device_pairing_store
+
+    settings = get_settings()
+    store = get_device_pairing_store(settings)
+    try:
+        device_code, user_code = await store.create()
+    except Exception:
+        logger.exception("device flow create failed")
+        return _json({"error": "could not allocate device code"}, 500)
+
+    base_url = _resolve_base_url(request, settings).rstrip("/")
+    return _json(
+        {
+            "device_code": device_code,
+            "user_code": user_code,
+            "verification_uri": f"{base_url}/device",
+            "verification_uri_complete": f"{base_url}/device?code={user_code}",
+            "expires_in": DEVICE_TTL_SEC,
+            "interval": 3,
+        },
+        200,
+    )
+
+
+async def route_device_poll(request: Request) -> Response:
+    """POST /auth/device/poll — CLI polls here with ``device_code``.
+
+    Returns one of:
+      ``{status: "pending"}`` — keep polling
+      ``{status: "approved", token}`` — done; record is deleted server-side
+      ``{status: "denied"}`` — user clicked deny
+      ``{error: "expired"}`` (HTTP 410) — TTL elapsed or unknown code
+    """
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "invalid JSON"}, 400)
+
+    device_code = (body.get("device_code") or "").strip()
+    if not device_code:
+        return _json({"error": "device_code required"}, 400)
+
+    from piloci.auth.device_pairing import get_device_pairing_store
+
+    settings = get_settings()
+    store = get_device_pairing_store(settings)
+    record = await store.poll(device_code)
+    if record is None:
+        return _json({"status": "expired"}, 410)
+
+    status = record.get("status", "pending")
+    if status == "approved":
+        return _json({"status": "approved", "token": record.get("token", "")})
+    if status == "denied":
+        return _json({"status": "denied"})
+    return _json({"status": "pending"})
+
+
+async def route_device_approve(request: Request) -> Response:
+    """POST /api/device/approve — authenticated user approves/denies a code.
+
+    Body: ``{user_code, action: "approve" | "deny"}``. On approve the server
+    mints a fresh user-scoped JWT for the calling user and stores it on the
+    device record so the CLI's next poll can pick it up.
+    """
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "Unauthorized"}, 401)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "invalid JSON"}, 400)
+
+    user_code = (body.get("user_code") or "").strip().upper()
+    action = (body.get("action") or "approve").strip().lower()
+    if not user_code or action not in ("approve", "deny"):
+        return _json({"error": "user_code and action(approve|deny) required"}, 422)
+
+    settings = get_settings()
+    from piloci.auth.device_pairing import get_device_pairing_store
+
+    store = get_device_pairing_store(settings)
+    record = await store.lookup_user_code(user_code)
+    if record is None:
+        return _json({"error": "code not found or expired"}, 404)
+    if record.get("status") != "pending":
+        return _json({"error": "code already used"}, 409)
+
+    device_code = record["device_code"]
+
+    if action == "deny":
+        await store.deny(device_code)
+        return _json({"ok": True, "status": "denied"})
+
+    # Approve: mint a fresh user-scoped token (1 year, like /api/tokens default)
+    # and persist its hash in api_tokens so admin can revoke it later.
+    user_id_val = _uid(user)
+    user_email = user.get("email") or ""
+    if not user_email:
+        from sqlalchemy import select as _sel
+
+        from piloci.db.models import User as _User
+
+        async with async_session() as _db:
+            _r = await _db.execute(_sel(_User).where(_User.id == user_id_val))
+            _u = _r.scalar_one_or_none()
+            user_email = _u.email if _u else ""
+
+    token_id = str(uuid.uuid4())
+    expire_days = 365
+    jwt_token = create_token(
+        user_id=user_id_val,
+        email=user_email,
+        project_id=None,
+        project_slug=None,
+        scope="user",
+        settings=settings,
+        token_id=token_id,
+        expire_days=expire_days,
+    )
+
+    import hashlib
+
+    from piloci.db.models import ApiToken
+
+    token_hash = hashlib.sha256(jwt_token.encode()).hexdigest()
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(days=expire_days)
+
+    async with async_session() as db:
+        db.add(
+            ApiToken(
+                token_id=token_id,
+                user_id=user_id_val,
+                project_id=None,
+                name=f"device:{user_code}",
+                token_hash=token_hash,
+                scope="user",
+                created_at=now,
+                expires_at=expires_at,
+            )
+        )
+
+    ok = await store.approve(device_code, token=jwt_token)
+    if not ok:
+        return _json({"error": "could not approve (race?)"}, 409)
+    return _json({"ok": True, "status": "approved"})
 
 
 # ---------------------------------------------------------------------------
@@ -2422,6 +2601,9 @@ def get_routes() -> list[Route]:
         Route("/api/hook/script", route_hook_script, methods=["GET"]),
         Route("/api/hook/stop-script", route_hook_stop_script, methods=["GET"]),
         Route("/install/{code}", route_install, methods=["GET"]),
+        Route("/auth/device/code", route_device_code, methods=["POST"]),
+        Route("/auth/device/poll", route_device_poll, methods=["POST"]),
+        Route("/api/device/approve", route_device_approve, methods=["POST"]),
         Route("/api/chat", route_chat, methods=["POST"]),
         Route("/api/admin/users", route_admin_list_users, methods=["GET"]),
         Route("/api/admin/users/{id}/approve", route_admin_approve_user, methods=["POST"]),

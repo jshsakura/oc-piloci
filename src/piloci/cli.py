@@ -46,6 +46,60 @@ def main() -> None:
         help="Optional GET path to include. Defaults to /healthz,/readyz,/profilez.",
     )
 
+    login_p = sub.add_parser(
+        "login",
+        help="Pair this device via browser-based device flow (no token copy/paste).",
+    )
+    login_p.add_argument(
+        "--server",
+        default=None,
+        help="piLoci server base URL (defaults to PILOCI_SERVER env or saved config).",
+    )
+    login_p.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Print the verification URL instead of opening a browser.",
+    )
+
+    install_p = sub.add_parser(
+        "install",
+        help="Configure detected Claude Code / OpenCode clients on this machine.",
+    )
+    install_p.add_argument(
+        "url_or_code",
+        nargs="?",
+        default=None,
+        help=(
+            "One-time install URL (e.g. https://piloci.example.com/install/CODE). "
+            "Omit to use the token already saved by ``piloci login``."
+        ),
+    )
+    install_p.add_argument(
+        "--server",
+        default=None,
+        help="piLoci server base URL (used when only a code is supplied, or to override).",
+    )
+    install_p.add_argument(
+        "--token",
+        default=None,
+        help="Use this token directly instead of resolving an install URL.",
+    )
+
+    setup_p = sub.add_parser(
+        "setup",
+        help="``login`` followed by ``install`` — the recommended one-shot flow.",
+    )
+    setup_p.add_argument(
+        "--server",
+        default=None,
+        help="piLoci server base URL (defaults to PILOCI_SERVER env).",
+    )
+    setup_p.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Print the verification URL instead of opening a browser.",
+    )
+
     args = parser.parse_args()
 
     if args.command == "stdio":
@@ -67,6 +121,12 @@ def main() -> None:
         print(orjson.dumps(payload, option=orjson.OPT_INDENT_2).decode())
     elif args.command == "bootstrap":
         _run_bootstrap(args)
+    elif args.command == "login":
+        _run_login(args)
+    elif args.command == "install":
+        _run_install(args)
+    elif args.command == "setup":
+        _run_setup(args)
     elif args.command == "serve":
         if args.host or args.port or args.reload:
             import os
@@ -131,6 +191,199 @@ def _run_bootstrap(args: argparse.Namespace) -> None:
             print(f"[bootstrap] Admin user created: {email}")
 
     asyncio.run(_bootstrap())
+
+
+# ---------------------------------------------------------------------------
+# login / install / setup — Phase 2 device-flow CLI
+# ---------------------------------------------------------------------------
+
+
+def _resolve_server(arg_server: str | None) -> str:
+    """Resolve the piLoci server URL from --server / env / saved config / prompt."""
+    from piloci.installer import get_default_server
+
+    candidate = arg_server or get_default_server()
+    if candidate:
+        return candidate.rstrip("/")
+    sys.stderr.write(
+        "[piloci] piLoci 서버 URL이 필요합니다.\n"
+        "         예: --server https://piloci.example.com\n"
+        "         또는 환경변수 PILOCI_SERVER 로 지정하세요.\n"
+    )
+    sys.exit(2)
+
+
+def _device_login(server: str, *, open_browser: bool) -> str:
+    """Run the device flow against ``server`` and return the issued JWT."""
+    import json as _json
+    import time
+    import urllib.error
+    import urllib.request
+
+    server = server.rstrip("/")
+    code_req = urllib.request.Request(
+        server + "/auth/device/code",
+        method="POST",
+        data=b"{}",
+        headers={"Content-Type": "application/json", "User-Agent": "piloci-cli"},
+    )
+    try:
+        with urllib.request.urlopen(code_req, timeout=15) as resp:
+            data = _json.loads(resp.read())
+    except urllib.error.URLError as e:
+        sys.stderr.write(f"[piloci] 서버 연결 실패: {e}\n")
+        sys.exit(1)
+
+    user_code = data["user_code"]
+    device_code = data["device_code"]
+    verification_uri = data["verification_uri"]
+    verification_uri_complete = data.get("verification_uri_complete", verification_uri)
+    interval = max(1, int(data.get("interval", 3)))
+    expires_in = int(data.get("expires_in", 600))
+
+    print(f"\n  브라우저: {verification_uri}")
+    print(f"  인증 코드: {user_code}\n")
+    print("  코드 입력 페이지가 열려 있으면 위 코드를 붙여넣고 승인하세요.")
+    print(f"  ({expires_in // 60}분 안에 완료해 주세요)\n")
+
+    if open_browser:
+        try:
+            import webbrowser
+
+            webbrowser.open(verification_uri_complete)
+        except Exception:
+            pass  # silent — user has the URL
+
+    deadline = time.time() + expires_in
+    poll_body = _json.dumps({"device_code": device_code}).encode()
+    while time.time() < deadline:
+        time.sleep(interval)
+        poll_req = urllib.request.Request(
+            server + "/auth/device/poll",
+            method="POST",
+            data=poll_body,
+            headers={"Content-Type": "application/json", "User-Agent": "piloci-cli"},
+        )
+        try:
+            with urllib.request.urlopen(poll_req, timeout=10) as resp:
+                payload = _json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            if e.code == 410:
+                sys.stderr.write("[piloci] 인증 코드가 만료되었습니다.\n")
+                sys.exit(1)
+            sys.stderr.write(f"[piloci] 폴링 오류: {e}\n")
+            sys.exit(1)
+        except urllib.error.URLError:
+            continue  # transient — keep polling
+
+        status = payload.get("status")
+        if status == "approved":
+            token = payload.get("token")
+            if not token:
+                sys.stderr.write("[piloci] 승인됐으나 토큰이 비어있습니다.\n")
+                sys.exit(1)
+            print("  ✓ 승인됨")
+            return token
+        if status == "denied":
+            sys.stderr.write("[piloci] 사용자가 승인을 거부했습니다.\n")
+            sys.exit(1)
+
+    sys.stderr.write("[piloci] 시간 초과 — 다시 시도해 주세요.\n")
+    sys.exit(1)
+
+
+def _run_login(args: argparse.Namespace) -> None:
+    from piloci.installer import write_config_json
+
+    server = _resolve_server(args.server)
+    token = _device_login(server, open_browser=not args.no_browser)
+    cfg = write_config_json(token, server)
+    print(f"  ✓ 토큰 저장: {cfg}")
+
+
+def _run_install(args: argparse.Namespace) -> None:
+    from piloci.installer import (
+        InstallReport,
+        fetch_install_payload,
+        get_default_server,
+        run_install,
+    )
+
+    token: str | None = args.token
+    base_url: str | None = args.server or get_default_server()
+
+    target = args.url_or_code
+    if target:
+        # Treat as either full URL or bare code (in which case --server is required)
+        if target.startswith(("http://", "https://")):
+            install_url = target.rstrip("/")
+        else:
+            if not base_url:
+                sys.stderr.write("[piloci] 코드만 주려면 --server 도 함께 지정해 주세요.\n")
+                sys.exit(2)
+            install_url = base_url.rstrip("/") + "/install/" + target
+        try:
+            payload = fetch_install_payload(install_url)
+        except Exception as e:
+            sys.stderr.write(f"[piloci] install URL 조회 실패: {e}\n")
+            sys.exit(1)
+        token = payload["token"]
+        base_url = payload["base_url"]
+
+    if not token:
+        # Fall back to saved config.json (set by ``piloci login``).
+        from pathlib import Path
+
+        cfg_path = Path.home() / ".config" / "piloci" / "config.json"
+        if cfg_path.exists():
+            try:
+                import json as _json
+
+                cfg = _json.loads(cfg_path.read_text())
+                token = cfg.get("token")
+            except Exception:
+                token = None
+
+    if not token or not base_url:
+        sys.stderr.write(
+            "[piloci] 토큰이 없습니다. ``piloci login --server <URL>`` 먼저 실행하거나\n"
+            "         install URL/코드를 직접 전달해 주세요.\n"
+        )
+        sys.exit(2)
+
+    try:
+        report: InstallReport = run_install(token, base_url)
+    except RuntimeError as e:
+        sys.stderr.write(f"[piloci] {e}\n")
+        sys.exit(1)
+
+    print(f"  ✓ config.json: {report.config_path}")
+    if report.claude_configured:
+        print("  ✓ Claude Code 훅 적용")
+    if report.opencode_configured:
+        print("  ✓ OpenCode MCP 등록")
+    for note in report.notes:
+        print(f"    · {note}")
+
+
+def _run_setup(args: argparse.Namespace) -> None:
+    """One-shot: login + install."""
+    from piloci.installer import run_install
+
+    server = _resolve_server(args.server)
+    token = _device_login(server, open_browser=not args.no_browser)
+    try:
+        report = run_install(token, server)
+    except RuntimeError as e:
+        sys.stderr.write(f"[piloci] {e}\n")
+        sys.exit(1)
+    print(f"\n  ✓ config.json: {report.config_path}")
+    if report.claude_configured:
+        print("  ✓ Claude Code 훅 적용")
+    if report.opencode_configured:
+        print("  ✓ OpenCode MCP 등록")
+    for note in report.notes:
+        print(f"    · {note}")
 
 
 if __name__ == "__main__":
