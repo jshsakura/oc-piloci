@@ -383,6 +383,29 @@ function getSpeechRecognition(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
+// Map SpeechRecognition error codes to a human-readable hint. Surfaced in the
+// UI so users can self-diagnose (mic permission, HTTP origin, etc.) instead of
+// silently watching the button bounce back.
+function describeDictationError(code: string): string {
+  switch (code) {
+    case "not-allowed":
+    case "service-not-allowed":
+      return "마이크 권한이 거부되었습니다. 브라우저/시스템 마이크 권한을 허용한 뒤 다시 시도해 주세요.";
+    case "audio-capture":
+      return "마이크를 찾을 수 없습니다. 입력 장치를 확인해 주세요.";
+    case "network":
+      return "음성 인식 서비스에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.";
+    case "no-speech":
+      return "음성이 감지되지 않았습니다. 다시 시도해 주세요.";
+    case "aborted":
+      return "음성 입력이 중지되었습니다.";
+    case "insecure-context":
+      return "HTTPS에서만 음성 입력을 사용할 수 있습니다.";
+    default:
+      return `음성 인식 오류 (${code}). 콘솔을 확인해 주세요.`;
+  }
+}
+
 function useDictation({
   onAppend,
   enabled,
@@ -392,7 +415,13 @@ function useDictation({
 }) {
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(false);
+  const [secureContext, setSecureContext] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // Track whether THIS recognition session produced any final result before
+  // onend fires. Safari sometimes ends without ``onerror`` (e.g. denied mic)
+  // and we want to distinguish that from a clean no-input session.
+  const gotResultRef = useRef(false);
   // Keep the latest onAppend in a ref so the recognition handler doesn't
   // capture a stale closure when the parent's draft state updates.
   const onAppendRef = useRef(onAppend);
@@ -400,6 +429,7 @@ function useDictation({
 
   useEffect(() => {
     setSupported(getSpeechRecognition() !== null);
+    setSecureContext(typeof window === "undefined" ? true : window.isSecureContext);
   }, []);
 
   useEffect(() => {
@@ -414,13 +444,32 @@ function useDictation({
 
   const start = () => {
     if (!enabled || listening) return;
+    if (!secureContext) {
+      setError(describeDictationError("insecure-context"));
+      return;
+    }
     const Ctor = getSpeechRecognition();
     if (!Ctor) return;
 
-    const rec = new Ctor();
+    let rec: SpeechRecognitionLike;
+    try {
+      rec = new Ctor();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[piloci] SpeechRecognition ctor failed", e);
+      setError("음성 인식을 시작할 수 없습니다.");
+      return;
+    }
+
+    // Match what Safari/webkit handles best: a single utterance with interim
+    // results enabled. ``interimResults: false`` has been observed to make
+    // Safari end the session immediately with no result and no error.
     rec.lang = "ko-KR";
     rec.continuous = false;
-    rec.interimResults = false;
+    rec.interimResults = true;
+
+    gotResultRef.current = false;
+    setError(null);
 
     rec.onresult = (event) => {
       let finalText = "";
@@ -428,20 +477,39 @@ function useDictation({
         const result = event.results[i];
         if (result.isFinal) finalText += result[0].transcript;
       }
-      if (finalText) onAppendRef.current(finalText);
+      if (finalText) {
+        gotResultRef.current = true;
+        onAppendRef.current(finalText);
+      }
     };
     rec.onend = () => {
       setListening(false);
       recognitionRef.current = null;
+      // If the session ended without ever producing a final result and no
+      // explicit error fired, hint that something silently failed.
+      if (!gotResultRef.current) {
+        setError((prev) => prev ?? "음성이 인식되지 않았습니다. 마이크 권한을 확인해 주세요.");
+      }
     };
-    rec.onerror = () => {
+    rec.onerror = (event) => {
+      // eslint-disable-next-line no-console
+      console.error("[piloci] SpeechRecognition error", event.error);
+      setError(describeDictationError(event.error));
       setListening(false);
       recognitionRef.current = null;
     };
 
     recognitionRef.current = rec;
     setListening(true);
-    rec.start();
+    try {
+      rec.start();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error("[piloci] SpeechRecognition start() threw", e);
+      setError("음성 인식을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+      setListening(false);
+      recognitionRef.current = null;
+    }
   };
 
   const stop = () => {
@@ -452,7 +520,9 @@ function useDictation({
     }
   };
 
-  return { listening, supported, start, stop };
+  const dismissError = () => setError(null);
+
+  return { listening, supported, secureContext, error, start, stop, dismissError };
 }
 
 function ChatInput({
@@ -498,13 +568,30 @@ function ChatInput({
   };
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSubmit();
-      }}
-      className="sticky bottom-2 flex items-end gap-2 rounded-2xl border bg-background p-2 shadow-lg"
-    >
+    <div className="sticky bottom-2 flex flex-col gap-1.5">
+      {dictation.error && (
+        <div
+          className="flex items-start justify-between gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 shadow-sm dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200"
+          role="alert"
+        >
+          <span className="leading-relaxed">{dictation.error}</span>
+          <button
+            type="button"
+            onClick={dictation.dismissError}
+            className="shrink-0 text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+            aria-label="닫기"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+        className="flex items-end gap-2 rounded-2xl border bg-background p-2 shadow-lg"
+      >
       <textarea
         ref={inputRef}
         value={value}
@@ -550,6 +637,7 @@ function ChatInput({
           <ArrowUp className="size-4" />
         </Button>
       )}
-    </form>
+      </form>
+    </div>
   );
 }
