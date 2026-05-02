@@ -110,7 +110,7 @@ Pull the published image from Docker Hub, download the compose files, then deplo
 ## Quick Links
 
 - **[piloci.jshsakura.com](https://piloci.jshsakura.com/)** — live product site
-- **[Docker Hub: jshsakura/piloci](https://hub.docker.com/r/jshsakura/piloci)** — primary container image
+- **Container images** — [GHCR: `ghcr.io/jshsakura/oc-piloci`](https://github.com/jshsakura/oc-piloci/pkgs/container/oc-piloci) (recommended, no pull rate limit) / [Docker Hub: `jshsakura/piloci`](https://hub.docker.com/r/jshsakura/piloci)
 - [README.ko.md](./README.ko.md) — 한국어 문서
 - [PLAN.md](./PLAN.md) — source of truth for architecture and implementation phases
 - [docs/](./docs/) — additional documentation
@@ -210,39 +210,43 @@ The current plan in `PLAN.md` points toward:
 - Raspberry Pi 5 or any arm64/amd64 Linux host
 - Docker Engine + Docker Compose v2
 
-### First deploy from Docker Hub
+### First deploy
+
+The image is published to both GHCR and Docker Hub. **GHCR is recommended** because Docker Hub's anonymous/free-tier pull rate limit (100/200 per 6h) often blocks fresh installs.
 
 ```bash
 mkdir -p ~/app/piloci
 cd ~/app/piloci
 
-curl -fsSLo docker-compose.yml https://raw.githubusercontent.com/jshsakura/piloci/main/docker-compose.yml
-curl -fsSLo .env.example https://raw.githubusercontent.com/jshsakura/piloci/main/.env.example
+curl -fsSLo docker-compose.yml https://raw.githubusercontent.com/jshsakura/oc-piloci/main/docker-compose.yml
+curl -fsSLo .env.example https://raw.githubusercontent.com/jshsakura/oc-piloci/main/.env.example
 mkdir -p deploy
-curl -fsSLo deploy/setup.sh https://raw.githubusercontent.com/jshsakura/piloci/main/deploy/setup.sh
+curl -fsSLo deploy/setup.sh https://raw.githubusercontent.com/jshsakura/oc-piloci/main/deploy/setup.sh
 chmod +x deploy/setup.sh
 
 ./deploy/setup.sh
-nano .env
-docker pull jshsakura/piloci:latest
+nano .env  # 설정 채우기. GHCR을 쓰려면 다음 한 줄 추가:
+           #   PILOCI_IMAGE=ghcr.io/jshsakura/oc-piloci:latest
+
 docker compose pull
 docker compose up -d
 docker compose logs -f piloci
 ```
 
-Docker Hub image page: <https://hub.docker.com/r/jshsakura/piloci>
+Image registries:
+- GHCR (recommended): `ghcr.io/jshsakura/oc-piloci:latest`
+- Docker Hub (default if `PILOCI_IMAGE` is unset): `jshsakura/piloci:latest`
 
 ### Repo-based deploy
 
 If you want the full source tree locally, clone the repo and use the same compose flow:
 
 ```bash
-git clone https://github.com/jshsakura/piloci.git
-cd piloci
+git clone https://github.com/jshsakura/oc-piloci.git
+cd oc-piloci
 
 ./deploy/setup.sh
-nano .env
-docker pull jshsakura/piloci:latest
+nano .env  # 옵션: PILOCI_IMAGE=ghcr.io/jshsakura/oc-piloci:latest
 docker compose pull
 docker compose up -d
 docker compose logs -f piloci
@@ -324,10 +328,11 @@ Retention / low-spec ops knobs:
 ### Updating an existing deployment
 
 ```bash
-docker pull jshsakura/piloci:latest
 docker compose pull
 docker compose up -d
 ```
+
+`docker compose pull` honours `PILOCI_IMAGE` from `.env` (GHCR or Docker Hub). No need to call `docker pull` separately.
 
 ### OAuth callback URLs behind a reverse proxy
 
