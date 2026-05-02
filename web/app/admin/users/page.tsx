@@ -104,6 +104,9 @@ export default function AdminUsersPage() {
 
   const isSelf = (id: string) => me.user_id === id;
 
+  // Replace {email} in a toast template with the actual address.
+  const fillEmail = (template: string, email: string) => template.replace("{email}", email);
+
   const handleAction = async (fn: () => Promise<unknown>, successMsg?: string) => {
     setActionPending(true);
     setFeedback(null);
@@ -197,10 +200,10 @@ export default function AdminUsersPage() {
 
         {feedback && (
           <div
-            className={`rounded-md border px-4 py-2.5 text-sm ${
+            className={`rounded-md border px-4 py-2.5 text-sm shadow-sm ${
               feedback.type === "ok"
-                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                : "border-destructive/20 bg-destructive/10 text-destructive"
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+                : "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
             }`}
           >
             {feedback.message}
@@ -271,7 +274,7 @@ export default function AdminUsersPage() {
                         <Button
                           size="sm"
                           className="flex-1"
-                          onClick={() => void handleAction(() => api.adminApproveUser(u.id), `${u.email} 승인됨`)}
+                          onClick={() => void handleAction(() => api.adminApproveUser(u.id), fillEmail(t.admin.toastApproved, u.email))}
                           disabled={actionPending}
                         >
                           {t.admin.approve}
@@ -293,7 +296,10 @@ export default function AdminUsersPage() {
                             size="sm"
                             variant="outline"
                             className="flex-1"
-                            onClick={() => void handleAction(() => api.adminToggleAdmin(u.id), u.is_admin ? t.admin.demoteAdmin : t.admin.promoteAdmin)}
+                            onClick={() => void handleAction(
+                              () => api.adminToggleAdmin(u.id),
+                              fillEmail(u.is_admin ? t.admin.toastDemoted : t.admin.toastPromoted, u.email),
+                            )}
                             disabled={actionPending}
                           >
                             {u.is_admin ? (
@@ -306,7 +312,10 @@ export default function AdminUsersPage() {
                             size="sm"
                             variant="outline"
                             className="flex-1"
-                            onClick={() => void handleAction(() => api.adminToggleActive(u.id), u.is_active ? t.admin.deactivateUser : t.admin.activateUser)}
+                            onClick={() => void handleAction(
+                              () => api.adminToggleActive(u.id),
+                              fillEmail(u.is_active ? t.admin.toastDeactivated : t.admin.toastActivated, u.email),
+                            )}
                             disabled={actionPending}
                           >
                             {u.is_active ? (
@@ -388,7 +397,7 @@ export default function AdminUsersPage() {
                       <td className="px-4 py-3 text-right">
                         {u.approval_status === "pending" ? (
                           <div className="flex justify-end gap-1.5">
-                            <Button size="sm" onClick={() => void handleAction(() => api.adminApproveUser(u.id), `${u.email} 승인됨`)} disabled={actionPending}>
+                            <Button size="sm" onClick={() => void handleAction(() => api.adminApproveUser(u.id), fillEmail(t.admin.toastApproved, u.email))} disabled={actionPending}>
                               {t.admin.approve}
                             </Button>
                             <Button size="sm" variant="destructive" onClick={() => setRejectTarget(u)} disabled={actionPending}>
@@ -404,14 +413,20 @@ export default function AdminUsersPage() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => void handleAction(() => api.adminToggleAdmin(u.id), u.is_admin ? t.admin.demoteAdmin : t.admin.promoteAdmin)}>
+                                <DropdownMenuItem onClick={() => void handleAction(
+                                  () => api.adminToggleAdmin(u.id),
+                                  fillEmail(u.is_admin ? t.admin.toastDemoted : t.admin.toastPromoted, u.email),
+                                )}>
                                   {u.is_admin ? (
                                     <><ShieldOff className="mr-2 h-4 w-4" />{t.admin.demoteAdmin}</>
                                   ) : (
                                     <><ShieldCheck className="mr-2 h-4 w-4" />{t.admin.promoteAdmin}</>
                                   )}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => void handleAction(() => api.adminToggleActive(u.id), u.is_active ? t.admin.deactivateUser : t.admin.activateUser)}>
+                                <DropdownMenuItem onClick={() => void handleAction(
+                                  () => api.adminToggleActive(u.id),
+                                  fillEmail(u.is_active ? t.admin.toastDeactivated : t.admin.toastActivated, u.email),
+                                )}>
                                   {u.is_active ? (
                                     <><ToggleLeft className="mr-2 h-4 w-4" />{t.admin.deactivateUser}</>
                                   ) : (
@@ -457,7 +472,7 @@ export default function AdminUsersPage() {
               await api.adminRejectUser(rejectTarget!.id, rejectReason || undefined);
               setRejectTarget(null);
               setRejectReason("");
-            }, `${rejectTarget?.email} 거부됨`)} disabled={actionPending}>
+            }, fillEmail(t.admin.toastRejected, rejectTarget?.email ?? ""))} disabled={actionPending}>
               {t.admin.rejectConfirm}
             </Button>
           </DialogFooter>
@@ -480,7 +495,7 @@ export default function AdminUsersPage() {
             <Button variant="destructive" onClick={() => void handleAction(async () => {
               await api.adminDeleteUser(deleteTarget!.id);
               setDeleteTarget(null);
-            }, `${deleteTarget?.email} 삭제됨`)} disabled={actionPending}>
+            }, fillEmail(t.admin.toastDeleted, deleteTarget?.email ?? ""))} disabled={actionPending}>
               {t.admin.deleteConfirm}
             </Button>
           </DialogFooter>

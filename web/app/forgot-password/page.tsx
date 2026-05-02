@@ -67,7 +67,7 @@ export default function ForgotPasswordPage() {
 
         {sent ? (
           <div className="space-y-4">
-            <div className="rounded-md border border-green-500/20 bg-green-500/10 p-4 text-center text-sm text-green-700 dark:text-green-400">
+            <div className="rounded-md border border-emerald-300 bg-emerald-50 p-4 text-center text-sm text-emerald-800 shadow-sm dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
               재설정 토큰이 발급되었습니다.<br />
               아래 버튼으로 비밀번호를 변경하세요.
             </div>
@@ -107,7 +107,7 @@ export default function ForgotPasswordPage() {
               />
 
               {serverError && (
-                <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+                <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-200">
                   {serverError}
                 </div>
               )}

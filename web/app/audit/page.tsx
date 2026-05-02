@@ -24,16 +24,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const LIMIT = 20;
 
-const ACTION_OPTIONS = [
-  { value: "all", label: "전체" },
-  { value: "login_success", label: "로그인 성공" },
-  { value: "login_fail", label: "로그인 실패" },
-  { value: "signup", label: "회원가입" },
-  { value: "token_created", label: "토큰 생성" },
-  { value: "token_revoked", label: "토큰 폐기" },
-  { value: "project_created", label: "프로젝트 생성" },
-  { value: "project_deleted", label: "프로젝트 삭제" },
-];
+// Order = how the filter dropdown shows entries. Keys must mirror the action
+// strings the backend writes to audit_logs.action. Labels are resolved at
+// render time via t.audit.actions[<key>].
+const ACTION_KEYS = [
+  "all",
+  "signup",
+  "login_success",
+  "login_fail",
+  "login_fail_totp",
+  "password_reset",
+  "token_created",
+  "token_revoked",
+  "project_created",
+  "project_deleted",
+  "admin_toggle_admin",
+  "admin_toggle_active",
+  "admin_delete_user",
+] as const;
 
 function formatKST(isoString: string): string {
   try {
@@ -53,12 +61,18 @@ function formatKST(isoString: string): string {
 }
 
 function ActionBadge({ action }: { action: string }) {
+  const { t } = useTranslation();
+  // Falls back to the raw action string if the backend emits an action we
+  // haven't translated yet — surfaces the gap instead of silently dropping it.
+  const labels = t.audit.actions as Record<string, string | undefined>;
+  const label = labels[action] ?? action;
+
   const isSuccess = action.includes("success") || action.includes("created") || action === "signup";
   const isFail = action.includes("fail") || action.includes("deleted") || action.includes("revoked");
 
-  if (isSuccess) return <Badge variant="default" className="text-xs">{action}</Badge>;
-  if (isFail) return <Badge variant="destructive" className="text-xs">{action}</Badge>;
-  return <Badge variant="secondary" className="text-xs">{action}</Badge>;
+  if (isSuccess) return <Badge variant="default" className="text-xs">{label}</Badge>;
+  if (isFail) return <Badge variant="destructive" className="text-xs">{label}</Badge>;
+  return <Badge variant="secondary" className="text-xs">{label}</Badge>;
 }
 
 export default function AuditPage() {
@@ -119,9 +133,14 @@ export default function AuditPage() {
               <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setOffset(0); }}>
                 <SelectTrigger className="bg-card"><SelectValue placeholder={t.audit.filter} /></SelectTrigger>
                 <SelectContent>
-                  {ACTION_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                  ))}
+                  {ACTION_KEYS.map((key) => {
+                    const labels = t.audit.actions as Record<string, string | undefined>;
+                    return (
+                      <SelectItem key={key} value={key}>
+                        {labels[key] ?? key}
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             </div>

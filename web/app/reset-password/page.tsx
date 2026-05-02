@@ -200,7 +200,7 @@ function ResetPasswordForm() {
             />
 
             {serverError && (
-              <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-200">
                 {serverError}
               </div>
             )}

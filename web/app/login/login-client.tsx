@@ -195,13 +195,13 @@ export default function LoginClient({ authProviders: initialProviders }: { authP
         </div>
 
         {resetNotice && (
-          <div className="mb-4 rounded-md border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-300">
+          <div className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 shadow-sm dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
             {resetNotice}
           </div>
         )}
 
         {oauthError && (
-          <div className="mb-4 rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+          <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-200">
             {oauthError}
           </div>
         )}
@@ -278,7 +278,7 @@ export default function LoginClient({ authProviders: initialProviders }: { authP
             />
 
             {serverError && (
-              <div className="rounded-md border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-200">
                 {serverError}
               </div>
             )}

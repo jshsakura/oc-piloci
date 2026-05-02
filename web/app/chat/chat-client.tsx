@@ -206,7 +206,7 @@ export default function ChatClient() {
 
         <div
           ref={transcriptRef}
-          className="flex min-h-[55vh] flex-1 flex-col gap-5 overflow-y-auto py-2"
+          className="flex min-h-[55vh] flex-1 flex-col gap-5 overflow-y-auto rounded-2xl border bg-card p-5 shadow-sm"
         >
           {empty ? (
             <EmptyState />
