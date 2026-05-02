@@ -42,6 +42,15 @@ COPY --chown=piloci:piloci src/ ./src/
 
 RUN mkdir -p /data && chown piloci:piloci /data
 
+# Pre-fetch the default embedding model into the image so the first chat
+# doesn't wait on a ~130MB HuggingFace download. The runtime defaults to
+# this baked-in cache; users can override EMBED_CACHE_DIR/EMBED_MODEL in
+# their compose env when swapping models (e.g. multilingual variants).
+ENV EMBED_CACHE_DIR=/opt/embed-cache
+RUN mkdir -p /opt/embed-cache \
+    && python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/opt/embed-cache')" \
+    && chown -R piloci:piloci /opt/embed-cache
+
 # ============================================
 # Stage 3: Dev (no static files, src mounted via volume)
 # ============================================

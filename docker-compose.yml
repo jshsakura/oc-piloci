@@ -51,10 +51,10 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD:-changeme}@redis:6379/0
       - DATABASE_URL=sqlite+aiosqlite:////data/piloci.db
       - LANCEDB_PATH=/data/lancedb
-      # Embedding + HF Hub caches must land on the writable /data volume.
-      # The container is read_only, so default ``~/.cache/...`` paths fail with
-      # EROFS on first model download.
-      - EMBED_CACHE_DIR=/data/embed-cache
+      # The image bakes in /opt/embed-cache (set as EMBED_CACHE_DIR default)
+      # so first chat doesn't pay a download. HF_HOME stays on /data because
+      # the container is read_only and HF Hub still writes xet logs/tmp on
+      # any subsequent download (e.g. when a user swaps EMBED_MODEL).
       - HF_HOME=/data/hf-cache
       - LOG_LEVEL=INFO
       - LOG_FORMAT=json
