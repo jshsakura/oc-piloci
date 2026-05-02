@@ -105,7 +105,8 @@ def test_install_claude_plugin_layout(tmp_path: Path) -> None:
     hooks = json.loads((plugin_dir / "hooks" / "hooks.json").read_text())
     assert "${CLAUDE_PLUGIN_ROOT}" in hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     mcp = json.loads((plugin_dir / ".mcp.json").read_text())
-    assert mcp["mcpServers"]["piloci"]["url"] == "https://x.example/mcp/http"
+    assert mcp["piloci"]["url"] == "https://x.example/mcp/http"
+    assert "mcpServers" not in mcp
 
 
 def test_install_opencode_plugin_writes_ts_file(tmp_path: Path) -> None:
@@ -169,7 +170,9 @@ def test_run_install_claude_only_drops_plugin(tmp_path: Path) -> None:
     assert (pdir / "hooks" / "hook.py").read_bytes() == fake_hook
     assert (pdir / "hooks" / "stop-hook.sh").read_bytes() == fake_stop
     mcp = json.loads((pdir / ".mcp.json").read_text())
-    assert mcp["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer tok"
+    # Plugin .mcp.json uses server-name keys at top level (no mcpServers wrap).
+    assert mcp["piloci"]["headers"]["Authorization"] == "Bearer tok"
+    assert "mcpServers" not in mcp
     # Crucially: nothing under ~/.claude/ outside the plugin folder.
     assert not (tmp_path / ".claude" / "settings.json").exists()
     assert not (tmp_path / ".claude.json").exists()

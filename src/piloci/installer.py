@@ -146,9 +146,10 @@ def install_claude_plugin(
             {
                 "description": "piLoci auto-capture (SessionStart catch-up + Stop live push)",
                 "hooks": {
+                    # SessionStart / Stop are non-tool events — no ``matcher`` field,
+                    # matching the official Claude Code plugin examples.
                     "SessionStart": [
                         {
-                            "matcher": "*",
                             "hooks": [
                                 {
                                     "type": "command",
@@ -162,7 +163,6 @@ def install_claude_plugin(
                     ],
                     "Stop": [
                         {
-                            "matcher": "*",
                             "hooks": [
                                 {
                                     "type": "command",
@@ -194,17 +194,16 @@ def install_claude_plugin(
     except PermissionError:
         pass
 
-    # 3. MCP server config — auto-merged into Claude Code's MCP list.
+    # 3. MCP server config — Claude Code plugin spec uses server-name keys at
+    # the top level of ``.mcp.json`` (NOT wrapped in ``mcpServers``).
     mcp_path = plugin_dir / ".mcp.json"
     mcp_path.write_text(
         json.dumps(
             {
-                "mcpServers": {
-                    "piloci": {
-                        "type": "http",
-                        "url": base + "/mcp/http",
-                        "headers": {"Authorization": "Bearer " + token},
-                    }
+                "piloci": {
+                    "type": "http",
+                    "url": base + "/mcp/http",
+                    "headers": {"Authorization": "Bearer " + token},
                 }
             },
             indent=2,
