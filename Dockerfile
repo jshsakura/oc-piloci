@@ -3,7 +3,7 @@
 # ============================================
 # Stage 1: Builder
 # ============================================
-FROM python:3.11-slim-bookworm AS builder
+FROM public.ecr.aws/docker/library/python:3.11-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl build-essential \
@@ -21,7 +21,7 @@ RUN uv pip install --no-cache -e .
 # ============================================
 # Stage 2: Runtime
 # ============================================
-FROM python:3.11-slim-bookworm AS runtime
+FROM public.ecr.aws/docker/library/python:3.11-slim-bookworm AS runtime
 
 LABEL maintainer="jshsakura"
 LABEL description="piLoci — self-hosted multi-user LLM memory service"
