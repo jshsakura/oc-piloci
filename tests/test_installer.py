@@ -93,31 +93,29 @@ def test_merge_claude_settings_replaces_prior_piloci_entry(tmp_path: Path) -> No
     assert len(piloci_entries) == 1
 
 
-def test_install_claude_mcp_writes_entry(tmp_path: Path) -> None:
-    cfg = installer.install_claude_mcp("https://x.example", "JWT.tok", home=tmp_path)
-    data = json.loads(cfg.read_text())
-    assert data["mcpServers"]["piloci"]["url"] == "https://x.example/mcp/http"
-    assert data["mcpServers"]["piloci"]["type"] == "http"
-    assert data["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer JWT.tok"
-
-
-def test_install_claude_mcp_preserves_other_servers(tmp_path: Path) -> None:
-    cfg_path = tmp_path / ".claude.json"
-    cfg_path.write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "other": {"type": "http", "url": "https://other.example"},
-                },
-                "someUserSetting": "keep me",
-            }
+def test_install_claude_plugin_layout(tmp_path: Path) -> None:
+    fake = b"#!/bin/echo\n"
+    with patch("piloci.installer._http_download", return_value=fake):
+        plugin_dir = installer.install_claude_plugin(
+            "https://x.example", "JWT.tok", version="1.2.3", home=tmp_path
         )
-    )
-    installer.install_claude_mcp("https://x.example", "JWT.tok", home=tmp_path)
-    data = json.loads(cfg_path.read_text())
-    assert data["someUserSetting"] == "keep me"
-    assert "other" in data["mcpServers"]
-    assert "piloci" in data["mcpServers"]
+    manifest = json.loads((plugin_dir / ".claude-plugin" / "plugin.json").read_text())
+    assert manifest["name"] == "piloci"
+    assert manifest["version"] == "1.2.3"
+    hooks = json.loads((plugin_dir / "hooks" / "hooks.json").read_text())
+    assert "${CLAUDE_PLUGIN_ROOT}" in hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+    mcp = json.loads((plugin_dir / ".mcp.json").read_text())
+    assert mcp["mcpServers"]["piloci"]["url"] == "https://x.example/mcp/http"
+
+
+def test_install_opencode_plugin_writes_ts_file(tmp_path: Path) -> None:
+    plugin_src = b"// piLoci OpenCode plugin\nexport default async () => ({})\n"
+    with patch("piloci.installer._http_download", return_value=plugin_src):
+        plugin_path = installer.install_opencode_plugin(
+            "https://x.example", "JWT.tok", home=tmp_path
+        )
+    assert plugin_path.name == "piloci.ts"
+    assert plugin_path.read_bytes() == plugin_src
 
 
 def test_install_opencode_mcp_writes_entry(tmp_path: Path) -> None:
@@ -149,7 +147,7 @@ def test_run_install_raises_when_no_clients(tmp_path: Path) -> None:
             installer.run_install("tok", "https://x.example", home=tmp_path)
 
 
-def test_run_install_claude_only(tmp_path: Path) -> None:
+def test_run_install_claude_only_drops_plugin(tmp_path: Path) -> None:
     (tmp_path / installer.CLAUDE_DIR_NAME).mkdir(parents=True)
     fake_hook = b"#!/usr/bin/env python3\nprint('hook')\n"
     fake_stop = b"#!/usr/bin/env bash\nexit 0\n"
@@ -163,14 +161,36 @@ def test_run_install_claude_only(tmp_path: Path) -> None:
 
     assert report.claude_configured is True
     assert report.opencode_configured is False
-    assert (tmp_path / installer.PILOCI_DIR_NAME / "hook.py").read_bytes() == fake_hook
-    assert (tmp_path / installer.PILOCI_DIR_NAME / "stop-hook.sh").read_bytes() == fake_stop
-    settings = json.loads((tmp_path / installer.CLAUDE_DIR_NAME / "settings.json").read_text())
-    assert "SessionStart" in settings["hooks"]
-    # MCP server registration must also land on .claude.json so memory/recall
-    # tools are available, not just the auto-capture hooks.
-    claude_json = json.loads((tmp_path / ".claude.json").read_text())
-    assert "piloci" in claude_json["mcpServers"]
+    pdir = tmp_path / installer.CLAUDE_PLUGIN_DIR_NAME
+    # Plugin folder is the only thing piloci should have created — no patching
+    # of ~/.claude/settings.json or ~/.claude.json.
+    assert (pdir / ".claude-plugin" / "plugin.json").exists()
+    assert json.loads((pdir / "hooks" / "hooks.json").read_text())["hooks"]["SessionStart"]
+    assert (pdir / "hooks" / "hook.py").read_bytes() == fake_hook
+    assert (pdir / "hooks" / "stop-hook.sh").read_bytes() == fake_stop
+    mcp = json.loads((pdir / ".mcp.json").read_text())
+    assert mcp["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer tok"
+    # Crucially: nothing under ~/.claude/ outside the plugin folder.
+    assert not (tmp_path / ".claude" / "settings.json").exists()
+    assert not (tmp_path / ".claude.json").exists()
+
+
+def test_run_install_opencode_only_drops_plugin_file(tmp_path: Path) -> None:
+    (tmp_path / installer.OPENCODE_DIR_NAME).mkdir(parents=True)
+    plugin_src = b"// piLoci OpenCode plugin\nexport default async () => ({})\n"
+
+    def fake_dl(url: str, *, token: str | None = None, timeout: int = 30) -> bytes:
+        return plugin_src
+
+    with patch("piloci.installer._http_download", side_effect=fake_dl):
+        with patch("piloci.installer.shutil.which", return_value=None):
+            report = installer.run_install("tok", "https://x.example", home=tmp_path)
+
+    assert report.opencode_configured is True
+    plugin_path = tmp_path / installer.OPENCODE_PLUGIN_DIR_NAME / "piloci.ts"
+    assert plugin_path.read_bytes() == plugin_src
+    # opencode.json must remain untouched — auto-discovery does the rest.
+    assert not (tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json").exists()
 
 
 def test_get_default_server_from_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
