@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUp, Loader2, MessageSquareText, Sparkles, StopCircle } from "lucide-react";
+import { ArrowUp, Loader2, MessageSquareText, Mic, MicOff, Sparkles, StopCircle } from "lucide-react";
 
 import AppShell from "@/components/AppShell";
 import RoutePending from "@/components/RoutePending";
@@ -170,7 +170,7 @@ export default function ChatClient() {
 
   return (
     <AppShell>
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 pb-4 pt-4">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 pb-4 pt-4">
         <header className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
@@ -359,6 +359,102 @@ function ThinkingDots() {
   );
 }
 
+// Minimal Web Speech API surface — typed locally to avoid `any` while keeping
+// the implementation self-contained. Browsers expose this as either
+// ``SpeechRecognition`` (Firefox spec name) or ``webkitSpeechRecognition``.
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
+
+function getSpeechRecognition(): SpeechRecognitionCtor | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    SpeechRecognition?: SpeechRecognitionCtor;
+    webkitSpeechRecognition?: SpeechRecognitionCtor;
+  };
+  return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
+}
+
+function useDictation({
+  onAppend,
+  enabled,
+}: {
+  onAppend: (text: string) => void;
+  enabled: boolean;
+}) {
+  const [listening, setListening] = useState(false);
+  const [supported, setSupported] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // Keep the latest onAppend in a ref so the recognition handler doesn't
+  // capture a stale closure when the parent's draft state updates.
+  const onAppendRef = useRef(onAppend);
+  onAppendRef.current = onAppend;
+
+  useEffect(() => {
+    setSupported(getSpeechRecognition() !== null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.stop();
+      } catch {
+        // ignore — cleanup only
+      }
+    };
+  }, []);
+
+  const start = () => {
+    if (!enabled || listening) return;
+    const Ctor = getSpeechRecognition();
+    if (!Ctor) return;
+
+    const rec = new Ctor();
+    rec.lang = "ko-KR";
+    rec.continuous = false;
+    rec.interimResults = false;
+
+    rec.onresult = (event) => {
+      let finalText = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) finalText += result[0].transcript;
+      }
+      if (finalText) onAppendRef.current(finalText);
+    };
+    rec.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    rec.onerror = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+
+    recognitionRef.current = rec;
+    setListening(true);
+    rec.start();
+  };
+
+  const stop = () => {
+    try {
+      recognitionRef.current?.stop();
+    } catch {
+      // ignore
+    }
+  };
+
+  return { listening, supported, start, stop };
+}
+
 function ChatInput({
   inputRef,
   value,
@@ -380,9 +476,26 @@ function ChatInput({
     () =>
       disabled
         ? "프로젝트를 먼저 선택해주세요"
-        : "예: 지난 회의에서 누가 무슨 결정을 했지?",
+        : "예: 지난 회의에서 누가 무슨 결정을 했지?  (마이크로도 가능)",
     [disabled]
   );
+
+  const dictation = useDictation({
+    enabled: !disabled && !busy,
+    onAppend: (text) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      const next = value.trim().length === 0 ? trimmed : `${value} ${trimmed}`;
+      onChange(next);
+      // Defer focus so the textarea is ready after state propagates.
+      requestAnimationFrame(() => inputRef.current?.focus());
+    },
+  });
+
+  const toggleMic = () => {
+    if (dictation.listening) dictation.stop();
+    else dictation.start();
+  };
 
   return (
     <form
@@ -408,6 +521,21 @@ function ChatInput({
         className="flex-1 resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/70 disabled:opacity-50"
         aria-label="질문 입력"
       />
+      {dictation.supported && (
+        <Button
+          type="button"
+          size="icon"
+          variant={dictation.listening ? "destructive" : "outline"}
+          onClick={toggleMic}
+          disabled={disabled || busy}
+          aria-label={dictation.listening ? "음성 입력 중지" : "음성으로 질문하기"}
+          aria-pressed={dictation.listening}
+          title={dictation.listening ? "녹음 중… 클릭하면 멈춥니다" : "마이크로 질문 입력 (한국어)"}
+          className={dictation.listening ? "animate-pulse" : undefined}
+        >
+          {dictation.listening ? <MicOff className="size-4" /> : <Mic className="size-4" />}
+        </Button>
+      )}
       {busy ? (
         <Button type="button" size="icon" variant="outline" onClick={onStop} aria-label="중지">
           <StopCircle className="size-4" />
