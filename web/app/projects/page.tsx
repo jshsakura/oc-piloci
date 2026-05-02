@@ -9,19 +9,18 @@ import { VaultNoteCard } from "@/components/VaultNoteCard";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import RoutePending from "@/components/RoutePending";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const MCP_SNIPPET = `{
-  "mcpServers": {
-    "piloci": {
-      "type": "http",
-      "url": "https://piloci.example.com/sse",
-      "headers": { "Authorization": "Bearer YOUR_TOKEN" }
-    }
-  }
-}`;
+function StatChip({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex items-baseline gap-1.5 rounded-full border bg-card px-3 py-1 shadow-sm">
+      <span className="text-base font-semibold tabular-nums">{value}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
+    </div>
+  );
+}
 
 function ProjectDetailContent() {
   const router = useRouter();
@@ -61,95 +60,64 @@ function ProjectDetailContent() {
 
   return (
     <AppShell>
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard")}>
-          <ArrowLeft className="mr-1 size-4" /> 대시보드
-        </Button>
-        <span className="text-sm text-muted-foreground">/</span>
-        <h1 className="text-xl font-bold">{data?.project.name ?? slug}</h1>
-      </div>
+      <header className="flex flex-col gap-2 border-b pb-4">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" className="-ml-2" onClick={() => router.push("/dashboard")}>
+            <ArrowLeft className="mr-1 size-4" /> 대시보드
+          </Button>
+          <span className="text-sm text-muted-foreground">/</span>
+          <h1 className="truncate text-xl font-semibold tracking-tight">
+            {data?.project.name ?? slug}
+          </h1>
+        </div>
+        {data?.project.description && (
+          <p className="text-sm text-muted-foreground">{data.project.description}</p>
+        )}
+        <div className="flex flex-wrap gap-2 pt-1">
+          <StatChip label="노트" value={stats?.notes ?? 0} />
+          <StatChip label="노드" value={stats?.nodes ?? 0} />
+          <StatChip label="관계" value={stats?.edges ?? 0} />
+          <StatChip label="태그" value={stats?.tags ?? 0} />
+        </div>
+      </header>
 
-      {data?.project.description && (
-        <p className="mt-2 text-sm text-muted-foreground">{data.project.description}</p>
-      )}
-
-      <div className="mt-6 grid gap-4 sm:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">노트</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-bold">{stats?.notes ?? 0}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">노드</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-bold">{stats?.nodes ?? 0}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">관계</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-bold">{stats?.edges ?? 0}</p></CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">태그</CardTitle></CardHeader>
-          <CardContent><p className="text-2xl font-bold">{stats?.tags ?? 0}</p></CardContent>
-        </Card>
-      </div>
-
-      <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,400px)_minmax(0,1fr)]">
-        <div>
-          <h2 className="mb-4 text-lg font-semibold">노트</h2>
-          {isLoading ? (
-            <div className="space-y-3">
-              {[1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full rounded-lg" />)}
-            </div>
-          ) : notes.length === 0 ? (
-            <Card>
-              <CardContent className="flex flex-col items-center gap-3 py-10 text-muted-foreground">
-                <FileText className="size-8" />
-                <p className="text-sm">노트가 없습니다</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-3">
-              <Card className="border-dashed bg-muted/30">
-                <CardContent className="space-y-3 p-3">
-                  <div>
-                    <p className="text-sm font-medium">빠른 선택</p>
-                    <p className="text-xs text-muted-foreground">
-                      번호를 누르면 해당 노트로 바로 이동합니다.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {notes.map((note, index) => (
-                      <Button
-                        key={note.memory_id}
-                        type="button"
-                        variant={note.memory_id === selectedNote?.memory_id ? "default" : "outline"}
-                        size="sm"
-                        className="h-8 min-w-8 px-2"
-                        aria-label={`${index + 1}번 노트 선택: ${note.title}`}
-                        onClick={() => setSelectedNoteId(note.memory_id)}
-                      >
-                        {index + 1}
-                      </Button>
-                    ))}
-                  </div>
+      {/*
+        2-column workspace. Both columns claim the same height (calc keeps the
+        viewport-minus-header math in one place) and scroll independently so the
+        list never pushes the detail pane around.
+      */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:h-[calc(100vh-15rem)]">
+        <aside className="flex min-h-0 flex-col">
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-sm font-semibold tracking-tight">노트</h2>
+            <span className="text-xs text-muted-foreground">{notes.length}</span>
+          </div>
+          <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+            {isLoading ? (
+              [1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full rounded-lg" />)
+            ) : notes.length === 0 ? (
+              <Card>
+                <CardContent className="flex flex-col items-center gap-3 py-10 text-muted-foreground">
+                  <FileText className="size-8" />
+                  <p className="text-sm">노트가 없습니다</p>
                 </CardContent>
               </Card>
-              {notes.map((note) => (
+            ) : (
+              notes.map((note) => (
                 <VaultNoteCard
                   key={note.memory_id}
                   note={note}
                   active={note.memory_id === selectedNote?.memory_id}
                   onSelect={(n) => setSelectedNoteId(n.memory_id)}
                 />
-              ))}
-            </div>
-          )}
-        </div>
-        <VaultNoteDetail note={selectedNote} />
-      </div>
+              ))
+            )}
+          </div>
+        </aside>
 
-      <div className="mt-8">
-        <h2 className="mb-4 text-lg font-semibold">MCP 설정</h2>
-        <pre className="overflow-x-auto rounded-md bg-muted p-4 font-mono text-sm">{MCP_SNIPPET}</pre>
+        <section className="min-h-0 lg:overflow-y-auto">
+          <VaultNoteDetail note={selectedNote} />
+        </section>
       </div>
     </AppShell>
   );
