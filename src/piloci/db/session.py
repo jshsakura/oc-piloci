@@ -66,8 +66,34 @@ async def async_session() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
+_SQLITE_ADD_COLUMNS: dict[str, dict[str, str]] = {
+    # Idempotent ALTER TABLE migrations for SQLite (create_all does not patch
+    # existing tables). Each entry: column-name → SQL type spec.
+    "api_tokens": {
+        "installed_at": "DATETIME",
+        "client_kinds": "TEXT",
+        "hostname": "TEXT",
+    },
+}
+
+
+def _apply_pending_migrations(sync_conn) -> None:  # type: ignore[no-untyped-def]
+    """Add columns introduced after a table was first created. SQLite-only —
+    each ALTER TABLE ADD COLUMN is independent and skipped when present."""
+    from sqlalchemy import text
+
+    for table, columns in _SQLITE_ADD_COLUMNS.items():
+        existing = {
+            row[1] for row in sync_conn.exec_driver_sql(f"PRAGMA table_info({table})").fetchall()
+        }
+        for col, spec in columns.items():
+            if col not in existing:
+                sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {spec}"))
+
+
 async def init_db(engine: AsyncEngine | None = None) -> None:
-    """Create all tables defined in Base.metadata."""
+    """Create all tables defined in Base.metadata, then apply pending column migrations."""
     target = engine or _get_engine()
     async with target.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_apply_pending_migrations)

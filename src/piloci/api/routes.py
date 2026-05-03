@@ -782,10 +782,74 @@ async def route_list_tokens(request: Request) -> Response:
                 "created_at": t.created_at.isoformat(),
                 "last_used_at": t.last_used_at.isoformat() if t.last_used_at else None,
                 "expires_at": t.expires_at.isoformat() if t.expires_at else None,
+                "installed_at": t.installed_at.isoformat() if t.installed_at else None,
+                "client_kinds": (
+                    [k for k in t.client_kinds.split(",") if k] if t.client_kinds else []
+                ),
+                "hostname": t.hostname,
             }
             for t in tokens
         ]
     )
+
+
+_ALLOWED_CLIENT_KINDS = {"claude", "opencode"}
+
+
+async def route_install_heartbeat(request: Request) -> Response:
+    """One-shot ping fired by the CLI after ``run_install`` succeeds.
+
+    Stamps the calling token's row with ``installed_at`` (now), the comma-joined
+    ``client_kinds`` (e.g. ``"claude,opencode"``), and a short ``hostname``.
+    Auth is the existing Bearer flow — the JWT's ``jti`` claim identifies the
+    token row to update.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    token_id = user.get("jti") or user.get("token_id")
+    if not token_id:
+        return _json({"error": "Bearer token required"}, 401)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "Invalid JSON"}, 400)
+
+    raw_kinds = body.get("client_kinds")
+    if not isinstance(raw_kinds, list):
+        return _json({"error": "client_kinds must be a list"}, 422)
+    kinds = sorted({str(k).strip().lower() for k in raw_kinds if str(k).strip()})
+    if not kinds:
+        return _json({"error": "client_kinds is empty"}, 422)
+    if not set(kinds).issubset(_ALLOWED_CLIENT_KINDS):
+        return _json(
+            {"error": f"client_kinds must be subset of {sorted(_ALLOWED_CLIENT_KINDS)}"}, 422
+        )
+
+    hostname_raw = body.get("hostname")
+    hostname = str(hostname_raw).strip()[:64] if isinstance(hostname_raw, str) else None
+
+    from sqlalchemy import update
+
+    from piloci.db.models import ApiToken
+
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        result = await db.execute(
+            update(ApiToken)
+            .where(ApiToken.token_id == token_id, ApiToken.user_id == _uid(user))
+            .values(
+                installed_at=now,
+                client_kinds=",".join(kinds),
+                hostname=hostname,
+            )
+        )
+    if result.rowcount == 0:
+        return _json({"error": "Token not found"}, 404)
+
+    return _json({"installed_at": now.isoformat(), "client_kinds": kinds, "hostname": hostname})
 
 
 async def route_revoke_token(request: Request) -> Response:
@@ -2592,6 +2656,7 @@ def get_routes() -> list[Route]:
         Route("/api/tokens", route_list_tokens, methods=["GET"]),
         Route("/api/tokens", route_create_token, methods=["POST"]),
         Route("/api/tokens/{id}", route_revoke_token, methods=["DELETE"]),
+        Route("/api/install/heartbeat", route_install_heartbeat, methods=["POST"]),
         Route("/api/audit", route_list_audit, methods=["GET"]),
         Route("/api/account/2fa/enable", route_2fa_enable, methods=["POST"]),
         Route("/api/account/2fa/confirm", route_2fa_confirm, methods=["POST"]),

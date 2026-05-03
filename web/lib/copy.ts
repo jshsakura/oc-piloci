@@ -723,6 +723,8 @@ const copy = {
       cancel: '취소',
       mcpConfigFor: 'MCP 설정 —',
       envHint: '환경 변수로 토큰을 관리할 때 사용하세요.',
+      notInstalled: '미설치',
+      installedOn: '설치',
     },
     vaultNote: {
       tags: '태그',
@@ -1455,6 +1457,8 @@ const copy = {
       cancel: 'Cancel',
       mcpConfigFor: 'MCP Config —',
       envHint: 'Use this when managing tokens via environment variables.',
+      notInstalled: 'Not installed',
+      installedOn: 'Installed',
     },
     vaultNote: {
       tags: 'tags',

@@ -370,3 +370,48 @@ def test_run_uninstall_removes_everything(tmp_path: Path) -> None:
 
 def test_run_uninstall_noop_when_clean(tmp_path: Path) -> None:
     assert installer.run_uninstall(home=tmp_path) == []
+
+
+def test_post_install_heartbeat_sends_expected_payload() -> None:
+    captured: dict = {}
+
+    class _FakeResp:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def _fake_urlopen(req, timeout):  # noqa: ANN001
+        captured["url"] = req.full_url
+        captured["body"] = json.loads(req.data.decode())
+        captured["auth"] = req.get_header("Authorization")
+        return _FakeResp()
+
+    with patch("piloci.installer.urllib.request.urlopen", _fake_urlopen):
+        ok = installer.post_install_heartbeat(
+            "https://piloci.example.com",
+            "tok-xyz",
+            client_kinds=["claude", "opencode"],
+            hostname="pi5",
+        )
+
+    assert ok is True
+    assert captured["url"].endswith("/api/install/heartbeat")
+    assert captured["auth"] == "Bearer tok-xyz"
+    assert captured["body"]["client_kinds"] == ["claude", "opencode"]
+    assert captured["body"]["hostname"] == "pi5"
+    assert "cli_version" in captured["body"]
+
+
+def test_post_install_heartbeat_swallows_failures() -> None:
+    import urllib.error
+
+    def _fake_urlopen(req, timeout):  # noqa: ANN001
+        raise urllib.error.URLError("boom")
+
+    with patch("piloci.installer.urllib.request.urlopen", _fake_urlopen):
+        ok = installer.post_install_heartbeat("https://x.example", "tok", client_kinds=["claude"])
+    assert ok is False

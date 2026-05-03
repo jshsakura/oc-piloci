@@ -132,6 +132,9 @@ class ApiToken(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    installed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    client_kinds: Mapped[str | None] = mapped_column(Text, nullable=True)
+    hostname: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         Index(

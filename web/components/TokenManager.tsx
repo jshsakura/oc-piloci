@@ -432,6 +432,19 @@ export function TokenManager() {
                             </span>
                           )}
                         </span>
+                        {token.installed_at ? (
+                          <span className="text-[11px] text-muted-foreground">
+                            {t.tokenManager.installedOn} {formatDate(token.installed_at)}
+                            {token.client_kinds && token.client_kinds.length > 0 && (
+                              <> · {token.client_kinds.join(" + ")}</>
+                            )}
+                            {token.hostname && <> · {token.hostname}</>}
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-muted-foreground/70">
+                            {t.tokenManager.notInstalled}
+                          </span>
+                        )}
                         <span className="sm:hidden">
                           <Badge variant={token.scope === "user" ? "default" : "secondary"} className="text-xs">
                             {token.scope}

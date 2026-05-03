@@ -64,6 +64,9 @@ export interface ApiToken {
   created_at: string;
   last_used_at?: string;
   expires_at?: string | null;
+  installed_at?: string | null;
+  client_kinds?: string[];
+  hostname?: string | null;
 }
 
 export interface CreatedToken {

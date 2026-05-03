@@ -439,6 +439,51 @@ def run_uninstall(*, home: Path | None = None) -> list[str]:
     return removed
 
 
+def post_install_heartbeat(
+    base_url: str,
+    token: str,
+    *,
+    client_kinds: list[str],
+    hostname: str | None = None,
+    timeout: int = 5,
+) -> bool:
+    """Fire-and-forget POST to ``/api/install/heartbeat`` to record this device.
+
+    Failures (network, 4xx, 5xx) are swallowed — the install itself is already
+    complete and the dashboard will simply omit the install timestamp. Returns
+    True on 2xx, False otherwise so callers/tests can distinguish.
+    """
+    payload = {
+        "client_kinds": client_kinds,
+        "hostname": hostname,
+        "cli_version": _cli_version(),
+    }
+    req = urllib.request.Request(
+        base_url.rstrip("/") + "/api/install/heartbeat",
+        method="POST",
+        data=json.dumps(payload).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "piloci-cli",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def _cli_version() -> str:
+    try:
+        from piloci.version import __version__
+
+        return str(__version__)
+    except Exception:
+        return "unknown"
+
+
 def run_install(
     token: str, base_url: str, *, home: Path | None = None, force: bool = False
 ) -> InstallReport:
@@ -487,6 +532,21 @@ def run_install(
             )
         except (urllib.error.URLError, OSError) as e:
             report.notes.append(f"OpenCode 플러그인 설치 실패: {e}")
+
+    kinds: list[str] = []
+    if report.claude_configured:
+        kinds.append("claude")
+    if report.opencode_configured:
+        kinds.append("opencode")
+    if kinds:
+        import socket
+
+        try:
+            host = socket.gethostname()
+        except OSError:
+            host = None
+        if post_install_heartbeat(base_url, token, client_kinds=kinds, hostname=host):
+            report.notes.append(f"설치 시그널 전송: {','.join(kinds)} ({host or '-'})")
 
     return report
 

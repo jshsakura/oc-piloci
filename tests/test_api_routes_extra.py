@@ -923,6 +923,7 @@ async def test_route_list_tokens_returns_active_tokens(monkeypatch: pytest.Monke
 
     created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
     last_used = datetime(2024, 1, 2, tzinfo=timezone.utc)
+    installed_at = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
     token = SimpleNamespace(
         token_id="token-1",
         name="CLI",
@@ -931,6 +932,9 @@ async def test_route_list_tokens_returns_active_tokens(monkeypatch: pytest.Monke
         created_at=created_at,
         last_used_at=last_used,
         expires_at=None,
+        installed_at=installed_at,
+        client_kinds="claude,opencode",
+        hostname="pi5",
     )
     result = MagicMock()
     result.scalars.return_value.all.return_value = [token]
@@ -952,6 +956,9 @@ async def test_route_list_tokens_returns_active_tokens(monkeypatch: pytest.Monke
             "created_at": created_at.isoformat(),
             "last_used_at": last_used.isoformat(),
             "expires_at": None,
+            "installed_at": installed_at.isoformat(),
+            "client_kinds": ["claude", "opencode"],
+            "hostname": "pi5",
         }
     ]
 
@@ -996,6 +1003,96 @@ async def test_route_list_audit_returns_logs(monkeypatch: pytest.MonkeyPatch) ->
             "created_at": created_at.isoformat(),
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_route_install_heartbeat_stamps_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    from piloci.api import routes
+
+    db = _db_session()
+    update_result = MagicMock()
+    update_result.rowcount = 1
+    db.execute.return_value = update_result
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+
+    response = await routes.route_install_heartbeat(
+        _make_request(
+            method="POST",
+            user={"sub": "user-1", "jti": "token-1"},
+            body={"client_kinds": ["claude", "opencode"], "hostname": "pi5"},
+        )
+    )
+    payload = orjson.loads(response.body)
+    assert response.status_code == 200
+    assert payload["client_kinds"] == ["claude", "opencode"]
+    assert payload["hostname"] == "pi5"
+    assert "installed_at" in payload
+
+
+@pytest.mark.asyncio
+async def test_route_install_heartbeat_unauthorized_without_jti() -> None:
+    from piloci.api import routes
+
+    response = await routes.route_install_heartbeat(
+        _make_request(
+            method="POST",
+            user={"sub": "user-1"},  # no jti
+            body={"client_kinds": ["claude"]},
+        )
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_route_install_heartbeat_validates_client_kinds() -> None:
+    from piloci.api import routes
+
+    bad_type = await routes.route_install_heartbeat(
+        _make_request(
+            method="POST",
+            user={"sub": "u", "jti": "t"},
+            body={"client_kinds": "claude"},
+        )
+    )
+    assert bad_type.status_code == 422
+
+    empty = await routes.route_install_heartbeat(
+        _make_request(
+            method="POST",
+            user={"sub": "u", "jti": "t"},
+            body={"client_kinds": []},
+        )
+    )
+    assert empty.status_code == 422
+
+    bad_kind = await routes.route_install_heartbeat(
+        _make_request(
+            method="POST",
+            user={"sub": "u", "jti": "t"},
+            body={"client_kinds": ["evilshell"]},
+        )
+    )
+    assert bad_kind.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_route_install_heartbeat_not_found(monkeypatch: pytest.MonkeyPatch) -> None:
+    from piloci.api import routes
+
+    db = _db_session()
+    update_result = MagicMock()
+    update_result.rowcount = 0
+    db.execute.return_value = update_result
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+
+    response = await routes.route_install_heartbeat(
+        _make_request(
+            method="POST",
+            user={"sub": "user-1", "jti": "missing"},
+            body={"client_kinds": ["claude"]},
+        )
+    )
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
