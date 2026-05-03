@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Literal
 
-from jose import JWTError, jwt
-from jose.exceptions import ExpiredSignatureError
+import jwt
+from jwt.exceptions import ExpiredSignatureError, PyJWTError
 
 if TYPE_CHECKING:
     from piloci.config import Settings
@@ -50,10 +50,10 @@ def verify_token(token: str, settings: Settings) -> dict:
         return payload
     except ExpiredSignatureError as exc:
         raise ValueError("Token has expired") from exc
-    except JWTError as exc:
+    except PyJWTError as exc:
         raise ValueError(f"Invalid token: {exc}") from exc
 
 
 def decode_token_unsafe(token: str) -> dict:
     """Decode a JWT token without verifying the signature (for logging purposes only)."""
-    return jwt.get_unverified_claims(token)
+    return jwt.decode(token, options={"verify_signature": False})

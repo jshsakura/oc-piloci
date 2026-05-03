@@ -3,8 +3,8 @@ from __future__ import annotations
 import time
 import uuid
 
+import jwt
 import pytest
-from jose import jwt
 
 from piloci.auth.jwt_utils import create_token, decode_token_unsafe, verify_token
 from piloci.config import Settings
