@@ -84,6 +84,21 @@ def main() -> None:
         default=None,
         help="Use this token directly instead of resolving an install URL.",
     )
+    install_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Wipe the existing piloci plugin folder(s) and reinstall fresh.",
+    )
+
+    uninstall_p = sub.add_parser(
+        "uninstall",
+        help="Remove every piloci artifact (plugin folders, legacy hooks, config, backup).",
+    )
+    uninstall_p.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the confirmation prompt.",
+    )
 
     setup_p = sub.add_parser(
         "setup",
@@ -98,6 +113,11 @@ def main() -> None:
         "--no-browser",
         action="store_true",
         help="Print the verification URL instead of opening a browser.",
+    )
+    setup_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Wipe the existing piloci plugin folder(s) and reinstall fresh.",
     )
 
     args = parser.parse_args()
@@ -125,6 +145,8 @@ def main() -> None:
         _run_login(args)
     elif args.command == "install":
         _run_install(args)
+    elif args.command == "uninstall":
+        _run_uninstall(args)
     elif args.command == "setup":
         _run_setup(args)
     elif args.command == "serve":
@@ -352,7 +374,7 @@ def _run_install(args: argparse.Namespace) -> None:
         sys.exit(2)
 
     try:
-        report: InstallReport = run_install(token, base_url)
+        report: InstallReport = run_install(token, base_url, force=args.force)
     except RuntimeError as e:
         sys.stderr.write(f"[piloci] {e}\n")
         sys.exit(1)
@@ -366,6 +388,25 @@ def _run_install(args: argparse.Namespace) -> None:
         print(f"    · {note}")
 
 
+def _run_uninstall(args: argparse.Namespace) -> None:
+    from piloci.installer import run_uninstall
+
+    if not args.yes:
+        sys.stderr.write(
+            "[piloci] piloci 관련 파일을 모두 제거합니다 "
+            "(플러그인 폴더, 훅, ~/.config/piloci, settings 백업).\n"
+            "         계속하려면 --yes 를 붙여 다시 실행해 주세요.\n"
+        )
+        sys.exit(2)
+
+    removed = run_uninstall()
+    if not removed:
+        print("  (제거할 piloci 파일이 없습니다.)")
+        return
+    for item in removed:
+        print(f"  ✓ 제거: {item}")
+
+
 def _run_setup(args: argparse.Namespace) -> None:
     """One-shot: login + install."""
     from piloci.installer import run_install
@@ -373,7 +414,7 @@ def _run_setup(args: argparse.Namespace) -> None:
     server = _resolve_server(args.server)
     token = _device_login(server, open_browser=not args.no_browser)
     try:
-        report = run_install(token, server)
+        report = run_install(token, server, force=args.force)
     except RuntimeError as e:
         sys.stderr.write(f"[piloci] {e}\n")
         sys.exit(1)

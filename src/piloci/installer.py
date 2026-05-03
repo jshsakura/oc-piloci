@@ -336,8 +336,122 @@ def install_opencode_mcp(base_url: str, token: str, *, home: Path | None = None)
     return cfg_path
 
 
-def run_install(token: str, base_url: str, *, home: Path | None = None) -> InstallReport:
-    """Detect clients and run the appropriate installers. Pure orchestration."""
+def cleanup_legacy_install(*, home: Path | None = None, remove_plugins: bool = False) -> list[str]:
+    """Remove pre-plugin-folder install artifacts so they don't fire alongside the
+    new plugin (which would double-ingest each session).
+
+    Always cleans:
+      * piloci hook entries in ``~/.claude/settings.json`` (legacy ``_merge_claude_settings``)
+      * ``~/.config/piloci/{hook.py, stop-hook.sh}`` (moved into the plugin folder)
+      * piloci ``mcp`` entry in ``~/.config/opencode/opencode.json`` (legacy)
+
+    With ``remove_plugins=True``, also wipes the plugin folders so the next
+    install re-downloads ``hook.py`` / ``piloci.ts`` from the server:
+      * ``~/.claude/plugins/piloci/``
+      * ``~/.config/opencode/plugins/piloci.ts``
+
+    Returns a list of removed paths/keys for the install report.
+    """
+    h = home or Path.home()
+    removed: list[str] = []
+
+    settings_path = h / CLAUDE_DIR_NAME / "settings.json"
+    if settings_path.exists():
+        try:
+            loaded = json.loads(settings_path.read_text())
+        except json.JSONDecodeError:
+            loaded = None
+        if isinstance(loaded, dict):
+            hooks = loaded.get("hooks")
+            if isinstance(hooks, dict):
+                changed = False
+                for event, arr in list(hooks.items()):
+                    if not isinstance(arr, list):
+                        continue
+                    kept = [h for h in arr if PILOCI_PATH_TAG not in json.dumps(h)]
+                    if len(kept) != len(arr):
+                        changed = True
+                        if kept:
+                            hooks[event] = kept
+                        else:
+                            hooks.pop(event)
+                if not hooks:
+                    loaded.pop("hooks", None)
+                if changed:
+                    settings_path.write_text(json.dumps(loaded, indent=2))
+                    removed.append(f"{settings_path} (piloci hook 엔트리)")
+
+    legacy_dir = h / PILOCI_DIR_NAME
+    for name in ("hook.py", "stop-hook.sh"):
+        p = legacy_dir / name
+        if p.exists():
+            p.unlink()
+            removed.append(str(p))
+
+    opencode_cfg = h / OPENCODE_DIR_NAME / "opencode.json"
+    if opencode_cfg.exists():
+        try:
+            loaded = json.loads(opencode_cfg.read_text())
+        except json.JSONDecodeError:
+            loaded = None
+        if isinstance(loaded, dict):
+            mcp = loaded.get("mcp")
+            if isinstance(mcp, dict) and "piloci" in mcp:
+                mcp.pop("piloci")
+                if not mcp:
+                    loaded.pop("mcp", None)
+                opencode_cfg.write_text(json.dumps(loaded, indent=2))
+                removed.append(f"{opencode_cfg} (mcp.piloci)")
+
+    if remove_plugins:
+        claude_plugin = h / CLAUDE_PLUGIN_DIR_NAME
+        if claude_plugin.exists():
+            shutil.rmtree(claude_plugin)
+            removed.append(str(claude_plugin))
+        opencode_plugin = h / OPENCODE_PLUGIN_DIR_NAME / "piloci.ts"
+        if opencode_plugin.exists():
+            opencode_plugin.unlink()
+            removed.append(str(opencode_plugin))
+
+    return removed
+
+
+def run_uninstall(*, home: Path | None = None) -> list[str]:
+    """Remove every piloci artifact from the host: plugin folders, legacy hooks,
+    legacy hook scripts, the shared config dir (token + endpoints), and the
+    pre-install ``settings.json.piloci-bak`` backup.
+
+    Returns the list of removed paths/keys for the CLI to print.
+    """
+    h = home or Path.home()
+    removed = cleanup_legacy_install(home=h, remove_plugins=True)
+
+    cfg_dir = h / PILOCI_DIR_NAME
+    if cfg_dir.exists():
+        shutil.rmtree(cfg_dir)
+        removed.append(str(cfg_dir))
+
+    bak = h / CLAUDE_DIR_NAME / "settings.json.piloci-bak"
+    if bak.exists():
+        bak.unlink()
+        removed.append(str(bak))
+
+    return removed
+
+
+def run_install(
+    token: str, base_url: str, *, home: Path | None = None, force: bool = False
+) -> InstallReport:
+    """Detect clients and run the appropriate installers. Pure orchestration.
+
+    Always sweeps legacy install artifacts (hook entries in settings.json, the
+    old ``~/.config/piloci/hook.py``, OpenCode mcp entry) before laying down the
+    plugin folder — otherwise the legacy hooks fire alongside the plugin's own
+    hooks and each session gets ingested twice.
+
+    ``force=True`` additionally wipes the plugin folders so this run re-downloads
+    them fresh.
+    """
     h = home or Path.home()
     has_claude, has_opencode = detect_clients(home=h)
     if not has_claude and not has_opencode:
@@ -346,8 +460,12 @@ def run_install(token: str, base_url: str, *, home: Path | None = None) -> Insta
             "먼저 설치해 주세요."
         )
 
+    swept = cleanup_legacy_install(home=h, remove_plugins=force)
+
     cfg = write_config_json(token, base_url, home=h)
     report = InstallReport(config_path=cfg)
+    for item in swept:
+        report.notes.append(f"정리: {item}")
 
     if has_claude:
         try:

@@ -84,23 +84,26 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
 
   return (
     <Dialog open onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] max-w-lg flex-col gap-0 p-0">
+        <DialogHeader className="shrink-0 border-b px-6 pb-4 pt-6">
           <DialogTitle>{t.tokenManager.tokenCreated}</DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue={defaultTab}>
-          <TabsList className="w-full">
-            {hasHook && (
-              <TabsTrigger value="install" className="flex-1">
-                {t.tokenManager.tabs.install}
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="mcp" className="flex-1">{t.tokenManager.tabs.mcpServer}</TabsTrigger>
-            <TabsTrigger value="token" className="flex-1">{t.tokenManager.tabs.token}</TabsTrigger>
-            {claudeMd && <TabsTrigger value="claudemd" className="flex-1">{t.tokenManager.tabs.claudeMd}</TabsTrigger>}
-          </TabsList>
+        <Tabs defaultValue={defaultTab} className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 px-6 pt-4">
+            <TabsList className="w-full">
+              {hasHook && (
+                <TabsTrigger value="install" className="flex-1">
+                  {t.tokenManager.tabs.install}
+                </TabsTrigger>
+              )}
+              <TabsTrigger value="mcp" className="flex-1">{t.tokenManager.tabs.mcpServer}</TabsTrigger>
+              <TabsTrigger value="token" className="flex-1">{t.tokenManager.tabs.token}</TabsTrigger>
+              {claudeMd && <TabsTrigger value="claudemd" className="flex-1">{t.tokenManager.tabs.claudeMd}</TabsTrigger>}
+            </TabsList>
+          </div>
 
+          <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-2">
           {hasHook && (
             <TabsContent value="install" className="space-y-4 pt-1">
               <div className="space-y-2">
@@ -199,6 +202,7 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
               <CopyBlock value={claudeMd} />
             </TabsContent>
           )}
+          </div>
         </Tabs>
       </DialogContent>
     </Dialog>

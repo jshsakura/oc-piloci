@@ -219,3 +219,154 @@ def test_get_default_server_from_config_json(
     )
     monkeypatch.setattr("piloci.installer.Path.home", lambda: tmp_path)
     assert installer.get_default_server() == "https://saved.example"
+
+
+def test_cleanup_legacy_install_strips_settings_hooks_and_legacy_scripts(
+    tmp_path: Path,
+) -> None:
+    settings = tmp_path / installer.CLAUDE_DIR_NAME / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "*",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "python3 ~/.config/piloci/hook.py 2>/dev/null || true",
+                                }
+                            ],
+                        },
+                        {
+                            "matcher": "*",
+                            "hooks": [{"type": "command", "command": "echo unrelated"}],
+                        },
+                    ],
+                    "Stop": [
+                        {
+                            "matcher": "*",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "bash ~/.config/piloci/stop-hook.sh 2>/dev/null || true",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            }
+        )
+    )
+
+    legacy = tmp_path / installer.PILOCI_DIR_NAME
+    legacy.mkdir(parents=True)
+    (legacy / "hook.py").write_text("# legacy")
+    (legacy / "stop-hook.sh").write_text("# legacy")
+    (legacy / "config.json").write_text("{}")  # must survive
+
+    opencode_cfg = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    opencode_cfg.parent.mkdir(parents=True)
+    opencode_cfg.write_text(
+        json.dumps(
+            {
+                "$schema": "https://opencode.ai/config.json",
+                "mcp": {
+                    "piloci": {"type": "remote", "url": "x"},
+                    "other": {"type": "remote", "url": "y"},
+                },
+            }
+        )
+    )
+
+    removed = installer.cleanup_legacy_install(home=tmp_path)
+
+    settings_loaded = json.loads(settings.read_text())
+    session_start = settings_loaded["hooks"]["SessionStart"]
+    assert len(session_start) == 1
+    assert "echo unrelated" in session_start[0]["hooks"][0]["command"]
+    assert "Stop" not in settings_loaded["hooks"]
+
+    assert not (legacy / "hook.py").exists()
+    assert not (legacy / "stop-hook.sh").exists()
+    assert (legacy / "config.json").exists()  # config preserved
+
+    opencode_loaded = json.loads(opencode_cfg.read_text())
+    assert "piloci" not in opencode_loaded["mcp"]
+    assert "other" in opencode_loaded["mcp"]
+
+    assert any("settings.json" in r for r in removed)
+    assert any("hook.py" in r for r in removed)
+    assert any("opencode.json" in r for r in removed)
+
+
+def test_cleanup_legacy_install_force_wipes_plugin_dirs(tmp_path: Path) -> None:
+    claude_plugin = tmp_path / installer.CLAUDE_PLUGIN_DIR_NAME
+    claude_plugin.mkdir(parents=True)
+    (claude_plugin / "marker").write_text("x")
+    opencode_plugin = tmp_path / installer.OPENCODE_PLUGIN_DIR_NAME / "piloci.ts"
+    opencode_plugin.parent.mkdir(parents=True)
+    opencode_plugin.write_text("// piloci")
+
+    removed = installer.cleanup_legacy_install(home=tmp_path, remove_plugins=True)
+
+    assert not claude_plugin.exists()
+    assert not opencode_plugin.exists()
+    assert any(installer.CLAUDE_PLUGIN_DIR_NAME in r for r in removed)
+    assert any("piloci.ts" in r for r in removed)
+
+
+def test_cleanup_legacy_install_noop_when_clean(tmp_path: Path) -> None:
+    assert installer.cleanup_legacy_install(home=tmp_path) == []
+    assert installer.cleanup_legacy_install(home=tmp_path, remove_plugins=True) == []
+
+
+def test_run_uninstall_removes_everything(tmp_path: Path) -> None:
+    cfg_dir = tmp_path / installer.PILOCI_DIR_NAME
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.json").write_text("{}")
+    (cfg_dir / "hook.py").write_text("# legacy")
+
+    plugin_dir = tmp_path / installer.CLAUDE_PLUGIN_DIR_NAME
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "marker").write_text("x")
+
+    bak = tmp_path / installer.CLAUDE_DIR_NAME / "settings.json.piloci-bak"
+    bak.parent.mkdir(parents=True, exist_ok=True)
+    bak.write_text("{}")
+
+    settings = tmp_path / installer.CLAUDE_DIR_NAME / "settings.json"
+    settings.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "*",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "python3 ~/.config/piloci/hook.py",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        )
+    )
+
+    removed = installer.run_uninstall(home=tmp_path)
+
+    assert not cfg_dir.exists()
+    assert not plugin_dir.exists()
+    assert not bak.exists()
+    assert "hooks" not in json.loads(settings.read_text())
+    assert any(installer.PILOCI_DIR_NAME in r for r in removed)
+    assert any("piloci-bak" in r for r in removed)
+
+
+def test_run_uninstall_noop_when_clean(tmp_path: Path) -> None:
+    assert installer.run_uninstall(home=tmp_path) == []

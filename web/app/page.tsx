@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   Fingerprint, Code2, Zap, ShieldCheck, BrainCircuit, Network,
   Lock, Plug, ArrowRight, Activity, TrendingDown, Gauge,
@@ -12,7 +12,6 @@ import {
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
-import { Locale } from "@/lib/copy";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import BrandMark from "@/components/BrandMark";
@@ -26,6 +25,7 @@ export default function LandingPage() {
   const { locale, setLocale, t } = useTranslation();
   const [mounted, setMounted] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedSetup, setCopiedSetup] = useState(false);
   const [termIdx, setTermIdx] = useState(0);
   const [typed, setTyped] = useState(0);
   const termTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -70,6 +70,12 @@ export default function LandingPage() {
     navigator.clipboard.writeText("uvx oc-piloci install");
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const copySetup = () => {
+    navigator.clipboard.writeText("uvx oc-piloci setup");
+    setCopiedSetup(true);
+    setTimeout(() => setCopiedSetup(false), 2000);
   };
 
   useEffect(() => {
@@ -246,7 +252,7 @@ export default function LandingPage() {
           </div>
 
           {/* Install command */}
-          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl">
+          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-2">
             <button
               onClick={copyInstall}
               className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
@@ -256,7 +262,19 @@ export default function LandingPage() {
                 <span>uvx oc-piloci install</span>
               </span>
               <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                {copied ? "✓ 복사됨" : "복사"}
+                {copied ? t.common.copied : t.common.copy}
+              </span>
+            </button>
+            <button
+              onClick={copySetup}
+              className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
+            >
+              <span className="flex items-center gap-3">
+                <span className="text-muted-foreground">$</span>
+                <span>uvx oc-piloci setup</span>
+              </span>
+              <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                {copiedSetup ? t.common.copied : t.common.copy}
               </span>
             </button>
           </div>
