@@ -71,6 +71,18 @@ export interface ApiToken {
   hostname?: string | null;
 }
 
+export interface LLMProvider {
+  id: string;
+  name: string;
+  base_url: string;
+  model: string;
+  enabled: boolean;
+  priority: number;
+  api_key_masked?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface CreatedToken {
   token: string;
   token_id: string;

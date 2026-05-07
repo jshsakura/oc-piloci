@@ -171,6 +171,39 @@ export const api = {
   listAudit: (limit = 50, offset = 0, action?: string) =>
     request<import("./types").AuditLog[]>(`/api/audit?limit=${limit}&offset=${offset}${action ? `&action=${action}` : ''}`),
 
+  // LLM Providers (external OpenAI-compatible fallbacks)
+  listLLMProviders: () =>
+    request<import("./types").LLMProvider[]>("/api/llm-providers"),
+  createLLMProvider: (input: {
+    name: string;
+    base_url: string;
+    model: string;
+    api_key: string;
+    enabled?: boolean;
+    priority?: number;
+  }) =>
+    request<import("./types").LLMProvider>("/api/llm-providers", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateLLMProvider: (
+    id: string,
+    patch: Partial<{
+      name: string;
+      base_url: string;
+      model: string;
+      api_key: string;
+      enabled: boolean;
+      priority: number;
+    }>,
+  ) =>
+    request<import("./types").LLMProvider>(`/api/llm-providers/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  deleteLLMProvider: (id: string) =>
+    request(`/api/llm-providers/${id}`, { method: "DELETE" }),
+
   // Tokens
   listTokens: () => request<import("./types").ApiToken[]>("/api/tokens"),
   createToken: (name: string, scope: "project" | "user", project_id?: string, expire_days?: number | null) =>

@@ -71,4 +71,21 @@ async def load_user_fallbacks(user_id: str) -> list[ProviderTarget]:
                 label=f"provider:{row.name}",
             )
         )
+
+    # System-wide fallback from env. Goes after any user-defined providers so
+    # users who explicitly registered their own keys still hit those first.
+    if (
+        settings.external_llm_endpoint
+        and settings.external_llm_model
+        and settings.external_llm_api_key
+    ):
+        targets.append(
+            ProviderTarget(
+                endpoint=_normalize_endpoint(settings.external_llm_endpoint),
+                model=settings.external_llm_model,
+                api_key=settings.external_llm_api_key,
+                label=settings.external_llm_label,
+            )
+        )
+
     return targets

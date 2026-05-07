@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
 import { TokenManager } from "@/components/TokenManager";
+import { LLMProviderManager } from "@/components/LLMProviderManager";
 import { useAuthStore } from "@/lib/auth";
 import { api, type AuthProviderName } from "@/lib/api";
 import type { AuditLog } from "@/lib/types";
@@ -252,6 +253,7 @@ export default function SettingsPage() {
           <TabsTrigger value="account" className="flex-1">계정</TabsTrigger>
           <TabsTrigger value="security" className="flex-1">보안</TabsTrigger>
           <TabsTrigger value="tokens" className="flex-1">토큰</TabsTrigger>
+          <TabsTrigger value="llm" className="flex-1">LLM</TabsTrigger>
           <TabsTrigger value="data" className="flex-1">데이터</TabsTrigger>
           <TabsTrigger value="audit" className="flex-1">활동</TabsTrigger>
         </TabsList>
@@ -414,6 +416,10 @@ export default function SettingsPage() {
               <TokenManager />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="llm" className="mt-4">
+          <LLMProviderManager />
         </TabsContent>
 
         <TabsContent value="data" className="mt-4 space-y-4">

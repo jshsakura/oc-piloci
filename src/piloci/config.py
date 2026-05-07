@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     analyze_queue_maxsize: int = 128
     analyze_retry_after_sec: int = 5
 
+    # System-wide LLM fallback — applied after any user-defined providers in the
+    # chain. Used so a deployment can wire e.g. Z.AI as a backup without each
+    # user needing to register it individually. All three must be set together
+    # to take effect.
+    external_llm_endpoint: str | None = None
+    external_llm_model: str | None = None
+    external_llm_api_key: str | None = None
+    external_llm_label: str = "system-fallback"
+
     # Database (SQLite, M2+)
     database_url: str = "sqlite+aiosqlite:////data/piloci.db"
     sqlite_busy_timeout_ms: int = 5000
