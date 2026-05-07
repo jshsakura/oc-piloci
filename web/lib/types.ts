@@ -52,8 +52,10 @@ export interface TokenSetup {
   install_code?: string;
   /** Full URL clients pipe to bash. Token is never embedded — only the short code is. */
   install_url?: string;
-  /** Ready-to-paste one-liner: ``curl -sSL <install_url> | bash``. */
+  /** Ready-to-paste one-liner: ``curl -sSL <install_url> | bash`` (Linux/macOS). */
   install_command?: string;
+  /** Cross-platform alternative: ``uvx oc-piloci install <install_url>`` (Windows). */
+  install_command_windows?: string;
 }
 
 export interface ApiToken {

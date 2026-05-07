@@ -80,6 +80,7 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
   const hookInstallCmd = `mkdir -p ~/.config/piloci && curl -sSL -H "Authorization: Bearer ${data.token}" ${baseUrl}/api/hook/script -o ~/.config/piloci/hook.py`;
   const claudeMd = data.setup?.claude_md ?? null;
   const installCommand = data.setup?.install_command ?? null;
+  const installCommandWindows = data.setup?.install_command_windows ?? null;
   const defaultTab = installCommand ? "install" : hasHook ? "install" : "token";
 
   return (
@@ -114,11 +115,14 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
                   {t.tokenManager.quickInstallDesc}
                 </p>
                 {installCommand ? (
-                  <CopyBlock value={installCommand} />
+                  <CopyBlock value={installCommand} label="macOS / Linux (bash)" />
                 ) : (
                   <p className="text-xs text-destructive">
                     {t.tokenManager.quickInstallNoCode}
                   </p>
+                )}
+                {installCommandWindows && (
+                  <CopyBlock value={installCommandWindows} label="Windows / 크로스플랫폼 (uvx)" />
                 )}
               </div>
 
