@@ -214,6 +214,14 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
                 memories_extracted=saved_count,
             )
         )
+        if saved_count > 0:
+            from piloci.db.models import Project
+
+            await db.execute(
+                update(Project)
+                .where(Project.id == job.project_id)
+                .values(memory_count=Project.memory_count + saved_count)
+            )
         await db.commit()
 
     if saved_count > 0:

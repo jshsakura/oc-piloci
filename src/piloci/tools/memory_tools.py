@@ -276,6 +276,9 @@ def main():
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {token}",
+            # Cloudflare in front of piloci flags Python-urllib's default UA as
+            # bot traffic and returns 1010. A stable explicit UA passes.
+            "User-Agent": "piloci-hook",
         },
         method="POST",
     )

@@ -347,6 +347,7 @@ req = urllib.request.Request(
     headers={
         "Content-Type": "application/json",
         "Authorization": f"Bearer {token}",
+        "User-Agent": "piloci-stop-hook",
     },
     method="POST",
 )

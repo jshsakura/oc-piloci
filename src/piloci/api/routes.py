@@ -2163,6 +2163,18 @@ async def route_delete_memory(request: Request) -> Response:
     deleted = await store.delete(user_id=user_id, project_id=project_id, memory_id=memory_id)
     if not deleted:
         return _json({"error": "not found"}, 404)
+
+    from sqlalchemy import update as _upd
+
+    from piloci.db.models import Project
+
+    async with async_session() as db:
+        await db.execute(
+            _upd(Project)
+            .where(Project.id == project_id, Project.memory_count > 0)
+            .values(memory_count=Project.memory_count - 1)
+        )
+
     await invalidate_project_vault_cache(get_settings().vault_dir, user_id, project_id)
     return _json({"deleted": True})
 
@@ -2184,6 +2196,12 @@ async def route_clear_memories(request: Request) -> Response:
     store = request.app.state.store
     count = await store.clear_project(user_id=user_id, project_id=project_id)
     if count > 0:
+        from sqlalchemy import update as _upd
+
+        from piloci.db.models import Project
+
+        async with async_session() as db:
+            await db.execute(_upd(Project).where(Project.id == project_id).values(memory_count=0))
         await invalidate_project_vault_cache(get_settings().vault_dir, user_id, project_id)
     return _json({"cleared": True, "count": count})
 
