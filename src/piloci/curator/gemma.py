@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-"""OpenAI-compatible HTTP client for local Gemma (llama-server on :9090)."""
+"""OpenAI-compatible HTTP client for local Gemma (llama-server on :9090).
+
+Supports a fallback chain: primary endpoint first, then any number of
+OpenAI-compatible external providers (e.g. Z.AI, OpenAI, Together) supplied
+by the caller. Used by curator workers so that when Gemma's single CPU slot
+is saturated they can spill over to a hosted provider instead of stalling.
+"""
 
 import asyncio
 import logging
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -12,7 +19,8 @@ import orjson
 
 logger = logging.getLogger(__name__)
 
-# Limit concurrent Gemma calls to protect Pi 5 CPU
+# Limit concurrent Gemma calls to protect Pi 5 CPU. Only applies to the local
+# (no-auth) endpoint — external providers don't share the slot.
 _semaphore: asyncio.Semaphore | None = None
 
 
@@ -23,6 +31,80 @@ def _get_semaphore() -> asyncio.Semaphore:
     return _semaphore
 
 
+@dataclass
+class ProviderTarget:
+    """One endpoint to try in the fallback chain."""
+
+    endpoint: str
+    model: str
+    api_key: str | None = None  # Bearer auth for external OpenAI-compatible APIs
+    label: str = "primary"  # for logging
+
+
+async def _call_one(
+    target: ProviderTarget,
+    messages: list[dict[str, str]],
+    *,
+    temperature: float,
+    max_tokens: int,
+    timeout: float,
+    retries: int,
+) -> dict[str, Any]:
+    """Run the existing retry loop against a single provider target."""
+    last_err: Exception | None = None
+    headers = {}
+    if target.api_key:
+        headers["Authorization"] = f"Bearer {target.api_key}"
+
+    # Local Gemma: hold the CPU semaphore. External providers: don't —
+    # otherwise primary failures still serialize on the Pi 5 slot.
+    use_semaphore = not target.api_key
+
+    async def _do() -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for attempt in range(retries):
+                try:
+                    resp = await client.post(
+                        target.endpoint,
+                        json={
+                            "model": target.model,
+                            "messages": messages,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens,
+                            "response_format": {"type": "json_object"},
+                        },
+                        headers=headers or None,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    text = data["choices"][0]["message"]["content"]
+                    text = text.strip()
+                    if text.startswith("```"):
+                        text = text.split("```", 2)[1]
+                        if text.startswith("json"):
+                            text = text[4:]
+                        text = text.strip("`\n ")
+                    return orjson.loads(text)
+                except (httpx.HTTPError, orjson.JSONDecodeError, KeyError) as exc:
+                    nonlocal last_err
+                    last_err = exc
+                    logger.warning(
+                        "%s call attempt %d/%d failed: %s",
+                        target.label,
+                        attempt + 1,
+                        retries,
+                        exc,
+                    )
+                    if attempt + 1 < retries:
+                        await asyncio.sleep(2**attempt)
+        raise ValueError(f"{target.label} failed after {retries} retries: {last_err}")
+
+    if use_semaphore:
+        async with _get_semaphore():
+            return await _do()
+    return await _do()
+
+
 async def chat_json(
     messages: list[dict[str, str]],
     endpoint: str = "http://localhost:9090/v1/chat/completions",
@@ -31,49 +113,36 @@ async def chat_json(
     max_tokens: int = 1024,
     timeout: float = 120.0,
     retries: int = 3,
+    fallbacks: list[ProviderTarget] | None = None,
 ) -> dict[str, Any]:
-    """Call Gemma and parse its response as JSON.
+    """Call the primary LLM and parse its response as JSON; cascade to fallbacks.
 
-    Returns the parsed JSON object from the assistant reply.
-    Raises ValueError on parse failure after all retries.
+    The primary defaults to local Gemma. ``fallbacks`` are tried in the order
+    given when the primary exhausts its retries (or any fallback fails). The
+    first successful call wins. Each target gets its own retry budget.
+
+    Raises ValueError when every target has been exhausted.
     """
+    targets = [ProviderTarget(endpoint=endpoint, model=model, label="primary")]
+    if fallbacks:
+        targets.extend(fallbacks)
+
     last_err: Exception | None = None
-    async with _get_semaphore():
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            for attempt in range(retries):
-                try:
-                    resp = await client.post(
-                        endpoint,
-                        json={
-                            "model": model,
-                            "messages": messages,
-                            "temperature": temperature,
-                            "max_tokens": max_tokens,
-                            "response_format": {"type": "json_object"},
-                        },
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                    text = data["choices"][0]["message"]["content"]
-                    # Gemma sometimes wraps in ```json ... ``` fences
-                    text = text.strip()
-                    if text.startswith("```"):
-                        text = text.split("```", 2)[1]
-                        if text.startswith("json"):
-                            text = text[4:]
-                        text = text.strip("`\n ")
-                    return orjson.loads(text)
-                except (httpx.HTTPError, orjson.JSONDecodeError, KeyError) as e:
-                    last_err = e
-                    logger.warning(
-                        "Gemma call attempt %d/%d failed: %s",
-                        attempt + 1,
-                        retries,
-                        e,
-                    )
-                    if attempt + 1 < retries:
-                        await asyncio.sleep(2**attempt)
-    raise ValueError(f"Gemma call failed after {retries} retries: {last_err}")
+    for target in targets:
+        try:
+            return await _call_one(
+                target,
+                messages,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                timeout=timeout,
+                retries=retries,
+            )
+        except Exception as exc:
+            last_err = exc
+            logger.warning("LLM target %s exhausted: %s", target.label, exc)
+            continue
+    raise ValueError(f"All LLM targets failed: {last_err}")
 
 
 async def chat_stream(

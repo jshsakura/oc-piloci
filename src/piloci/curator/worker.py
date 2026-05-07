@@ -71,7 +71,9 @@ def _shorten_transcript(transcript: list[dict[str, object]], max_chars: int = 80
 
 
 async def _extract_memories(
-    transcript: list[dict[str, object]], settings: Settings
+    transcript: list[dict[str, object]],
+    settings: Settings,
+    user_id: str,
 ) -> list[dict[str, object]]:
     max_chars = getattr(settings, "curator_transcript_max_chars", 8000)
     text = _shorten_transcript(transcript, max_chars=max_chars)
@@ -79,10 +81,14 @@ async def _extract_memories(
         {"role": "system", "content": _EXTRACT_SYSTEM},
         {"role": "user", "content": _EXTRACT_USER_TEMPLATE.format(transcript=text)},
     ]
+    from piloci.curator.llm_providers import load_user_fallbacks
+
+    fallbacks = await load_user_fallbacks(user_id)
     result = await chat_json(
         messages,
         endpoint=settings.gemma_endpoint,
         model=settings.gemma_model,
+        fallbacks=fallbacks,
     )
     memories = result.get("memories", [])
     if not isinstance(memories, list):
@@ -139,7 +145,7 @@ async def _process_job(job: IngestJob, settings: Settings, store: MemoryStore) -
         transcript = orjson.loads(row.transcript_json)
 
     try:
-        memories = await _extract_memories(transcript, settings)
+        memories = await _extract_memories(transcript, settings, job.user_id)
     except Exception as e:
         logger.exception("Gemma extraction failed for %s: %s", job.ingest_id, e)
         async with async_session() as db:

@@ -79,9 +79,12 @@ async def test_extract_memories_parses_gemma_output(settings):
         ]
     }
 
-    with patch.object(w, "chat_json", AsyncMock(return_value=gemma_payload)):
+    with (
+        patch.object(w, "chat_json", AsyncMock(return_value=gemma_payload)),
+        patch("piloci.curator.llm_providers.load_user_fallbacks", AsyncMock(return_value=[])),
+    ):
         transcript: list[dict[str, Any]] = [{"role": "user", "content": "I like dark mode"}]
-        result = await w._extract_memories(transcript, settings)
+        result = await w._extract_memories(transcript, settings, "user-1")
 
     assert len(result) == 2  # extractor returns raw list; caller filters empties
     assert result[0]["content"] == "user prefers dark mode"

@@ -861,6 +861,233 @@ async def route_list_tokens(request: Request) -> Response:
 _ALLOWED_CLIENT_KINDS = {"claude", "opencode"}
 
 
+# ---------------------------------------------------------------------------
+# LLM Providers — user-managed external OpenAI-compatible fallbacks
+# ---------------------------------------------------------------------------
+
+
+def _mask_api_key(key: str) -> str:
+    """Show only first/last 4 chars so the UI can confirm 'this is the right one'
+    without leaking the secret. Anything ≤8 chars is fully masked."""
+    if len(key) <= 8:
+        return "•" * len(key)
+    return f"{key[:4]}{'•' * 8}{key[-4:]}"
+
+
+def _serialize_provider(p, *, masked_key: str | None = None) -> dict[str, Any]:
+    return {
+        "id": p.id,
+        "name": p.name,
+        "base_url": p.base_url,
+        "model": p.model,
+        "enabled": bool(p.enabled),
+        "priority": p.priority,
+        "api_key_masked": masked_key,
+        "created_at": p.created_at.isoformat(),
+        "updated_at": p.updated_at.isoformat(),
+    }
+
+
+async def route_list_llm_providers(request: Request) -> Response:
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    from sqlalchemy import select
+
+    from piloci.auth.crypto import decrypt_token
+    from piloci.db.models import LLMProvider
+
+    settings = get_settings()
+    async with async_session() as db:
+        rows = (
+            (
+                await db.execute(
+                    select(LLMProvider)
+                    .where(LLMProvider.user_id == _uid(user))
+                    .order_by(LLMProvider.priority.asc(), LLMProvider.created_at.asc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    out = []
+    for p in rows:
+        try:
+            masked = _mask_api_key(decrypt_token(p.api_key_encrypted, settings))
+        except Exception:
+            masked = "(decrypt failed)"
+        out.append(_serialize_provider(p, masked_key=masked))
+    return _json(out)
+
+
+async def route_create_llm_provider(request: Request) -> Response:
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "Invalid JSON"}, 400)
+
+    name = (body.get("name") or "").strip()
+    base_url = (body.get("base_url") or "").strip()
+    model = (body.get("model") or "").strip()
+    api_key = (body.get("api_key") or "").strip()
+    if not name or not base_url or not model or not api_key:
+        return _json({"error": "name, base_url, model, api_key are required"}, 400)
+    if len(name) > 100 or len(base_url) > 500 or len(model) > 100 or len(api_key) > 500:
+        return _json({"error": "field too long"}, 422)
+    if not (base_url.startswith("http://") or base_url.startswith("https://")):
+        return _json({"error": "base_url must start with http(s)://"}, 422)
+
+    enabled = bool(body.get("enabled", True))
+    priority_raw = body.get("priority", 100)
+    try:
+        priority = int(priority_raw)
+    except (TypeError, ValueError):
+        return _json({"error": "priority must be an integer"}, 422)
+    if not 0 <= priority <= 1000:
+        return _json({"error": "priority must be between 0 and 1000"}, 422)
+
+    from piloci.auth.crypto import encrypt_token
+    from piloci.db.models import LLMProvider
+
+    settings = get_settings()
+    encrypted = encrypt_token(api_key, settings)
+    now = datetime.now(timezone.utc)
+    provider = LLMProvider(
+        id=str(uuid.uuid4()),
+        user_id=_uid(user),
+        name=name,
+        base_url=base_url,
+        model=model,
+        api_key_encrypted=encrypted,
+        enabled=enabled,
+        priority=priority,
+        created_at=now,
+        updated_at=now,
+    )
+    async with async_session() as db:
+        db.add(provider)
+        await db.flush()
+
+    return _json(_serialize_provider(provider, masked_key=_mask_api_key(api_key)), 201)
+
+
+async def route_update_llm_provider(request: Request) -> Response:
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    provider_id = request.path_params.get("id")
+    if not isinstance(provider_id, str) or not provider_id:
+        return _json({"error": "provider id required"}, 400)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "Invalid JSON"}, 400)
+
+    from sqlalchemy import select, update
+
+    from piloci.auth.crypto import encrypt_token
+    from piloci.db.models import LLMProvider
+
+    settings = get_settings()
+    updates: dict[str, Any] = {}
+    if "name" in body:
+        name = (body.get("name") or "").strip()
+        if not name or len(name) > 100:
+            return _json({"error": "name invalid"}, 422)
+        updates["name"] = name
+    if "base_url" in body:
+        url = (body.get("base_url") or "").strip()
+        if (
+            not url
+            or len(url) > 500
+            or not (url.startswith("http://") or url.startswith("https://"))
+        ):
+            return _json({"error": "base_url invalid"}, 422)
+        updates["base_url"] = url
+    if "model" in body:
+        model = (body.get("model") or "").strip()
+        if not model or len(model) > 100:
+            return _json({"error": "model invalid"}, 422)
+        updates["model"] = model
+    if "api_key" in body:
+        key = (body.get("api_key") or "").strip()
+        if not key or len(key) > 500:
+            return _json({"error": "api_key invalid"}, 422)
+        updates["api_key_encrypted"] = encrypt_token(key, settings)
+    if "enabled" in body:
+        updates["enabled"] = bool(body.get("enabled"))
+    if "priority" in body:
+        try:
+            pri = int(body.get("priority"))
+        except (TypeError, ValueError):
+            return _json({"error": "priority must be an integer"}, 422)
+        if not 0 <= pri <= 1000:
+            return _json({"error": "priority must be between 0 and 1000"}, 422)
+        updates["priority"] = pri
+
+    if not updates:
+        return _json({"error": "no editable fields supplied"}, 422)
+    updates["updated_at"] = datetime.now(timezone.utc)
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(LLMProvider).where(
+                LLMProvider.id == provider_id, LLMProvider.user_id == _uid(user)
+            )
+        )
+        row = result.scalar_one_or_none()
+        if not row:
+            return _json({"error": "Not found"}, 404)
+        await db.execute(update(LLMProvider).where(LLMProvider.id == provider_id).values(**updates))
+        row = (
+            await db.execute(select(LLMProvider).where(LLMProvider.id == provider_id))
+        ).scalar_one()
+
+    from piloci.auth.crypto import decrypt_token
+
+    try:
+        masked = _mask_api_key(decrypt_token(row.api_key_encrypted, settings))
+    except Exception:
+        masked = "(decrypt failed)"
+    return _json(_serialize_provider(row, masked_key=masked))
+
+
+async def route_delete_llm_provider(request: Request) -> Response:
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    provider_id = request.path_params.get("id")
+    if not isinstance(provider_id, str) or not provider_id:
+        return _json({"error": "provider id required"}, 400)
+
+    from sqlalchemy import delete, select
+
+    from piloci.db.models import LLMProvider
+
+    async with async_session() as db:
+        row = (
+            await db.execute(
+                select(LLMProvider).where(
+                    LLMProvider.id == provider_id, LLMProvider.user_id == _uid(user)
+                )
+            )
+        ).scalar_one_or_none()
+        if not row:
+            return _json({"error": "Not found"}, 404)
+        await db.execute(delete(LLMProvider).where(LLMProvider.id == provider_id))
+
+    return _json({"deleted": True})
+
+
 async def route_install_heartbeat(request: Request) -> Response:
     """One-shot ping fired by the CLI after ``run_install`` succeeds.
 
@@ -2751,6 +2978,10 @@ def get_routes() -> list[Route]:
         Route("/api/tokens", route_create_token, methods=["POST"]),
         Route("/api/tokens/{id}", route_revoke_token, methods=["DELETE"]),
         Route("/api/install/heartbeat", route_install_heartbeat, methods=["POST"]),
+        Route("/api/llm-providers", route_list_llm_providers, methods=["GET"]),
+        Route("/api/llm-providers", route_create_llm_provider, methods=["POST"]),
+        Route("/api/llm-providers/{id}", route_update_llm_provider, methods=["PATCH"]),
+        Route("/api/llm-providers/{id}", route_delete_llm_provider, methods=["DELETE"]),
         Route("/api/audit", route_list_audit, methods=["GET"]),
         Route("/api/account/2fa/enable", route_2fa_enable, methods=["POST"]),
         Route("/api/account/2fa/confirm", route_2fa_confirm, methods=["POST"]),

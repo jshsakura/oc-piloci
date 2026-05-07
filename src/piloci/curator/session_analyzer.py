@@ -60,10 +60,13 @@ async def extract_instincts(
     transcript: str,
     endpoint: str = "http://localhost:9090/v1/chat/completions",
     model: str = "gemma",
+    fallbacks: list | None = None,
 ) -> list[dict[str, str]]:
     """Call Gemma to extract instincts from a session transcript.
 
     Returns a list of validated instinct dicts. Returns [] on failure.
+    ``fallbacks`` is forwarded to ``chat_json`` so external providers (e.g.
+    Z.AI) take over when local Gemma is unavailable.
     """
     if not transcript or not transcript.strip():
         return []
@@ -84,6 +87,7 @@ async def extract_instincts(
             model=model,
             temperature=0.1,
             max_tokens=1024,
+            fallbacks=fallbacks,
         )
     except Exception as exc:
         logger.warning("session_analyzer: Gemma call failed: %s", exc)

@@ -183,6 +183,32 @@ class RawSession(Base):
     )
 
 
+class LLMProvider(Base):
+    """User-managed external LLM endpoint used as fallback when Gemma is busy.
+
+    OpenAI-compatible only — provider exposes ``POST {base_url}/chat/completions``
+    or ``{base_url}/v1/chat/completions``. ``api_key`` is encrypted at rest
+    using ``auth.crypto.encrypt_token``.
+    """
+
+    __tablename__ = "llm_providers"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    base_url: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    priority: Mapped[int] = mapped_column(Integer, default=100)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (Index("idx_llm_providers_user", "user_id", "enabled", "priority"),)
+
+
 class RawAnalysis(Base):
     """Raw transcript dump from Stop hooks, awaiting Gemma instinct extraction.
 

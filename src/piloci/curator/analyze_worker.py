@@ -42,11 +42,16 @@ async def _process_analyze_job(
 
     transcript = row.transcript
 
+    from piloci.curator.llm_providers import load_user_fallbacks
+
+    fallbacks = await load_user_fallbacks(job.user_id)
+
     try:
         raw_instincts = await extract_instincts(
             transcript=transcript,
             endpoint=settings.gemma_endpoint,
             model=settings.gemma_model,
+            fallbacks=fallbacks,
         )
     except Exception as e:
         logger.exception("analyze_worker: extraction failed for %s", job.analyze_id)

@@ -23,20 +23,22 @@ export function VaultNoteDetail({ note }: VaultNoteDetailProps) {
   }
 
   return (
-    <Card>
+    <Card className="min-w-0 overflow-hidden">
       <CardHeader>
-        <CardTitle>{note.title}</CardTitle>
+        <CardTitle className="break-words">{note.title}</CardTitle>
         <div className="flex flex-wrap gap-1.5 pt-2">
           {note.tags.map((tag) => (
-            <Badge key={tag} variant="secondary">#{tag}</Badge>
+            <Badge key={tag} variant="secondary" className="break-all">
+              #{tag}
+            </Badge>
           ))}
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-4 rounded-md bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
+        <div className="mb-4 break-all rounded-md bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
           {note.path}
         </div>
-        <pre className="max-h-[400px] overflow-y-auto whitespace-pre-wrap break-words rounded-md border bg-muted/50 p-4 text-sm">
+        <pre className="max-h-[400px] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-all rounded-md border bg-muted/50 p-4 text-sm">
           {note.markdown ?? note.excerpt}
         </pre>
         {!note.markdown && (

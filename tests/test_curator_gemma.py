@@ -61,7 +61,7 @@ async def test_chat_json_retries_on_failure(monkeypatch):
 
     call_count = 0
 
-    async def fake_post(url, json):
+    async def fake_post(url, json, headers=None):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -89,7 +89,7 @@ async def test_chat_json_retries_on_failure(monkeypatch):
 async def test_chat_json_raises_after_all_retries(monkeypatch):
     import httpx
 
-    async def always_fail(url, json):
+    async def always_fail(url, json, headers=None):
         raise httpx.HTTPError("down")
 
     mock_client = AsyncMock()
