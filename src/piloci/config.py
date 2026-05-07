@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     curator_transcript_max_chars: int = 8000
     ingest_queue_maxsize: int = 128
     ingest_retry_after_sec: int = 5
+    analyze_queue_maxsize: int = 128
+    analyze_retry_after_sec: int = 5
 
     # Database (SQLite, M2+)
     database_url: str = "sqlite+aiosqlite:////data/piloci.db"
@@ -133,6 +135,7 @@ class Settings(BaseSettings):
         self.embed_executor_workers = 1
         self.embed_max_concurrency = 1
         self.ingest_queue_maxsize = min(self.ingest_queue_maxsize, 64)
+        self.analyze_queue_maxsize = min(self.analyze_queue_maxsize, 64)
         self.profile_refresh_min_interval_sec = max(self.profile_refresh_min_interval_sec, 1800)
         self.curator_queue_poll_timeout_sec = max(self.curator_queue_poll_timeout_sec, 10.0)
         self.curator_profile_project_limit = min(self.curator_profile_project_limit, 25)

@@ -183,6 +183,40 @@ class RawSession(Base):
     )
 
 
+class RawAnalysis(Base):
+    """Raw transcript dump from Stop hooks, awaiting Gemma instinct extraction.
+
+    Persisted so analyze can ack the client immediately (HTTP 202) and process
+    in the background — escapes Cloudflare's 100s origin timeout for synchronous
+    requests. Restart-safe: on startup, rows with processed_at IS NULL are
+    re-queued so nothing is lost if the worker dies mid-flight.
+    """
+
+    __tablename__ = "raw_analyses"
+
+    analyze_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False
+    )
+    transcript: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    instincts_extracted: Mapped[int] = mapped_column(Integer, default=0)
+
+    __table_args__ = (
+        Index(
+            "idx_raw_analyses_unprocessed",
+            "processed_at",
+            sqlite_where=text("processed_at IS NULL"),
+        ),
+        Index("idx_raw_analyses_user_project", "user_id", "project_id"),
+    )
+
+
 class UserProfile(Base):
     """Gemma-generated profile summary per (user, project). Exposed via Resource."""
 

@@ -2496,10 +2496,6 @@ async def test_route_analyze_session_guards() -> None:
     response = await routes.route_analyze_session(_make_request(user=None))
     assert response.status_code == 401
 
-    # Missing project scope
-    response = await routes.route_analyze_session(_make_request({}, user={"sub": "u1"}))
-    assert response.status_code == 400
-
     # Invalid JSON
     request = _make_request(user={"sub": "u1", "project_id": "p1"})
 
@@ -2516,14 +2512,80 @@ async def test_route_analyze_session_guards() -> None:
     )
     assert response.status_code == 400
 
-    # No instincts store
-    request = _make_request(
-        {"transcript": "hello"},
-        user={"sub": "u1", "project_id": "p1"},
-        app=SimpleNamespace(state=SimpleNamespace()),
+    # User-scoped without cwd → 400
+    response = await routes.route_analyze_session(
+        _make_request({"transcript": "hello"}, user={"sub": "u1"})
     )
-    response = await routes.route_analyze_session(request)
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_route_analyze_session_enqueues_and_returns_202(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from piloci.api import routes
+    from piloci.curator import analyze_queue
+
+    analyze_queue.reset_analyze_queue()
+
+    db = _db_session()
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+
+    response = await routes.route_analyze_session(
+        _make_request(
+            {"transcript": "hello world"},
+            user={"sub": "u1", "project_id": "p1"},
+        )
+    )
+    body = orjson.loads(response.body)
+    assert response.status_code == 202
+    assert body["queued"] is True
+    assert "analyze_id" in body
+    # Row was inserted before enqueue
+    db.add.assert_called_once()
+    # Job actually landed in the queue
+    queue = analyze_queue.get_analyze_queue()
+    assert queue.qsize() == 1
+    job = queue.get_nowait()
+    assert job.user_id == "u1"
+    assert job.project_id == "p1"
+
+    analyze_queue.reset_analyze_queue()
+
+
+@pytest.mark.asyncio
+async def test_route_analyze_session_503_when_queue_full(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from piloci.api import routes
+    from piloci.curator import analyze_queue
+
+    analyze_queue.reset_analyze_queue()
+    # Saturate the queue with a tiny capacity.
+    full_queue = analyze_queue.get_analyze_queue(maxsize=1)
+    full_queue.put_nowait(analyze_queue.AnalyzeJob(analyze_id="pre", user_id="u", project_id="p"))
+
+    monkeypatch.setattr(
+        routes,
+        "get_settings",
+        lambda: SimpleNamespace(analyze_queue_maxsize=1, analyze_retry_after_sec=5),
+    )
+    db = _db_session()
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+
+    response = await routes.route_analyze_session(
+        _make_request(
+            {"transcript": "x"},
+            user={"sub": "u1", "project_id": "p1"},
+        )
+    )
+    body = orjson.loads(response.body)
     assert response.status_code == 503
+    assert body["retry_after_sec"] == 5
+    # Row was still persisted — startup recovery will pick it up.
+    db.add.assert_called_once()
+
+    analyze_queue.reset_analyze_queue()
 
 
 # ---------------------------------------------------------------------------

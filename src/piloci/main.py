@@ -234,6 +234,7 @@ async def _startup(app, store, stop_event, bg_tasks, instincts_store=None) -> No
     logger.info("Maintenance worker started")
 
     if settings.curator_enabled:
+        from piloci.curator.analyze_worker import process_unfinished_analyses, run_analyze_worker
         from piloci.curator.profile import run_profile_worker
         from piloci.curator.worker import process_unfinished, run_worker
 
@@ -243,6 +244,14 @@ async def _startup(app, store, stop_event, bg_tasks, instincts_store=None) -> No
         bg_tasks.append(asyncio.create_task(run_worker(settings, store, stop_event)))
         bg_tasks.append(asyncio.create_task(run_profile_worker(settings, store, stop_event)))
         logger.info("Curator + profile workers started")
+
+        if instincts_store is not None:
+            requeued_analyses = await process_unfinished_analyses(settings)
+            logger.info("Re-queued %d unprocessed analyses", requeued_analyses)
+            bg_tasks.append(
+                asyncio.create_task(run_analyze_worker(settings, instincts_store, stop_event))
+            )
+            logger.info("Analyze worker started")
 
 
 async def _shutdown(store, stop_event, bg_tasks) -> None:

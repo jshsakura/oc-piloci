@@ -2392,58 +2392,43 @@ async def route_analyze_session(request: Request) -> Response:
             return _json({"error": f"no project found for slug '{slug}' — run init first"}, 404)
         project_id = row
 
-    instincts_store = getattr(request.app.state, "instincts_store", None)
-    if instincts_store is None:
-        return _json({"error": "instincts store not available"}, 503)
-
     settings = get_settings()
 
-    try:
-        from piloci.curator.session_analyzer import extract_instincts
-        from piloci.storage import embed as _embed_mod
+    # Persist the transcript first, then enqueue. This way restarts and crashes
+    # don't lose work — the worker's startup recovery re-queues unprocessed
+    # rows. Returning 202 immediately escapes Cloudflare's 100s origin timeout
+    # for the synchronous Gemma extraction path.
+    from piloci.curator.analyze_queue import AnalyzeJob, try_enqueue_analyze
+    from piloci.db.models import RawAnalysis
 
-        raw_instincts = await extract_instincts(
-            transcript=transcript,
-            endpoint=settings.gemma_endpoint,
-            model=settings.gemma_model,
-        )
-    except Exception:
-        logger.exception("session_analyze: extraction failed")
-        return _json({"error": "extraction failed"}, 500)
-
-    saved = []
-    for inst in raw_instincts:
-        try:
-            combined = f"{inst['trigger']} {inst['action']}"
-            vector = await _embed_mod.embed_one(
-                text=combined,
-                model=settings.embed_model,
-                cache_dir=settings.embed_cache_dir,
-                lru_size=settings.embed_lru_size,
-                executor_workers=settings.embed_executor_workers,
-                max_concurrency=settings.embed_max_concurrency,
-            )
-            result = await instincts_store.observe(
+    analyze_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        db.add(
+            RawAnalysis(
+                analyze_id=analyze_id,
                 user_id=user_id,
                 project_id=project_id,
-                trigger=inst["trigger"],
-                action=inst["action"],
-                domain=inst.get("domain", "other"),
-                evidence_note=inst.get("evidence", ""),
-                vector=vector,
+                transcript=transcript,
+                created_at=now,
             )
-            saved.append(
-                {
-                    "instinct_id": result["instinct_id"],
-                    "domain": result["domain"],
-                    "confidence": result["confidence"],
-                    "instinct_count": result["instinct_count"],
-                }
-            )
-        except Exception:
-            logger.exception("session_analyze: failed to store instinct")
+        )
+        await db.flush()
 
-    return _json({"extracted": len(raw_instincts), "saved": len(saved), "instincts": saved})
+    job = AnalyzeJob(analyze_id=analyze_id, user_id=user_id, project_id=project_id)
+    if not try_enqueue_analyze(job, maxsize=settings.analyze_queue_maxsize):
+        # Queue saturated — row stays unprocessed in DB and the next startup or
+        # the maintenance sweep will requeue. Tell the client to back off.
+        return _json(
+            {
+                "error": "analyze queue full — try again shortly",
+                "analyze_id": analyze_id,
+                "retry_after_sec": settings.analyze_retry_after_sec,
+            },
+            503,
+        )
+
+    return _json({"queued": True, "analyze_id": analyze_id}, 202)
 
 
 async def route_healthz(request: Request) -> Response:

@@ -314,6 +314,15 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
         coro.close()
         return f"task-{created_task_count}"
 
+    process_unfinished_analyses_mock = AsyncMock(return_value=2)
+
+    async def analyze_worker(
+        received_settings: object,
+        received_store: object,
+        stop_event: asyncio.Event,
+    ):
+        await stop_event.wait()
+
     maintenance_module = types.ModuleType("piloci.ops.maintenance")
     maintenance_module.run_maintenance_worker = maintenance_worker
     profile_module = types.ModuleType("piloci.curator.profile")
@@ -321,6 +330,9 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     worker_module = types.ModuleType("piloci.curator.worker")
     worker_module.process_unfinished = process_unfinished_mock
     worker_module.run_worker = curator_worker
+    analyze_worker_module = types.ModuleType("piloci.curator.analyze_worker")
+    analyze_worker_module.process_unfinished_analyses = process_unfinished_analyses_mock
+    analyze_worker_module.run_analyze_worker = analyze_worker
 
     monkeypatch.setattr("piloci.main.get_settings", lambda: settings)
     monkeypatch.setattr("piloci.main.init_db", init_db_mock)
@@ -330,6 +342,7 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
         patch_ctx.setitem(sys.modules, "piloci.ops.maintenance", maintenance_module)
         patch_ctx.setitem(sys.modules, "piloci.curator.profile", profile_module)
         patch_ctx.setitem(sys.modules, "piloci.curator.worker", worker_module)
+        patch_ctx.setitem(sys.modules, "piloci.curator.analyze_worker", analyze_worker_module)
 
         stop_event = asyncio.Event()
         bg_tasks: list[object] = []
@@ -340,8 +353,9 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     store.ensure_collection.assert_awaited_once()
     instincts_store.ensure_collection.assert_awaited_once()
     process_unfinished_mock.assert_awaited_once_with(settings, store)
-    assert created_task_count == 3
-    assert bg_tasks == ["task-1", "task-2", "task-3"]
+    process_unfinished_analyses_mock.assert_awaited_once_with(settings)
+    assert created_task_count == 4
+    assert bg_tasks == ["task-1", "task-2", "task-3", "task-4"]
 
 
 @pytest.mark.asyncio
