@@ -2355,8 +2355,6 @@ async def route_analyze_session(request: Request) -> Response:
     project_id = user.get("project_id")
     if not isinstance(user_id, str) or not user_id:
         return _json({"error": "user_id required"}, 400)
-    if not isinstance(project_id, str) or not project_id:
-        return _json({"error": "project scope required — use a project-scoped token"}, 400)
 
     try:
         body = orjson.loads(await request.body())
@@ -2366,6 +2364,33 @@ async def route_analyze_session(request: Request) -> Response:
     transcript = body.get("transcript")
     if not isinstance(transcript, str) or not transcript.strip():
         return _json({"error": "transcript required"}, 400)
+
+    # User-scoped token: resolve project from cwd slug (matches ingest route).
+    if not isinstance(project_id, str) or not project_id:
+        cwd = (body.get("cwd") or "").strip()
+        if not cwd:
+            return _json(
+                {"error": "project scope required — use a project-scoped token or include cwd"},
+                400,
+            )
+        from piloci.tools.memory_tools import cwd_to_slug
+
+        slug = cwd_to_slug(cwd)
+        from sqlalchemy import select as _sel
+
+        from piloci.db.models import Project
+
+        async with async_session() as db:
+            row = (
+                await db.execute(
+                    _sel(Project.id)
+                    .where(Project.user_id == user_id, Project.slug == slug)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+        if row is None:
+            return _json({"error": f"no project found for slug '{slug}' — run init first"}, 404)
+        project_id = row
 
     instincts_store = getattr(request.app.state, "instincts_store", None)
     if instincts_store is None:

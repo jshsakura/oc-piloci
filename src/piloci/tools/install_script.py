@@ -326,8 +326,15 @@ if [ "$MSG_COUNT" -lt 4 ]; then
     exit 0
 fi
 
+# Pull cwd off STDIN payload so the server can resolve user-scoped tokens
+# to a project via slug — without it the analyze route 400s with
+# "project scope required".
+PILOCI_CWD=$(printf '%s' "$STDIN_DATA" | python3 -c \\
+    "import sys, json, os; d=json.load(sys.stdin); print(d.get('cwd', '') or os.getcwd())" \\
+    2>/dev/null || pwd)
+
 PILOCI_TOKEN="$PILOCI_TOKEN" PILOCI_URL="$PILOCI_URL" \\
-    PILOCI_TRANSCRIPT="$TRANSCRIPT_FILE" python3 - <<'PYEOF'
+    PILOCI_TRANSCRIPT="$TRANSCRIPT_FILE" PILOCI_CWD="$PILOCI_CWD" python3 - <<'PYEOF'
 import json
 import os
 import urllib.error
@@ -336,11 +343,15 @@ import urllib.request
 url = os.environ["PILOCI_URL"]
 token = os.environ["PILOCI_TOKEN"]
 fn = os.environ["PILOCI_TRANSCRIPT"]
+cwd = os.environ.get("PILOCI_CWD", "")
 try:
     transcript = open(fn, "rb").read().decode("utf-8", "ignore")
 except OSError:
     raise SystemExit(0)
-payload = json.dumps({"transcript": transcript}).encode()
+body = {"transcript": transcript}
+if cwd:
+    body["cwd"] = cwd
+payload = json.dumps(body).encode()
 req = urllib.request.Request(
     url,
     data=payload,
