@@ -148,6 +148,11 @@ export const api = {
   listProjects: () => request<import("./types").Project[]>("/api/projects"),
   createProject: (slug: string, name: string, description?: string) =>
     request("/api/projects", { method: "POST", body: JSON.stringify({ slug, name, description }) }),
+  updateProject: (id: string, patch: { name?: string; description?: string | null }) =>
+    request<import("./types").Project>(`/api/projects/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   projectWorkspace: (slug: string) =>
     request<import("./types").ProjectWorkspace>(`/api/projects/slug/${slug}/workspace/preview`),
   deleteProject: (id: string) =>

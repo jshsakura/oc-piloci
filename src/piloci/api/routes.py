@@ -417,6 +417,69 @@ async def route_create_project(request: Request) -> Response:
         return _json({"error": "Internal server error"}, 500)
 
 
+async def route_update_project(request: Request) -> Response:
+    """PATCH /api/projects/{id} — update editable fields (name, description).
+
+    Slug stays immutable on purpose: it keys vault paths and project-scoped
+    tokens; renaming would orphan existing memories.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    project_id = request.path_params.get("id")
+    if not isinstance(project_id, str) or not project_id:
+        return _json({"error": "project id required"}, 400)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "Invalid JSON"}, 400)
+
+    updates: dict[str, Any] = {}
+    if "name" in body:
+        name = (body.get("name") or "").strip()
+        if not name:
+            return _json({"error": "name must not be empty"}, 422)
+        if len(name) > 200:
+            return _json({"error": "name must be <= 200 chars"}, 422)
+        updates["name"] = name
+    if "description" in body:
+        desc = body.get("description")
+        if desc is not None and not isinstance(desc, str):
+            return _json({"error": "description must be a string or null"}, 422)
+        if isinstance(desc, str) and len(desc) > 2000:
+            return _json({"error": "description must be <= 2000 chars"}, 422)
+        updates["description"] = desc.strip() if isinstance(desc, str) else None
+
+    if not updates:
+        return _json({"error": "no editable fields supplied (name, description)"}, 422)
+
+    from sqlalchemy import select, update
+
+    from piloci.db.models import Project
+
+    updates["updated_at"] = datetime.now(timezone.utc)
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(Project).where(Project.id == project_id, Project.user_id == _uid(user))
+        )
+        project = result.scalar_one_or_none()
+        if not project:
+            return _json({"error": "Not found"}, 404)
+        await db.execute(update(Project).where(Project.id == project_id).values(**updates))
+
+    return _json(
+        {
+            "id": project_id,
+            "name": updates.get("name", project.name),
+            "description": updates.get("description", project.description),
+            "slug": project.slug,
+        }
+    )
+
+
 async def route_delete_project(request: Request) -> Response:
     user = _require_user(request)
     if not user:
@@ -2654,6 +2717,7 @@ def get_routes() -> list[Route]:
         Route("/api/vault/{slug}/export", route_vault_export, methods=["GET"]),
         Route("/api/data/export", data_export_limited, methods=["GET"]),
         Route("/api/data/import", data_import_limited, methods=["POST"]),
+        Route("/api/projects/{id}", route_update_project, methods=["PATCH"]),
         Route("/api/projects/{id}", route_delete_project, methods=["DELETE"]),
         Route("/api/tokens", route_list_tokens, methods=["GET"]),
         Route("/api/tokens", route_create_token, methods=["POST"]),

@@ -621,6 +621,96 @@ async def test_route_delete_project_success(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.asyncio
+async def test_route_update_project_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    from piloci.api import routes
+
+    db = _db_session()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = SimpleNamespace(
+        name="Old", description="old desc", slug="alpha"
+    )
+    db.execute.return_value = result
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+
+    response = await routes.route_update_project(
+        _make_request(
+            {"name": "New", "description": "fresh desc"},
+            user={"sub": "user-1"},
+            path_params={"id": "project-1"},
+            method="PATCH",
+        )
+    )
+    body = orjson.loads(response.body)
+    assert response.status_code == 200
+    assert body["name"] == "New"
+    assert body["description"] == "fresh desc"
+    assert body["slug"] == "alpha"
+    # Two awaits: SELECT then UPDATE.
+    assert db.execute.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_route_update_project_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    from piloci.api import routes
+
+    blank_name = await routes.route_update_project(
+        _make_request(
+            {"name": "  "},
+            user={"sub": "user-1"},
+            path_params={"id": "project-1"},
+            method="PATCH",
+        )
+    )
+    assert blank_name.status_code == 422
+
+    no_fields = await routes.route_update_project(
+        _make_request(
+            {},
+            user={"sub": "user-1"},
+            path_params={"id": "project-1"},
+            method="PATCH",
+        )
+    )
+    assert no_fields.status_code == 422
+    assert "name, description" in orjson.loads(no_fields.body)["error"]
+
+    too_long = await routes.route_update_project(
+        _make_request(
+            {"description": "x" * 2001},
+            user={"sub": "user-1"},
+            path_params={"id": "project-1"},
+            method="PATCH",
+        )
+    )
+    assert too_long.status_code == 422
+
+    db = _db_session()
+    not_found_result = MagicMock()
+    not_found_result.scalar_one_or_none.return_value = None
+    db.execute.return_value = not_found_result
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+    not_found = await routes.route_update_project(
+        _make_request(
+            {"name": "x"},
+            user={"sub": "user-1"},
+            path_params={"id": "missing"},
+            method="PATCH",
+        )
+    )
+    assert not_found.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_route_update_project_unauthorized() -> None:
+    from piloci.api import routes
+
+    resp = await routes.route_update_project(
+        _make_request({"name": "x"}, user=None, path_params={"id": "p"}, method="PATCH")
+    )
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_route_delete_project_validation_and_not_found(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
