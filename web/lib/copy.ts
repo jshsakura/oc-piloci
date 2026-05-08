@@ -645,6 +645,7 @@ const ko = {
       },
     },
     appShell: {
+      locale: { trigger: '언어 선택', title: '언어를 선택하세요', desc: '인터페이스에 사용할 언어를 고르세요.' },
       nav: { dashboard: '대시보드', projects: '프로젝트', chat: '대화' },
       dropdown: { settings: '설정', activity: '활동 기록', admin: '관리자', logout: '로그아웃' },
       footer: { privacy: '개인정보 처리방침', terms: '서비스 약관' },
@@ -731,7 +732,7 @@ const ko = {
     },
     dashboard: {
       title: '대시보드',
-      subtitle: '프로젝트를 관리하고 워크스페이스에 접속하세요',
+      subtitle: '최근 활동과 메모리 흐름을 한눈에 살펴봅니다.',
       newProject: '새 프로젝트',
       createTitle: '새 프로젝트 만들기',
       slugLabel: '슬러그 *',
@@ -948,7 +949,6 @@ const ko = {
       noPreview: '미리보기가 없습니다',
       selectNote: '노트를 선택하세요',
       linkedNotes: '연결된 노트',
-      previewNotice: '빠른 워크스페이스 프리뷰입니다. 전문은 vault export나 전체 workspace에서 확인할 수 있습니다.',
     },
     projectCard: {
       workspace: '프로젝트 워크스페이스',
@@ -1591,6 +1591,7 @@ const en: CopyShape = {
       },
     },
     appShell: {
+      locale: { trigger: 'Language', title: 'Choose a language', desc: 'Pick the language used across the interface.' },
       nav: { dashboard: 'Dashboard', projects: 'Projects', chat: 'Chat' },
       dropdown: { settings: 'Settings', activity: 'Activity', admin: 'Admin', logout: 'Log Out' },
       footer: { privacy: 'Privacy Policy', terms: 'Terms of Service' },
@@ -1677,7 +1678,7 @@ const en: CopyShape = {
     },
     dashboard: {
       title: 'Dashboard',
-      subtitle: 'Manage projects and access your workspaces',
+      subtitle: 'A quick look at recent activity and how memories are flowing.',
       newProject: 'New Project',
       createTitle: 'Create New Project',
       slugLabel: 'Slug *',
@@ -1894,7 +1895,6 @@ const en: CopyShape = {
       noPreview: 'No preview available',
       selectNote: 'Select a note',
       linkedNotes: 'Linked Notes',
-      previewNotice: 'This is a quick workspace preview. Full text is available via vault export or the complete workspace.',
     },
     projectCard: {
       workspace: 'Project Workspace',

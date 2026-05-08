@@ -1,7 +1,15 @@
 import type { Metadata } from "next";
+import { Gugi } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 import { getCopy } from "@/lib/copy";
+
+const gugi = Gugi({
+  subsets: ["latin"],
+  weight: "400",
+  variable: "--font-gugi",
+  display: "swap",
+});
 
 const copy = getCopy();
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://piloci.opencourse.kr";
@@ -61,7 +69,7 @@ const jsonLd = JSON.stringify({
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" suppressHydrationWarning>
+    <html lang="ko" suppressHydrationWarning className={gugi.variable}>
       <body className="antialiased">
         <script
           type="application/ld+json"

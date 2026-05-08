@@ -158,7 +158,7 @@ export const api = {
       body: JSON.stringify(patch),
     }),
   projectWorkspace: (slug: string) =>
-    request<import("./types").ProjectWorkspace>(`/api/projects/slug/${slug}/workspace/preview`),
+    request<import("./types").ProjectWorkspace>(`/api/projects/slug/${slug}/workspace`),
   projectKnacks: (slug: string) =>
     request<import("./types").ProjectKnacksResponse>(`/api/projects/slug/${slug}/knacks`),
   projectSessions: (slug: string) =>

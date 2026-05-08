@@ -40,12 +40,9 @@ export function VaultNoteDetail({ note }: VaultNoteDetailProps) {
         <div className="mb-4 break-all rounded-md bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
           {note.path}
         </div>
-        <pre className="max-h-[400px] overflow-x-auto overflow-y-auto whitespace-pre-wrap break-all rounded-md border bg-muted/50 p-4 text-sm">
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md border bg-muted/50 p-4 text-sm">
           {note.markdown ?? note.excerpt}
         </pre>
-        {!note.markdown && (
-          <p className="mt-3 text-xs text-muted-foreground">{t.vaultNote.previewNotice}</p>
-        )}
 
         {note.links.length > 0 && (
           <>

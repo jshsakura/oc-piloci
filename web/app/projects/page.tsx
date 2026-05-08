@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, FileText } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import { ProjectListView } from "@/components/ProjectListView";
 import { VaultNoteCard } from "@/components/VaultNoteCard";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
 import { ProjectKnacksPanel } from "@/components/ProjectKnacksPanel";
@@ -13,7 +14,6 @@ import { api } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import RoutePending from "@/components/RoutePending";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
@@ -33,10 +33,6 @@ function ProjectDetailContent() {
   const slug = searchParams.get("slug");
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!slug) router.replace("/dashboard");
-  }, [router, slug]);
-
   const { data, isLoading } = useQuery({
     queryKey: ["project-workspace", slug],
     queryFn: () => api.projectWorkspace(slug as string),
@@ -53,10 +49,9 @@ function ProjectDetailContent() {
 
   if (!slug) {
     return (
-      <RoutePending
-        title={t.projects.pending.title}
-        description={t.projects.pending.desc}
-      />
+      <AppShell>
+        <ProjectListView />
+      </AppShell>
     );
   }
 
@@ -67,7 +62,7 @@ function ProjectDetailContent() {
     <AppShell>
       <header className="flex flex-col gap-2 border-b pb-4">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="-ml-2" onClick={() => router.push("/dashboard")}>
+          <Button variant="ghost" size="sm" className="-ml-2" onClick={() => router.push("/projects")}>
             <ArrowLeft className="mr-1 size-4" /> {t.projects.breadcrumb}
           </Button>
           <span className="text-sm text-muted-foreground">/</span>
