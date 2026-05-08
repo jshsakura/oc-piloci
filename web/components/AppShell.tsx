@@ -41,8 +41,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-background landing-pattern">
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <div className="flex h-screen flex-col overflow-hidden bg-background landing-pattern">
+      <header className="shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
           <BrandMark />
           <div className="flex items-center gap-1">
@@ -108,8 +108,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
-      <footer className="mt-auto border-t bg-background py-2.5">
+      <main className="flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-6xl px-4 py-6">{children}</div>
+      </main>
+      <footer className="shrink-0 border-t bg-background py-2.5">
         <div className="mx-auto flex flex-col items-center gap-2 sm:flex-row sm:justify-between max-w-6xl px-4">
           <p className="text-xs text-muted-foreground">© piLoci 2026</p>
           <div className="flex items-center gap-4">
