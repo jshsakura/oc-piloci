@@ -7,12 +7,15 @@ import { ArrowLeft, FileText } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { VaultNoteCard } from "@/components/VaultNoteCard";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
+import { ProjectKnacksPanel } from "@/components/ProjectKnacksPanel";
+import { ProjectSessionsPanel } from "@/components/ProjectSessionsPanel";
 import { api } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import RoutePending from "@/components/RoutePending";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 function StatChip({ label, value }: { label: string; value: number }) {
   return (
@@ -83,44 +86,65 @@ function ProjectDetailContent() {
         </div>
       </header>
 
-      {/*
-        2-column workspace. Both columns claim the same height (calc keeps the
-        viewport-minus-header math in one place) and scroll independently so the
-        list never pushes the detail pane around.
-      */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:h-[calc(100vh-15rem)]">
-        <aside className="flex min-h-0 flex-col">
-          <div className="mb-3 flex items-baseline justify-between">
-            <h2 className="text-sm font-semibold tracking-tight">{t.projects.notes}</h2>
-            <span className="text-xs text-muted-foreground">{notes.length}</span>
-          </div>
-          <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-            {isLoading ? (
-              [1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full rounded-lg" />)
-            ) : notes.length === 0 ? (
-              <Card>
-                <CardContent className="flex flex-col items-center gap-3 py-10 text-muted-foreground">
-                  <FileText className="size-8" />
-                  <p className="text-sm">{t.projects.noNotes}</p>
-                </CardContent>
-              </Card>
-            ) : (
-              notes.map((note) => (
-                <VaultNoteCard
-                  key={note.memory_id}
-                  note={note}
-                  active={note.memory_id === selectedNote?.memory_id}
-                  onSelect={(n) => setSelectedNoteId(n.memory_id)}
-                />
-              ))
-            )}
-          </div>
-        </aside>
+      {/* Inner tabs — keep top-level menu minimal, surface
+          memories / knacks / raw sessions inside the project view. */}
+      <Tabs defaultValue="memories" className="mt-6">
+        <TabsList className="w-full sm:w-auto">
+          <TabsTrigger value="memories" className="flex-1 sm:flex-none">
+            {t.projects.tabMemories}
+          </TabsTrigger>
+          <TabsTrigger value="knacks" className="flex-1 sm:flex-none">
+            {t.projects.tabKnacks}
+          </TabsTrigger>
+          <TabsTrigger value="sessions" className="flex-1 sm:flex-none">
+            {t.projects.tabSessions}
+          </TabsTrigger>
+        </TabsList>
 
-        <section className="min-h-0 lg:overflow-y-auto">
-          <VaultNoteDetail note={selectedNote} />
-        </section>
-      </div>
+        <TabsContent value="memories" className="mt-4">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:h-[calc(100vh-18rem)]">
+            <aside className="flex min-h-0 flex-col">
+              <div className="mb-3 flex items-baseline justify-between">
+                <h2 className="text-sm font-semibold tracking-tight">{t.projects.notes}</h2>
+                <span className="text-xs text-muted-foreground">{notes.length}</span>
+              </div>
+              <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+                {isLoading ? (
+                  [1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full rounded-lg" />)
+                ) : notes.length === 0 ? (
+                  <Card>
+                    <CardContent className="flex flex-col items-center gap-3 py-10 text-muted-foreground">
+                      <FileText className="size-8" />
+                      <p className="text-sm">{t.projects.noNotes}</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  notes.map((note) => (
+                    <VaultNoteCard
+                      key={note.memory_id}
+                      note={note}
+                      active={note.memory_id === selectedNote?.memory_id}
+                      onSelect={(n) => setSelectedNoteId(n.memory_id)}
+                    />
+                  ))
+                )}
+              </div>
+            </aside>
+
+            <section className="min-h-0 lg:overflow-y-auto">
+              <VaultNoteDetail note={selectedNote} />
+            </section>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="knacks" className="mt-4">
+          <ProjectKnacksPanel slug={slug} />
+        </TabsContent>
+
+        <TabsContent value="sessions" className="mt-4">
+          <ProjectSessionsPanel slug={slug} />
+        </TabsContent>
+      </Tabs>
     </AppShell>
   );
 }

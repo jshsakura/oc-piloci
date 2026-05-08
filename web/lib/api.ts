@@ -159,6 +159,12 @@ export const api = {
     }),
   projectWorkspace: (slug: string) =>
     request<import("./types").ProjectWorkspace>(`/api/projects/slug/${slug}/workspace/preview`),
+  projectKnacks: (slug: string) =>
+    request<import("./types").ProjectKnacksResponse>(`/api/projects/slug/${slug}/knacks`),
+  projectSessions: (slug: string) =>
+    request<import("./types").ProjectSessionsResponse>(`/api/projects/slug/${slug}/sessions`),
+  rawSession: (ingest_id: string) =>
+    request<import("./types").RawSessionDetail>(`/api/raw-sessions/${ingest_id}`),
   deleteProject: (id: string) =>
     request(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ confirm: true }) }),
 

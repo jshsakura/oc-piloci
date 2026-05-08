@@ -753,6 +753,154 @@ async def route_project_workspace_preview(request: Request) -> Response:
     return _json({"project": project, "workspace": build_project_vault_preview(workspace)})
 
 
+async def route_project_knacks(request: Request) -> Response:
+    """GET /api/projects/slug/{slug}/knacks — instinct list for a project."""
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    slug = (request.path_params.get("slug") or "").strip().lower()
+    if not slug:
+        return _json({"error": "project slug required"}, 400)
+
+    user_id = _uid(user)
+    project = await _get_user_project_by_slug(user_id, slug)
+    if project is None:
+        return _json({"error": "Not found"}, 404)
+
+    instincts_store = getattr(request.app.state, "instincts_store", None)
+    if instincts_store is None:
+        return _json({"error": "instincts store not available"}, 503)
+
+    rows = await instincts_store.list_instincts(
+        user_id=user_id, project_id=project["id"], limit=200
+    )
+    return _json(
+        {
+            "project": project,
+            "knacks": [
+                {
+                    "instinct_id": r.get("instinct_id"),
+                    "trigger": r.get("trigger") or "",
+                    "action": r.get("action") or "",
+                    "domain": r.get("domain") or "other",
+                    "evidence_note": r.get("evidence_note") or "",
+                    "confidence": r.get("confidence", 0.0),
+                    "instinct_count": r.get("instinct_count", 0),
+                    "created_at": r.get("created_at", 0),
+                }
+                for r in rows
+            ],
+        }
+    )
+
+
+async def route_project_sessions(request: Request) -> Response:
+    """GET /api/projects/slug/{slug}/sessions — raw transcript list (metadata only).
+
+    Returns metadata for each RawSession row — owner can fetch full transcript
+    via the per-row endpoint when needed.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    slug = (request.path_params.get("slug") or "").strip().lower()
+    if not slug:
+        return _json({"error": "project slug required"}, 400)
+
+    user_id = _uid(user)
+    project = await _get_user_project_by_slug(user_id, slug)
+    if project is None:
+        return _json({"error": "Not found"}, 404)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import RawSession
+
+    async with async_session() as db:
+        rows = (
+            (
+                await db.execute(
+                    select(RawSession)
+                    .where(
+                        RawSession.user_id == user_id,
+                        RawSession.project_id == project["id"],
+                    )
+                    .order_by(RawSession.created_at.desc())
+                    .limit(100)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return _json(
+        {
+            "project": project,
+            "sessions": [
+                {
+                    "ingest_id": r.ingest_id,
+                    "session_id": r.session_id,
+                    "client": r.client,
+                    "size_bytes": len(r.transcript_json or ""),
+                    "created_at": r.created_at.isoformat(),
+                    "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+                    "memories_extracted": r.memories_extracted,
+                    "error": r.error,
+                }
+                for r in rows
+            ],
+        }
+    )
+
+
+async def route_raw_session_detail(request: Request) -> Response:
+    """GET /api/raw-sessions/{ingest_id} — full transcript for owner/admin viewing.
+
+    Owner-only — never exposes another user's transcripts. Returns the raw
+    transcript_json plus metadata so the project view's "원본" tab can
+    expand a row inline.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    ingest_id = (request.path_params.get("ingest_id") or "").strip()
+    if not ingest_id:
+        return _json({"error": "ingest_id required"}, 400)
+
+    user_id = _uid(user)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import RawSession
+
+    async with async_session() as db:
+        row = (
+            await db.execute(
+                select(RawSession).where(
+                    RawSession.ingest_id == ingest_id, RawSession.user_id == user_id
+                )
+            )
+        ).scalar_one_or_none()
+
+    if row is None:
+        return _json({"error": "Not found"}, 404)
+
+    return _json(
+        {
+            "ingest_id": row.ingest_id,
+            "session_id": row.session_id,
+            "client": row.client,
+            "transcript": row.transcript_json,
+            "created_at": row.created_at.isoformat(),
+            "processed_at": row.processed_at.isoformat() if row.processed_at else None,
+            "memories_extracted": row.memories_extracted,
+            "error": row.error,
+        }
+    )
+
+
 async def route_vault_export(request: Request) -> Response:
     user = _require_user(request)
     if not user:
@@ -3155,6 +3303,9 @@ def get_routes() -> list[Route]:
             methods=["GET"],
         ),
         Route("/api/projects/slug/{slug}/workspace", route_project_workspace, methods=["GET"]),
+        Route("/api/projects/slug/{slug}/knacks", route_project_knacks, methods=["GET"]),
+        Route("/api/projects/slug/{slug}/sessions", route_project_sessions, methods=["GET"]),
+        Route("/api/raw-sessions/{ingest_id}", route_raw_session_detail, methods=["GET"]),
         Route("/api/vault/{slug}/export", route_vault_export, methods=["GET"]),
         Route("/api/data/export", data_export_limited, methods=["GET"]),
         Route("/api/data/import", data_import_limited, methods=["POST"]),

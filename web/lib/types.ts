@@ -75,6 +75,49 @@ export interface ApiToken {
   hostname?: string | null;
 }
 
+export interface ProjectKnack {
+  instinct_id: string;
+  trigger: string;
+  action: string;
+  domain: string;
+  evidence_note: string;
+  confidence: number;
+  instinct_count: number;
+  created_at: number;
+}
+
+export interface ProjectKnacksResponse {
+  project: { id: string; slug: string; name: string };
+  knacks: ProjectKnack[];
+}
+
+export interface ProjectSessionMeta {
+  ingest_id: string;
+  session_id?: string | null;
+  client: string;
+  size_bytes: number;
+  created_at: string;
+  processed_at?: string | null;
+  memories_extracted: number;
+  error?: string | null;
+}
+
+export interface ProjectSessionsResponse {
+  project: { id: string; slug: string; name: string };
+  sessions: ProjectSessionMeta[];
+}
+
+export interface RawSessionDetail {
+  ingest_id: string;
+  session_id?: string | null;
+  client: string;
+  transcript: string;
+  created_at: string;
+  processed_at?: string | null;
+  memories_extracted: number;
+  error?: string | null;
+}
+
 export interface DashboardSummary {
   recent_memories: {
     memory_id: string;
