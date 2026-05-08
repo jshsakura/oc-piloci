@@ -87,13 +87,13 @@ function ProjectDetailContent() {
       </header>
 
       {/* Inner tabs — keep top-level menu minimal, surface
-          memories / knacks / raw sessions inside the project view. */}
+          memories / patterns / raw sessions inside the project view. */}
       <Tabs defaultValue="memories" className="mt-6">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="memories" className="flex-1 sm:flex-none">
             {t.projects.tabMemories}
           </TabsTrigger>
-          <TabsTrigger value="knacks" className="flex-1 sm:flex-none">
+          <TabsTrigger value="patterns" className="flex-1 sm:flex-none">
             {t.projects.tabKnacks}
           </TabsTrigger>
           <TabsTrigger value="sessions" className="flex-1 sm:flex-none">
@@ -108,7 +108,7 @@ function ProjectDetailContent() {
                 <h2 className="text-sm font-semibold tracking-tight">{t.projects.notes}</h2>
                 <span className="text-xs text-muted-foreground">{notes.length}</span>
               </div>
-              <div className="flex-1 space-y-3 overflow-y-auto pr-1">
+              <div className="flex-1 space-y-3 overflow-y-auto px-1">
                 {isLoading ? (
                   [1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full rounded-lg" />)
                 ) : notes.length === 0 ? (
@@ -137,7 +137,7 @@ function ProjectDetailContent() {
           </div>
         </TabsContent>
 
-        <TabsContent value="knacks" className="mt-4">
+        <TabsContent value="patterns" className="mt-4">
           <ProjectKnacksPanel slug={slug} />
         </TabsContent>
 

@@ -154,7 +154,7 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
           </CardContent>
         </Card>
 
-        {/* Top knacks */}
+        {/* Top patterns */}
         <Card>
           <CardContent className="p-4">
             <h3 className="mb-3 inline-flex items-center gap-1.5 text-sm font-semibold">

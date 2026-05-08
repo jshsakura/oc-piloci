@@ -16,7 +16,7 @@ export function VaultNoteCard({ note, active = false, onSelect }: VaultNoteCardP
   const { t } = useTranslation();
   return (
     <Card
-      className={`min-w-0 cursor-pointer overflow-hidden transition-shadow hover:shadow-md ${active ? "ring-2 ring-primary" : ""}`}
+      className={`min-w-0 cursor-pointer overflow-hidden transition-shadow hover:shadow-md ${active ? "ring-2 ring-inset ring-primary" : ""}`}
       onClick={() => onSelect(note)}
     >
       <CardContent className="p-5">
