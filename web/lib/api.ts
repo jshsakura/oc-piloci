@@ -144,6 +144,10 @@ export const api = {
     request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) }),
   logout: () => request("/auth/logout", { method: "POST" }),
 
+  // Dashboard summary
+  dashboardSummary: () =>
+    request<import("./types").DashboardSummary>("/api/dashboard/summary"),
+
   // Projects
   listProjects: () => request<import("./types").Project[]>("/api/projects"),
   createProject: (slug: string, name: string, description?: string) =>

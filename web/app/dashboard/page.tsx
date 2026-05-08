@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderPlus, RefreshCcw } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { ProjectCard } from "@/components/ProjectCard";
+import { DashboardSummaryPanels } from "@/components/DashboardSummaryPanels";
 import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
@@ -14,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import RoutePending from "@/components/RoutePending";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 
@@ -146,51 +147,13 @@ export default function DashboardPage() {
         </Dialog>
       </div>
 
-      {/* Stats */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {t.dashboard.stats.projects}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{projectCount}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {t.dashboard.stats.totalMemories}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{totalMemories}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {t.dashboard.stats.totalKnacks}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{totalKnacks}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              {t.dashboard.stats.status}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">
-              {isLoading ? t.dashboard.stats.syncing : t.dashboard.stats.ready}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
+      {/* Activity + recent content panels — direct dashboard surface so the
+          user sees living data without drilling into projects. */}
+      <DashboardSummaryPanels
+        totalMemories={totalMemories}
+        totalKnacks={totalKnacks}
+        projectCount={projectCount}
+      />
 
       {/* Projects */}
       <div className="mt-8">

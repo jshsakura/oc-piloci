@@ -340,6 +340,152 @@ async def _get_user_project_by_slug(user_id: str, slug: str) -> dict[str, Any] |
     }
 
 
+async def route_dashboard_summary(request: Request) -> Response:
+    """GET /api/dashboard/summary — cross-project activity feed for the dashboard.
+
+    Returns recent memories, top instincts, recent sessions, daily session
+    counts (last 30 days), and aggregated top tags — all in one round-trip so
+    the dashboard can show living data without N project drilldowns.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    user_id = _uid(user)
+
+    from sqlalchemy import func, select
+
+    from piloci.db.models import Project, RawSession
+
+    async with async_session() as db:
+        proj_rows = (
+            (await db.execute(select(Project).where(Project.user_id == user_id))).scalars().all()
+        )
+    project_by_id = {p.id: {"slug": p.slug, "name": p.name} for p in proj_rows}
+
+    store = request.app.state.store
+    instincts_store = getattr(request.app.state, "instincts_store", None)
+
+    recent_memories: list[dict[str, Any]] = []
+    top_instincts: list[dict[str, Any]] = []
+    tag_counts: dict[str, int] = {}
+
+    for p in proj_rows:
+        try:
+            mems = await store.list(user_id=user_id, project_id=p.id, limit=25, offset=0)
+        except Exception:
+            mems = []
+        for m in mems:
+            tags = m.get("tags") or []
+            for t in tags:
+                tag_counts[t] = tag_counts.get(t, 0) + 1
+            recent_memories.append(
+                {
+                    "memory_id": m.get("memory_id"),
+                    "content": (m.get("content") or "")[:300],
+                    "tags": tags[:5],
+                    "project_slug": p.slug,
+                    "project_name": p.name,
+                    "created_at": m.get("created_at"),
+                    "updated_at": m.get("updated_at"),
+                }
+            )
+
+        if instincts_store is not None:
+            try:
+                ins = await instincts_store.list_instincts(
+                    user_id=user_id, project_id=p.id, limit=10
+                )
+            except Exception:
+                ins = []
+            for i in ins:
+                top_instincts.append(
+                    {
+                        "instinct_id": i.get("instinct_id"),
+                        "trigger": i.get("trigger") or "",
+                        "action": i.get("action") or "",
+                        "domain": i.get("domain") or "other",
+                        "confidence": i.get("confidence", 0.0),
+                        "instinct_count": i.get("instinct_count", 0),
+                        "project_slug": p.slug,
+                        "project_name": p.name,
+                    }
+                )
+
+    recent_memories.sort(key=lambda r: r.get("updated_at") or 0, reverse=True)
+    recent_memories = recent_memories[:10]
+
+    top_instincts.sort(
+        key=lambda r: r.get("confidence", 0.0) * (r.get("instinct_count") or 1),
+        reverse=True,
+    )
+    top_instincts = top_instincts[:8]
+
+    top_tags = sorted(
+        ({"tag": k, "count": v} for k, v in tag_counts.items()),
+        key=lambda r: r["count"],
+        reverse=True,
+    )[:15]
+
+    # Recent ingested sessions + activity buckets (last 30 days) — single SQL pass.
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=30)
+    async with async_session() as db:
+        recent_sess_rows = (
+            (
+                await db.execute(
+                    select(RawSession)
+                    .where(RawSession.user_id == user_id)
+                    .order_by(RawSession.created_at.desc())
+                    .limit(10)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        bucket_rows = (
+            await db.execute(
+                select(
+                    func.date(RawSession.created_at).label("day"),
+                    func.count().label("count"),
+                )
+                .where(RawSession.user_id == user_id, RawSession.created_at >= cutoff)
+                .group_by(func.date(RawSession.created_at))
+            )
+        ).all()
+
+    recent_sessions = [
+        {
+            "ingest_id": s.ingest_id,
+            "project_slug": project_by_id.get(s.project_id, {}).get("slug"),
+            "project_name": project_by_id.get(s.project_id, {}).get("name"),
+            "created_at": s.created_at.isoformat(),
+            "processed_at": s.processed_at.isoformat() if s.processed_at else None,
+            "memories_extracted": s.memories_extracted,
+            "client": s.client,
+        }
+        for s in recent_sess_rows
+    ]
+
+    bucket_map = {str(row.day): int(row.count) for row in bucket_rows}
+    activity = []
+    for offset_days in range(29, -1, -1):
+        d = (now - timedelta(days=offset_days)).date()
+        activity.append({"date": d.isoformat(), "count": bucket_map.get(str(d), 0)})
+
+    return _json(
+        {
+            "recent_memories": recent_memories,
+            "top_instincts": top_instincts,
+            "recent_sessions": recent_sessions,
+            "activity": activity,
+            "top_tags": top_tags,
+        }
+    )
+
+
 async def route_list_projects(request: Request) -> Response:
     user = _require_user(request)
     if not user:
@@ -2996,6 +3142,7 @@ def get_routes() -> list[Route]:
         Route("/api/auth/providers", route_auth_providers, methods=["GET"]),
         Route("/auth/forgot-password", forgot_password_limited, methods=["POST"]),
         Route("/auth/reset-password", reset_password_limited, methods=["POST"]),
+        Route("/api/dashboard/summary", route_dashboard_summary, methods=["GET"]),
         Route("/api/projects", route_list_projects, methods=["GET"]),
         Route("/api/projects", route_create_project, methods=["POST"]),
         Route(

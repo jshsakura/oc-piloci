@@ -75,6 +75,39 @@ export interface ApiToken {
   hostname?: string | null;
 }
 
+export interface DashboardSummary {
+  recent_memories: {
+    memory_id: string;
+    content: string;
+    tags: string[];
+    project_slug: string;
+    project_name: string;
+    created_at: number;
+    updated_at: number;
+  }[];
+  top_instincts: {
+    instinct_id: string;
+    trigger: string;
+    action: string;
+    domain: string;
+    confidence: number;
+    instinct_count: number;
+    project_slug: string;
+    project_name: string;
+  }[];
+  recent_sessions: {
+    ingest_id: string;
+    project_slug?: string | null;
+    project_name?: string | null;
+    created_at: string;
+    processed_at?: string | null;
+    memories_extracted: number;
+    client: string;
+  }[];
+  activity: { date: string; count: number }[];
+  top_tags: { tag: string; count: number }[];
+}
+
 export interface LLMProvider {
   id: string;
   name: string;
