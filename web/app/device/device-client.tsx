@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { useAuthStore } from "@/lib/auth";
+import { useTranslation } from "@/lib/i18n";
 
 // Display rules — keep human-typeable codes consistent with the backend
 // (DEVICE_PREFIX uses ABCD-1234 style with the unambiguous alphabet).
@@ -30,6 +31,7 @@ export default function DeviceClient() {
   const router = useRouter();
   const params = useSearchParams();
   const { user, hasHydrated, isBootstrapping } = useAuthStore();
+  const { t } = useTranslation();
 
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<Status>("idle");
@@ -55,7 +57,7 @@ export default function DeviceClient() {
   const submit = async (action: "approve" | "deny") => {
     if (!CODE_REGEX.test(code)) {
       setStatus("error");
-      setErrorMessage("코드 형식은 ABCD-1234 입니다.");
+      setErrorMessage(t.device.error.invalidFormat);
       return;
     }
     setStatus(action === "approve" ? "approving" : "idle");
@@ -70,21 +72,21 @@ export default function DeviceClient() {
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         setStatus("error");
-        setErrorMessage(data.error ?? `서버가 ${res.status} 응답을 반환했습니다.`);
+        setErrorMessage(data.error ?? `${t.device.error.serverPrefix} ${res.status} ${t.device.error.serverSuffix}`);
         return;
       }
       setStatus(action === "approve" ? "approved" : "denied");
     } catch (err) {
       setStatus("error");
-      setErrorMessage(err instanceof Error ? err.message : "네트워크 오류");
+      setErrorMessage(err instanceof Error ? err.message : t.device.error.network);
     }
   };
 
   if (!hasHydrated || isBootstrapping || !user) {
     return (
       <RoutePending
-        title="기기 승인 페이지 준비 중"
-        description="로그인 상태를 확인한 뒤 기기 승인 화면을 보여 드립니다."
+        title={t.device.pendingTitle}
+        description={t.device.readyDesc}
       />
     );
   }
@@ -96,18 +98,17 @@ export default function DeviceClient() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
               <Smartphone className="size-5 text-muted-foreground" />
-              기기 승인
+              {t.device.cardTitle}
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-5">
             <p className="text-sm text-muted-foreground leading-relaxed">
-              터미널의 <code className="rounded bg-muted px-1 py-0.5 text-[11px]">piloci login</code>{" "}
-              출력에 표시된 8자리 코드를 입력하고 승인하면 해당 기기에 토큰이 자동 발급됩니다.
+              {t.device.intro1}<code className="rounded bg-muted px-1 py-0.5 text-[11px]">piloci login</code>{t.device.intro2}
             </p>
 
             <div className="space-y-2">
               <label className="text-xs font-medium text-foreground" htmlFor="user-code">
-                인증 코드
+                {t.device.codeLabel}
               </label>
               <Input
                 id="user-code"
@@ -134,13 +135,13 @@ export default function DeviceClient() {
             {status === "approved" && (
               <div className="flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 shadow-sm dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
                 <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-                <span>승인 완료. 이제 터미널로 돌아가시면 자동으로 진행됩니다.</span>
+                <span>{t.device.successMessage}</span>
               </div>
             )}
 
             {status === "denied" && (
               <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 shadow-sm dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-                요청을 거부했습니다. 새 코드로 다시 시도해 주세요.
+                {t.device.deniedMessage}
               </div>
             )}
 
@@ -155,7 +156,7 @@ export default function DeviceClient() {
                   !CODE_REGEX.test(code)
                 }
               >
-                {status === "approving" ? "승인 중…" : "이 기기 승인"}
+                {status === "approving" ? t.device.approving : t.device.approveButton}
               </Button>
               <Button
                 type="button"
@@ -163,17 +164,17 @@ export default function DeviceClient() {
                 onClick={() => submit("deny")}
                 disabled={status === "approving" || status === "approved" || !CODE_REGEX.test(code)}
               >
-                거부
+                {t.device.denyButton}
               </Button>
             </div>
           </CardContent>
         </Card>
 
         <p className="px-1 text-xs text-muted-foreground">
-          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">piloci login</code>{" "}
-          또는{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">piloci setup</code>{" "}
-          명령으로 발급된 코드입니다.
+          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">piloci login</code>
+          {t.device.footer1}
+          <code className="rounded bg-muted px-1 py-0.5 text-[11px]">piloci setup</code>
+          {t.device.footer2}
         </p>
       </div>
     </AppShell>

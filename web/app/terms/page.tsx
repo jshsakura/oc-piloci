@@ -57,7 +57,7 @@ export default function TermsPage() {
 
         <div className="mt-8 border-t pt-8">
           <Link href="/" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            ← {locale === "ko" ? "홈으로" : "Home"}
+            ← {t.common.backToHome}
           </Link>
         </div>
       </main>

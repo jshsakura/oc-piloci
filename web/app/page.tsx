@@ -86,8 +86,8 @@ export default function LandingPage() {
     return (
       <RoutePending
         fullScreen
-        title="piLoci 불러오는 중"
-        description="세션과 화면 상태를 확인한 뒤 바로 이동합니다."
+        title={t.landing.pending.title}
+        description={t.landing.pending.desc}
       />
     );
   }

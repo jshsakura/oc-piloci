@@ -3,21 +3,19 @@
 import type { ReactElement } from "react";
 
 import { Button } from "@/components/ui/button";
+import { useTranslation } from "@/lib/i18n";
 import type { AuthProviderName, AuthProviderStatus } from "@/lib/api";
 
 const PROVIDER_ORDER: AuthProviderName[] = ["kakao", "naver", "google", "github"];
 
-const providerMeta: Record<
-  AuthProviderName,
-  {
-    label: string;
-    className: string;
-    icon: ReactElement;
-    variant?: "default" | "outline";
-  }
-> = {
+type ProviderMeta = {
+  className: string;
+  icon: ReactElement;
+  variant?: "default" | "outline";
+};
+
+const providerMeta: Record<AuthProviderName, ProviderMeta> = {
   kakao: {
-    label: "카카오로 계속하기",
     className: "w-full gap-2 rounded-lg bg-[#FEE500] text-[#191919] hover:bg-[#F2D900]",
     icon: (
       <svg className="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -26,7 +24,6 @@ const providerMeta: Record<
     ),
   },
   naver: {
-    label: "네이버로 계속하기",
     className: "w-full gap-2 rounded-lg bg-[#03C75A] text-white hover:bg-[#02b351]",
     icon: (
       <svg className="size-4" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -35,7 +32,6 @@ const providerMeta: Record<
     ),
   },
   google: {
-    label: "Google로 계속하기",
     className: "w-full gap-2 rounded-lg",
     variant: "outline",
     icon: (
@@ -48,7 +44,6 @@ const providerMeta: Record<
     ),
   },
   github: {
-    label: "GitHub로 계속하기",
     className: "w-full gap-2 rounded-lg bg-[#24292F] text-white hover:bg-[#1b1f23]",
     icon: (
       <svg className="size-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -59,6 +54,8 @@ const providerMeta: Record<
 };
 
 export function AuthProviderButtons({ providers }: { providers: AuthProviderStatus[] }) {
+  const { t } = useTranslation();
+
   const configuredProviders = PROVIDER_ORDER.filter((name) =>
     providers.some((provider) => provider.name === name && provider.configured)
   ).map((name) => {
@@ -74,11 +71,12 @@ export function AuthProviderButtons({ providers }: { providers: AuthProviderStat
     <div className="space-y-2">
       {configuredProviders.map((provider) => {
         const meta = providerMeta[provider.name];
+        const label = t.authProviders[provider.name];
         return (
           <Button key={provider.name} variant={meta.variant} className={meta.className} asChild>
             <a href={provider.login_path}>
               {meta.icon}
-              {meta.label}
+              {label}
             </a>
           </Button>
         );

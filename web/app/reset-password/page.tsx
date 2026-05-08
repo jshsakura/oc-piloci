@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -8,9 +8,32 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import AuthLayout from "@/components/AuthLayout";
 import { api } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+
+type ResetCopy = ReturnType<typeof useTranslation>["t"]["resetPassword"];
+
+function makeResetSchema(copy: ResetCopy) {
+  return z
+    .object({
+      token: z.string().min(1, copy.validation.tokenRequired),
+      password: z
+        .string()
+        .min(12, copy.validation.passwordMin)
+        .regex(/[A-Z]/, copy.validation.passwordUpper)
+        .regex(/[a-z]/, copy.validation.passwordLower)
+        .regex(/[0-9]/, copy.validation.passwordDigit),
+      confirmPassword: z.string().min(1, copy.validation.confirmRequired),
+    })
+    .refine((d) => d.password === d.confirmPassword, {
+      message: copy.validation.confirmMismatch,
+      path: ["confirmPassword"],
+    });
+}
+
+type ResetFormValues = z.infer<ReturnType<typeof makeResetSchema>>;
 
 function LockIcon({ className }: { className?: string }) {
   return (
@@ -41,31 +64,16 @@ function EyeOffIcon({ className }: { className?: string }) {
   );
 }
 
-const resetSchema = z
-  .object({
-    token: z.string().min(1, "토큰을 입력하세요"),
-    password: z
-      .string()
-      .min(12, "비밀번호는 12자 이상이어야 합니다")
-      .regex(/[A-Z]/, "대문자 포함 필요")
-      .regex(/[a-z]/, "소문자 포함 필요")
-      .regex(/[0-9]/, "숫자 포함 필요"),
-    confirmPassword: z.string().min(1, "비밀번호 확인을 입력하세요"),
-  })
-  .refine((d) => d.password === d.confirmPassword, {
-    message: "비밀번호가 일치하지 않습니다",
-    path: ["confirmPassword"],
-  });
-
-type ResetFormValues = z.infer<typeof resetSchema>;
-
 function ResetPasswordForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { t } = useTranslation();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+
+  const resetSchema = useMemo(() => makeResetSchema(t.resetPassword), [t.resetPassword]);
 
   const form = useForm<ResetFormValues>({
     resolver: zodResolver(resetSchema),
@@ -84,7 +92,7 @@ function ResetPasswordForm() {
       await api.resetPassword(data.token, data.password);
       router.push("/login?reset=1");
     } catch (err) {
-      setServerError(err instanceof Error ? err.message : "재설정 중 오류가 발생했습니다");
+      setServerError(err instanceof Error ? err.message : t.resetPassword.error.generic);
     } finally {
       setIsPending(false);
     }
@@ -94,9 +102,9 @@ function ResetPasswordForm() {
     <AuthLayout>
       <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
         <div className="mb-8 text-center">
-          <h2 className="text-2xl font-bold">비밀번호 재설정</h2>
+          <h2 className="text-2xl font-bold">{t.resetPassword.title}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            새 비밀번호를 입력하세요
+            {t.resetPassword.subtitle}
           </p>
         </div>
 
@@ -107,9 +115,9 @@ function ResetPasswordForm() {
               name="token"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>재설정 토큰</FormLabel>
+                  <FormLabel>{t.resetPassword.tokenLabel}</FormLabel>
                   <FormControl>
-                    <Input type="text" placeholder="토큰을 붙여넣으세요" {...field} />
+                    <Input type="text" placeholder={t.resetPassword.tokenPlaceholder} {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -122,7 +130,7 @@ function ResetPasswordForm() {
                 <FormItem>
                   <FormLabel className="flex items-center gap-1.5">
                     <LockIcon className="size-3.5" />
-                    새 비밀번호
+                    {t.resetPassword.newPasswordLabel}
                   </FormLabel>
                   <FormControl>
                     <div className="relative">
@@ -152,7 +160,7 @@ function ResetPasswordForm() {
                       </div>
                     </div>
                   </FormControl>
-                  <FormDescription>12자 이상, 대소문자 + 숫자 포함</FormDescription>
+                  <FormDescription>{t.resetPassword.passwordHint}</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -164,7 +172,7 @@ function ResetPasswordForm() {
                 <FormItem>
                   <FormLabel className="flex items-center gap-1.5">
                     <LockIcon className="size-3.5" />
-                    비밀번호 확인
+                    {t.resetPassword.confirmPasswordLabel}
                   </FormLabel>
                   <FormControl>
                     <div className="relative">
@@ -206,7 +214,7 @@ function ResetPasswordForm() {
             )}
 
             <Button type="submit" disabled={isPending} className="w-full">
-              {isPending ? "변경 중..." : "비밀번호 변경"}
+              {isPending ? t.resetPassword.submitting : t.resetPassword.submit}
             </Button>
           </form>
         </Form>
@@ -214,7 +222,7 @@ function ResetPasswordForm() {
         <div className="mt-6 text-center">
           <p className="text-sm text-muted-foreground">
             <Link href="/login" className="text-primary underline underline-offset-4">
-              로그인으로 돌아가기
+              {t.resetPassword.backToLogin}
             </Link>
           </p>
         </div>
@@ -223,9 +231,18 @@ function ResetPasswordForm() {
   );
 }
 
+function ResetPasswordFallback() {
+  const { t } = useTranslation();
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <p className="text-muted-foreground">{t.resetPassword.loading}</p>
+    </div>
+  );
+}
+
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><p className="text-muted-foreground">로딩 중...</p></div>}>
+    <Suspense fallback={<ResetPasswordFallback />}>
       <ResetPasswordForm />
     </Suspense>
   );

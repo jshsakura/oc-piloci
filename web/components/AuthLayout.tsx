@@ -23,29 +23,29 @@ function RainbowAI({ text }: { text: string }) {
 }
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
-  const { locale } = useTranslation();
+  const { t } = useTranslation();
   return (
     <div className="flex min-h-screen">
       <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 bg-muted/50 border-r section-pattern">
         <BrandMark />
         <div className="space-y-4">
           <h1 className="text-3xl font-bold tracking-tight">
-            <RainbowAI text="당신의 AI에게" />
+            <RainbowAI text={t.authLayout.heading1} />
             <br />
-            새로운 기억들을 추가해보세요
+            {t.authLayout.heading2}
           </h1>
           <p className="text-muted-foreground max-w-md">
-            piLoci는 프로젝트별 격리된 메모리 공간으로 AI가 맥락을 잃지 않도록 돕습니다.
+            {t.authLayout.description}
           </p>
         </div>
         <p className="text-sm text-muted-foreground">
           © piLoci 2026. Husband of Rebekah. ·{" "}
           <Link href="/privacy" className="hover:text-foreground transition-colors">
-            {locale === "ko" ? "개인정보 처리방침" : "Privacy Policy"}
+            {t.authLayout.privacyLink}
           </Link>
           {" "}·{" "}
           <Link href="/terms" className="hover:text-foreground transition-colors">
-            {locale === "ko" ? "서비스 약관" : "Terms of Service"}
+            {t.authLayout.termsLink}
           </Link>
         </p>
       </div>

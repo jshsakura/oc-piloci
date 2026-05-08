@@ -71,7 +71,7 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
           <div className="min-w-0">
             <h3 className="truncate font-semibold">{project.name}</h3>
             <p className="truncate text-sm text-muted-foreground">
-              {project.description || "프로젝트 워크스페이스"}
+              {project.description || t.projectCard.workspace}
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100">

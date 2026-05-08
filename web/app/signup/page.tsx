@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -23,6 +23,39 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import type { User } from "@/lib/types";
+
+type SignupCopy = ReturnType<typeof useTranslation>["t"]["signup"];
+
+function makeSignupSchema(copy: SignupCopy) {
+  return z
+    .object({
+      name: z.string().min(2, copy.validation.nameMin),
+      email: z.string().email(copy.validation.emailInvalid),
+      password: z
+        .string()
+        .min(12, copy.validation.passwordMin)
+        .regex(/[A-Z]/, copy.validation.passwordUpper)
+        .regex(/[a-z]/, copy.validation.passwordLower)
+        .regex(/[0-9]/, copy.validation.passwordDigit),
+      confirmPassword: z.string().min(1, copy.validation.confirmRequired),
+    })
+    .refine((d) => d.password === d.confirmPassword, {
+      message: copy.validation.confirmMismatch,
+      path: ["confirmPassword"],
+    });
+}
+
+type SignupFormValues = z.infer<ReturnType<typeof makeSignupSchema>>;
+
+function getErrorMessage(error: unknown, copy: SignupCopy): string {
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    if (msg.includes("duplicate") || msg.includes("already") || msg.includes("409")) {
+      return copy.error.emailDuplicate;
+    }
+  }
+  return error instanceof Error ? error.message : copy.error.generic;
+}
 
 function MailIcon({ className }: { className?: string }) {
   return (
@@ -67,35 +100,6 @@ function EyeOffIcon({ className }: { className?: string }) {
   );
 }
 
-const signupSchema = z
-  .object({
-    name: z.string().min(2, "이름은 2자 이상이어야 합니다"),
-    email: z.string().email("유효한 이메일을 입력하세요"),
-    password: z
-      .string()
-      .min(12, "비밀번호는 12자 이상이어야 합니다")
-      .regex(/[A-Z]/, "대문자 포함 필요")
-      .regex(/[a-z]/, "소문자 포함 필요")
-      .regex(/[0-9]/, "숫자 포함 필요"),
-    confirmPassword: z.string().min(1, "비밀번호 확인을 입력하세요"),
-  })
-  .refine((d) => d.password === d.confirmPassword, {
-    message: "비밀번호가 일치하지 않습니다",
-    path: ["confirmPassword"],
-  });
-
-type SignupFormValues = z.infer<typeof signupSchema>;
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    if (msg.includes("duplicate") || msg.includes("already") || msg.includes("409")) {
-      return "이미 사용 중인 이메일입니다";
-    }
-  }
-  return error instanceof Error ? error.message : "회원가입 중 오류가 발생했습니다";
-}
-
 export default function SignupPage() {
   const router = useRouter();
   const { setUser } = useAuthStore();
@@ -106,6 +110,8 @@ export default function SignupPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [authProviders, setAuthProviders] = useState<AuthProviderStatus[]>([]);
   const [signupComplete, setSignupComplete] = useState(false);
+
+  const signupSchema = useMemo(() => makeSignupSchema(t.signup), [t.signup]);
 
   const form = useForm<SignupFormValues>({
     resolver: zodResolver(signupSchema),
@@ -145,7 +151,7 @@ export default function SignupPage() {
         setSignupComplete(true);
       }
     } catch (err) {
-      setServerError(getErrorMessage(err));
+      setServerError(getErrorMessage(err, t.signup));
     } finally {
       setIsPending(false);
     }
@@ -176,9 +182,9 @@ export default function SignupPage() {
         ) : (
         <>
         <div className="mb-8 text-center">
-          <h2 className="text-2xl font-bold">회원가입</h2>
+          <h2 className="text-2xl font-bold">{t.signup.title}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            {"piLoci 계정을 만드세요".split("AI").map((part, i, arr) => (
+            {t.signup.subtitle.split("AI").map((part, i, arr) => (
               <span key={i}>
                 {part}
                 {i < arr.length - 1 && (
@@ -200,11 +206,11 @@ export default function SignupPage() {
                 <FormItem>
                   <FormLabel className="flex items-center gap-1.5">
                     <UserIcon className="size-3.5" />
-                    이름
+                    {t.signup.nameLabel}
                   </FormLabel>
                   <FormControl>
                     <div className="relative">
-                      <Input type="text" autoComplete="name" placeholder="홍길동" {...field} />
+                      <Input type="text" autoComplete="name" placeholder={t.signup.namePlaceholder} {...field} />
                       {field.value && (
                         <button
                           type="button"
@@ -227,7 +233,7 @@ export default function SignupPage() {
                 <FormItem>
                   <FormLabel className="flex items-center gap-1.5">
                     <MailIcon className="size-3.5" />
-                    이메일
+                    {t.signup.emailLabel}
                   </FormLabel>
                   <FormControl>
                     <div className="relative">
@@ -254,7 +260,7 @@ export default function SignupPage() {
                 <FormItem>
                   <FormLabel className="flex items-center gap-1.5">
                     <LockIcon className="size-3.5" />
-                    비밀번호
+                    {t.signup.passwordLabel}
                   </FormLabel>
                   <FormControl>
                     <div className="relative">
@@ -284,7 +290,7 @@ export default function SignupPage() {
                       </div>
                     </div>
                   </FormControl>
-                  <FormDescription>12자 이상, 대소문자 + 숫자 포함</FormDescription>
+                  <FormDescription>{t.signup.passwordHint}</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -296,7 +302,7 @@ export default function SignupPage() {
                 <FormItem>
                   <FormLabel className="flex items-center gap-1.5">
                     <LockIcon className="size-3.5" />
-                    비밀번호 확인
+                    {t.signup.confirmPasswordLabel}
                   </FormLabel>
                   <FormControl>
                     <div className="relative">
@@ -338,7 +344,7 @@ export default function SignupPage() {
             )}
 
             <Button type="submit" disabled={isPending} className="w-full">
-              {isPending ? "가입 중..." : "가입하기"}
+              {isPending ? t.signup.submitting : t.signup.submit}
             </Button>
           </form>
         </Form>
@@ -348,7 +354,7 @@ export default function SignupPage() {
             <div className="relative my-6">
               <div className="absolute inset-0 flex items-center"><div className="w-full border-t" /></div>
               <div className="relative flex justify-center text-xs uppercase text-muted-foreground">
-                <span className="bg-card px-2">또는</span>
+                <span className="bg-card px-2">{t.signup.or}</span>
               </div>
             </div>
 
@@ -358,9 +364,9 @@ export default function SignupPage() {
 
         <div className="mt-6 text-center">
           <p className="text-sm text-muted-foreground">
-            이미 계정이 있으신가요?{" "}
+            {t.signup.hasAccount}{" "}
             <Link href="/login" className="text-primary underline underline-offset-4">
-              로그인
+              {t.signup.loginLink}
             </Link>
           </p>
         </div>

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2, Pencil, Power, PowerOff } from "lucide-react";
 import { api } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import type { LLMProvider } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +53,8 @@ function ProviderForm({
   pending: boolean;
   error: string;
 }) {
+  const { t } = useTranslation();
+  const f = t.llm.form;
   const [form, setForm] = useState<FormState>(initial);
 
   return (
@@ -63,7 +66,7 @@ function ProviderForm({
       className="space-y-3"
     >
       <div className="space-y-1.5">
-        <Label htmlFor="llm-name">이름 *</Label>
+        <Label htmlFor="llm-name">{f.nameLabel}</Label>
         <Input
           id="llm-name"
           value={form.name}
@@ -73,7 +76,7 @@ function ProviderForm({
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="llm-url">Base URL *</Label>
+        <Label htmlFor="llm-url">{f.baseUrlLabel}</Label>
         <Input
           id="llm-url"
           value={form.base_url}
@@ -81,12 +84,10 @@ function ProviderForm({
           placeholder="https://api.z.ai/api/paas/v4"
           maxLength={500}
         />
-        <p className="text-xs text-muted-foreground">
-          OpenAI-compatible 엔드포인트의 베이스. <code>/v1/chat/completions</code>는 자동 보정됨.
-        </p>
+        <p className="text-xs text-muted-foreground">{f.baseUrlHelp}</p>
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="llm-model">모델 *</Label>
+        <Label htmlFor="llm-model">{f.modelLabel}</Label>
         <Input
           id="llm-model"
           value={form.model}
@@ -96,7 +97,13 @@ function ProviderForm({
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="llm-key">API 키 {editing && <span className="text-xs text-muted-foreground">(비워두면 기존 키 유지)</span>} {!editing && "*"}</Label>
+        <Label htmlFor="llm-key">
+          {f.apiKeyLabel}{" "}
+          {editing && (
+            <span className="text-xs text-muted-foreground">({f.apiKeyEditNote})</span>
+          )}
+          {!editing && " *"}
+        </Label>
         <Input
           id="llm-key"
           type="password"
@@ -108,7 +115,7 @@ function ProviderForm({
       </div>
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <Label htmlFor="llm-priority">우선순위</Label>
+          <Label htmlFor="llm-priority">{f.priorityLabel}</Label>
           <Input
             id="llm-priority"
             type="number"
@@ -117,7 +124,7 @@ function ProviderForm({
             value={form.priority}
             onChange={(e) => setForm({ ...form, priority: Number(e.target.value) || 0 })}
           />
-          <p className="text-xs text-muted-foreground">낮을수록 먼저 시도</p>
+          <p className="text-xs text-muted-foreground">{f.priorityHelp}</p>
         </div>
         <div className="flex items-end">
           <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -127,17 +134,17 @@ function ProviderForm({
               onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
               className="size-4"
             />
-            활성화
+            {f.enabledLabel}
           </label>
         </div>
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
-          취소
+          {f.cancel}
         </Button>
         <Button type="submit" disabled={pending}>
-          {pending ? "저장 중..." : editing ? "저장" : "추가"}
+          {pending ? f.saving : editing ? f.save : f.addAction}
         </Button>
       </div>
     </form>
@@ -157,23 +164,26 @@ function ProviderRow({
   onDelete: () => void;
   toggling: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <div className="flex items-start justify-between gap-3 rounded-md border bg-card p-3">
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{provider.name}</span>
           <Badge variant={provider.enabled ? "default" : "secondary"} className="text-xs">
-            {provider.enabled ? "활성" : "비활성"}
+            {provider.enabled ? t.llm.enabled : t.llm.disabled}
           </Badge>
-          <Badge variant="outline" className="text-xs">우선순위 {provider.priority}</Badge>
+          <Badge variant="outline" className="text-xs">
+            {t.llm.priorityLabel.replace("{priority}", String(provider.priority))}
+          </Badge>
         </div>
         <p className="break-all font-mono text-xs text-muted-foreground">
           {provider.base_url}
         </p>
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
-          <span>모델: <code className="font-mono">{provider.model}</code></span>
+          <span>{t.llm.modelLabel}: <code className="font-mono">{provider.model}</code></span>
           {provider.api_key_masked && (
-            <span>키: <code className="font-mono">{provider.api_key_masked}</code></span>
+            <span>{t.llm.keyLabel}: <code className="font-mono">{provider.api_key_masked}</code></span>
           )}
         </div>
       </div>
@@ -184,11 +194,11 @@ function ProviderRow({
           className="size-8"
           onClick={onToggle}
           disabled={toggling}
-          aria-label={provider.enabled ? "비활성화" : "활성화"}
+          aria-label={provider.enabled ? t.llm.ariaToggleOff : t.llm.ariaToggleOn}
         >
           {provider.enabled ? <Power className="size-3.5" /> : <PowerOff className="size-3.5 text-muted-foreground" />}
         </Button>
-        <Button size="icon" variant="ghost" className="size-8" onClick={onEdit} aria-label="편집">
+        <Button size="icon" variant="ghost" className="size-8" onClick={onEdit} aria-label={t.llm.ariaEdit}>
           <Pencil className="size-3.5" />
         </Button>
         <Button
@@ -196,7 +206,7 @@ function ProviderRow({
           variant="ghost"
           className="size-8 text-muted-foreground hover:text-destructive"
           onClick={onDelete}
-          aria-label="삭제"
+          aria-label={t.llm.ariaDelete}
         >
           <Trash2 className="size-3.5" />
         </Button>
@@ -207,6 +217,7 @@ function ProviderRow({
 
 export function LLMProviderManager() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<LLMProvider | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<LLMProvider | null>(null);
@@ -225,7 +236,7 @@ export function LLMProviderManager() {
       setFormError("");
     },
     onError: (err: unknown) => {
-      setFormError(err instanceof Error ? err.message : "추가에 실패했습니다");
+      setFormError(err instanceof Error ? err.message : t.llm.form.addFailed);
     },
   });
 
@@ -238,7 +249,7 @@ export function LLMProviderManager() {
       setFormError("");
     },
     onError: (err: unknown) => {
-      setFormError(err instanceof Error ? err.message : "저장에 실패했습니다");
+      setFormError(err instanceof Error ? err.message : t.llm.form.saveFailed);
     },
   });
 
@@ -263,10 +274,8 @@ export function LLMProviderManager() {
       <CardContent className="p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h3 className="font-semibold">외부 LLM 백업</h3>
-            <p className="text-xs text-muted-foreground">
-              로컬 Gemma가 막히면 우선순위 순으로 외부 OpenAI-compatible 모델로 폴백합니다.
-            </p>
+            <h3 className="font-semibold">{t.llm.heading}</h3>
+            <p className="text-xs text-muted-foreground">{t.llm.description}</p>
           </div>
           <Button
             size="sm"
@@ -275,7 +284,7 @@ export function LLMProviderManager() {
               setFormError("");
             }}
           >
-            <Plus className="mr-1 size-4" /> 추가
+            <Plus className="mr-1 size-4" /> {t.llm.add}
           </Button>
         </div>
 
@@ -286,10 +295,10 @@ export function LLMProviderManager() {
             ))}
           </div>
         ) : isError ? (
-          <p className="text-sm text-destructive">목록을 불러오지 못했습니다.</p>
+          <p className="text-sm text-destructive">{t.llm.loadFailed}</p>
         ) : providers.length === 0 ? (
           <p className="rounded-md border border-dashed p-6 text-center text-sm text-muted-foreground">
-            등록된 외부 LLM이 없습니다. Gemma만 사용 중.
+            {t.llm.empty}
           </p>
         ) : (
           <div className="space-y-2">
@@ -318,7 +327,7 @@ export function LLMProviderManager() {
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>외부 LLM 추가</DialogTitle>
+              <DialogTitle>{t.llm.addTitle}</DialogTitle>
             </DialogHeader>
             <ProviderForm
               initial={EMPTY}
@@ -331,7 +340,7 @@ export function LLMProviderManager() {
               }}
               onSubmit={(form) => {
                 if (!form.name || !form.base_url || !form.model || !form.api_key) {
-                  setFormError("이름·Base URL·모델·API 키 모두 필요합니다");
+                  setFormError(t.llm.form.allFieldsRequired);
                   return;
                 }
                 createMutation.mutate(form);
@@ -351,7 +360,7 @@ export function LLMProviderManager() {
         >
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>외부 LLM 편집</DialogTitle>
+              <DialogTitle>{t.llm.editTitle}</DialogTitle>
             </DialogHeader>
             {editing && (
               <ProviderForm
@@ -391,9 +400,9 @@ export function LLMProviderManager() {
           onOpenChange={(open) => {
             if (!open) setConfirmDelete(null);
           }}
-          title={`"${confirmDelete?.name}" 제거`}
-          description="이 외부 LLM 백업을 목록에서 제거합니다. API 키도 함께 삭제됩니다."
-          confirmLabel="제거"
+          title={`"${confirmDelete?.name}" ${t.llm.removeButton}`}
+          description={t.llm.deleteConfirmDesc}
+          confirmLabel={t.llm.removeButton}
           variant="destructive"
           pending={deleteMutation.isPending}
           onConfirm={() => {

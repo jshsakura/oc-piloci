@@ -1,15 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import AuthLayout from "@/components/AuthLayout";
 import { api } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+
+type ForgotCopy = ReturnType<typeof useTranslation>["t"]["forgotPassword"];
+
+function makeForgotSchema(copy: ForgotCopy) {
+  return z.object({
+    email: z.string().email(copy.validation.emailInvalid),
+  });
+}
+
+type ForgotFormValues = z.infer<ReturnType<typeof makeForgotSchema>>;
 
 function MailIcon({ className }: { className?: string }) {
   return (
@@ -26,16 +37,13 @@ function XIcon({ className }: { className?: string }) {
   );
 }
 
-const forgotSchema = z.object({
-  email: z.string().email("유효한 이메일을 입력하세요"),
-});
-
-type ForgotFormValues = z.infer<typeof forgotSchema>;
-
 export default function ForgotPasswordPage() {
+  const { t } = useTranslation();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
   const [sent, setSent] = useState(false);
+
+  const forgotSchema = useMemo(() => makeForgotSchema(t.forgotPassword), [t.forgotPassword]);
 
   const form = useForm<ForgotFormValues>({
     resolver: zodResolver(forgotSchema),
@@ -49,7 +57,7 @@ export default function ForgotPasswordPage() {
       await api.forgotPassword(data.email);
       setSent(true);
     } catch (err) {
-      setServerError(err instanceof Error ? err.message : "요청 중 오류가 발생했습니다");
+      setServerError(err instanceof Error ? err.message : t.forgotPassword.error.generic);
     } finally {
       setIsPending(false);
     }
@@ -59,20 +67,20 @@ export default function ForgotPasswordPage() {
     <AuthLayout>
       <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
         <div className="mb-8 text-center">
-          <h2 className="text-2xl font-bold">비밀번호 찾기</h2>
+          <h2 className="text-2xl font-bold">{t.forgotPassword.title}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            가입한 이메일을 입력하시면<br />재설정 토큰을 발급해드립니다
+            {t.forgotPassword.subtitle}<br />{t.forgotPassword.subtitle2}
           </p>
         </div>
 
         {sent ? (
           <div className="space-y-4">
             <div className="rounded-md border border-emerald-300 bg-emerald-50 p-4 text-center text-sm text-emerald-800 shadow-sm dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-              재설정 토큰이 발급되었습니다.<br />
-              아래 버튼으로 비밀번호를 변경하세요.
+              {t.forgotPassword.sentMessage}<br />
+              {t.forgotPassword.sentMessage2}
             </div>
             <Button className="w-full" asChild>
-              <Link href="/reset-password">비밀번호 재설정하기</Link>
+              <Link href="/reset-password">{t.forgotPassword.resetLink}</Link>
             </Button>
           </div>
         ) : (
@@ -85,7 +93,7 @@ export default function ForgotPasswordPage() {
                   <FormItem>
                     <FormLabel className="flex items-center gap-1.5">
                       <MailIcon className="size-3.5" />
-                      이메일
+                      {t.forgotPassword.emailLabel}
                     </FormLabel>
                     <FormControl>
                       <div className="relative">
@@ -113,7 +121,7 @@ export default function ForgotPasswordPage() {
               )}
 
               <Button type="submit" disabled={isPending} className="w-full">
-                {isPending ? "전송 중..." : "재설정 토큰 받기"}
+                {isPending ? t.forgotPassword.submitting : t.forgotPassword.submit}
               </Button>
             </form>
           </Form>
@@ -122,7 +130,7 @@ export default function ForgotPasswordPage() {
         <div className="mt-6 text-center">
           <p className="text-sm text-muted-foreground">
             <Link href="/login" className="text-primary underline underline-offset-4">
-              로그인으로 돌아가기
+              {t.forgotPassword.backToLogin}
             </Link>
           </p>
         </div>

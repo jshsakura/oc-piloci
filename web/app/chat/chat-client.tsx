@@ -17,7 +17,10 @@ import {
 } from "@/components/ui/select";
 import { useAuthStore } from "@/lib/auth";
 import { api, type ChatCitation } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import type { Project } from "@/lib/types";
+
+type ChatCopy = ReturnType<typeof useTranslation>["t"]["chat"];
 
 const SELECTED_KEY = "piloci-chat-selected-project";
 
@@ -33,6 +36,7 @@ type Turn = {
 export default function ChatClient() {
   const router = useRouter();
   const { user, hasHydrated, isBootstrapping } = useAuthStore();
+  const { t } = useTranslation();
 
   const [projectSlug, setProjectSlug] = useState<string>("");
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -151,7 +155,7 @@ export default function ChatClient() {
   if (!hasHydrated || isBootstrapping) {
     return (
       <AppShell>
-        <RoutePending title="세션 확인 중" description="대화를 준비하고 있습니다." />
+        <RoutePending title={t.chat.pendingTitle} description={t.chat.pendingDesc} />
       </AppShell>
     );
   }
@@ -159,8 +163,8 @@ export default function ChatClient() {
     return (
       <RoutePending
         fullScreen
-        title="로그인 화면으로 이동 중"
-        description="인증 상태를 확인했고, 로그인 페이지로 안전하게 전환하고 있습니다."
+        title={t.chat.redirectTitle}
+        description={t.chat.redirectDesc}
       />
     );
   }
@@ -175,23 +179,23 @@ export default function ChatClient() {
           <div className="min-w-0">
             <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
               <MessageSquareText className="size-5 text-muted-foreground" />
-              대화로 메모리 꺼내기
+              {t.chat.title}
             </h1>
             <p className="text-sm text-muted-foreground">
-              저장된 메모리에서 답을 가져옵니다. 인용 번호로 출처를 확인하세요.
+              {t.chat.subtitle}
             </p>
           </div>
           <Select value={projectSlug} onValueChange={setProjectSlug} disabled={busy}>
             <SelectTrigger
               className="h-8 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:text-foreground focus:ring-0 focus:ring-offset-0"
-              aria-label="프로젝트 선택"
+              aria-label={t.chat.projectSelectAria}
             >
-              <SelectValue placeholder="프로젝트" />
+              <SelectValue placeholder={t.chat.projectPlaceholder} />
             </SelectTrigger>
             <SelectContent align="end">
               {projectOptions.length === 0 ? (
                 <SelectItem value="__empty" disabled>
-                  아직 만든 프로젝트가 없습니다
+                  {t.chat.noProjects}
                 </SelectItem>
               ) : (
                 projectOptions.map((p) => (
@@ -209,7 +213,7 @@ export default function ChatClient() {
           className="flex min-h-[55vh] flex-1 flex-col gap-5 overflow-y-auto rounded-2xl border bg-card p-5 shadow-sm"
         >
           {empty ? (
-            <EmptyState />
+            <EmptyState chatCopy={t.chat} />
           ) : (
             turns.map((turn) => (
               <TurnView
@@ -219,6 +223,7 @@ export default function ChatClient() {
                 onToggleCitation={(refKey) =>
                   setExpandedCitations((prev) => ({ ...prev, [refKey]: !prev[refKey] }))
                 }
+                errorPrefix={t.chat.errorPrefix}
               />
             ))
           )}
@@ -232,31 +237,27 @@ export default function ChatClient() {
           onStop={stopStream}
           disabled={!projectSlug || projectOptions.length === 0}
           busy={busy}
+          chatCopy={t.chat}
         />
       </div>
     </AppShell>
   );
 }
 
-function EmptyState() {
-  const examples = [
-    "이번 주에 결정된 사항이 뭐였지?",
-    "OAuth 관련해서 어떤 이슈가 있었어?",
-    "내가 자주 쓰는 패턴 정리해줘",
-  ];
+function EmptyState({ chatCopy }: { chatCopy: ChatCopy }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-10 text-center">
       <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
         <Sparkles className="size-6" />
       </div>
       <div>
-        <p className="text-base font-medium">무엇을 찾고 있나요?</p>
+        <p className="text-base font-medium">{chatCopy.emptyTitle}</p>
         <p className="text-sm text-muted-foreground">
-          저장된 메모리만 보고 답합니다. 검색 가능한 자연어 질문이면 충분합니다.
+          {chatCopy.emptyDesc}
         </p>
       </div>
       <ul className="mt-1 flex flex-col gap-1.5 text-sm text-muted-foreground">
-        {examples.map((q) => (
+        {chatCopy.examples.map((q) => (
           <li
             key={q}
             className="rounded-full border border-dashed border-muted-foreground/20 px-3 py-1.5"
@@ -273,10 +274,12 @@ function TurnView({
   turn,
   expandedCitations,
   onToggleCitation,
+  errorPrefix,
 }: {
   turn: Turn;
   expandedCitations: Record<string, boolean>;
   onToggleCitation: (refKey: string) => void;
+  errorPrefix: string;
 }) {
   if (turn.role === "user") {
     return (
@@ -297,7 +300,7 @@ function TurnView({
         )}
       </div>
       {turn.errorMessage && (
-        <p className="text-sm text-destructive">오류: {turn.errorMessage}</p>
+        <p className="text-sm text-destructive">{errorPrefix}: {turn.errorMessage}</p>
       )}
       {turn.citations && turn.citations.length > 0 && (
         <div className="flex flex-col gap-1.5">
@@ -351,10 +354,11 @@ function TurnView({
 }
 
 function ThinkingDots() {
+  const { t } = useTranslation();
   return (
     <span className="inline-flex items-center gap-1 text-muted-foreground">
       <Loader2 className="size-3.5 animate-spin" />
-      메모리에서 단서를 찾는 중…
+      {t.chat.thinking}
     </span>
   );
 }
@@ -386,32 +390,34 @@ function getSpeechRecognition(): SpeechRecognitionCtor | null {
 // Map SpeechRecognition error codes to a human-readable hint. Surfaced in the
 // UI so users can self-diagnose (mic permission, HTTP origin, etc.) instead of
 // silently watching the button bounce back.
-function describeDictationError(code: string): string {
+function describeDictationError(code: string, dict: ChatCopy["dictation"]): string {
   switch (code) {
     case "not-allowed":
     case "service-not-allowed":
-      return "마이크 권한이 거부되었습니다. 브라우저/시스템 마이크 권한을 허용한 뒤 다시 시도해 주세요.";
+      return dict.notAllowed;
     case "audio-capture":
-      return "마이크를 찾을 수 없습니다. 입력 장치를 확인해 주세요.";
+      return dict.audioCapture;
     case "network":
-      return "음성 인식 서비스에 연결할 수 없습니다. 네트워크 상태를 확인해 주세요.";
+      return dict.network;
     case "no-speech":
-      return "음성이 감지되지 않았습니다. 다시 시도해 주세요.";
+      return dict.noSpeech;
     case "aborted":
-      return "음성 입력이 중지되었습니다.";
+      return dict.aborted;
     case "insecure-context":
-      return "HTTPS에서만 음성 입력을 사용할 수 있습니다.";
+      return dict.insecureContext;
     default:
-      return `음성 인식 오류 (${code}). 콘솔을 확인해 주세요.`;
+      return `${dict.unknown} (${code}). ${dict.consoleHint}`;
   }
 }
 
 function useDictation({
   onAppend,
   enabled,
+  dict,
 }: {
   onAppend: (text: string) => void;
   enabled: boolean;
+  dict: ChatCopy["dictation"];
 }) {
   const [listening, setListening] = useState(false);
   const [supported, setSupported] = useState(false);
@@ -445,7 +451,7 @@ function useDictation({
   const start = () => {
     if (!enabled || listening) return;
     if (!secureContext) {
-      setError(describeDictationError("insecure-context"));
+      setError(describeDictationError("insecure-context", dict));
       return;
     }
     const Ctor = getSpeechRecognition();
@@ -457,7 +463,7 @@ function useDictation({
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error("[piloci] SpeechRecognition ctor failed", e);
-      setError("음성 인식을 시작할 수 없습니다.");
+      setError(dict.startFailed);
       return;
     }
 
@@ -488,13 +494,13 @@ function useDictation({
       // If the session ended without ever producing a final result and no
       // explicit error fired, hint that something silently failed.
       if (!gotResultRef.current) {
-        setError((prev) => prev ?? "음성이 인식되지 않았습니다. 마이크 권한을 확인해 주세요.");
+        setError((prev) => prev ?? dict.silentFailure);
       }
     };
     rec.onerror = (event) => {
       // eslint-disable-next-line no-console
       console.error("[piloci] SpeechRecognition error", event.error);
-      setError(describeDictationError(event.error));
+      setError(describeDictationError(event.error, dict));
       setListening(false);
       recognitionRef.current = null;
     };
@@ -506,7 +512,7 @@ function useDictation({
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error("[piloci] SpeechRecognition start() threw", e);
-      setError("음성 인식을 시작할 수 없습니다. 잠시 후 다시 시도해 주세요.");
+      setError(dict.startRetry);
       setListening(false);
       recognitionRef.current = null;
     }
@@ -533,6 +539,7 @@ function ChatInput({
   onStop,
   disabled,
   busy,
+  chatCopy,
 }: {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   value: string;
@@ -541,13 +548,14 @@ function ChatInput({
   onStop: () => void;
   disabled: boolean;
   busy: boolean;
+  chatCopy: ChatCopy;
 }) {
   const placeholder = useMemo(
     () =>
       disabled
-        ? "프로젝트를 먼저 선택해주세요"
-        : "예: 지난 회의에서 누가 무슨 결정을 했지?  (마이크로도 가능)",
-    [disabled]
+        ? chatCopy.placeholderDisabled
+        : chatCopy.placeholderActive,
+    [disabled, chatCopy.placeholderDisabled, chatCopy.placeholderActive]
   );
 
   const dictation = useDictation({
@@ -560,6 +568,7 @@ function ChatInput({
       // Defer focus so the textarea is ready after state propagates.
       requestAnimationFrame(() => inputRef.current?.focus());
     },
+    dict: chatCopy.dictation,
   });
 
   const toggleMic = () => {
@@ -579,7 +588,7 @@ function ChatInput({
             type="button"
             onClick={dictation.dismissError}
             className="shrink-0 text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
-            aria-label="닫기"
+            aria-label={chatCopy.input.closeErrorAria}
           >
             ×
           </button>
@@ -606,7 +615,7 @@ function ChatInput({
         rows={1}
         placeholder={placeholder}
         className="flex-1 resize-none bg-transparent px-3 py-2 text-sm outline-none placeholder:text-muted-foreground/70 disabled:opacity-50"
-        aria-label="질문 입력"
+        aria-label={chatCopy.input.questionAria}
       />
       {dictation.supported && (
         <Button
@@ -615,16 +624,16 @@ function ChatInput({
           variant={dictation.listening ? "destructive" : "outline"}
           onClick={toggleMic}
           disabled={disabled || busy}
-          aria-label={dictation.listening ? "음성 입력 중지" : "음성으로 질문하기"}
+          aria-label={dictation.listening ? chatCopy.input.micStopAria : chatCopy.input.micStartAria}
           aria-pressed={dictation.listening}
-          title={dictation.listening ? "녹음 중… 클릭하면 멈춥니다" : "마이크로 질문 입력 (한국어)"}
+          title={dictation.listening ? chatCopy.input.micRecordingTitle : chatCopy.input.micIdleTitle}
           className={dictation.listening ? "animate-pulse" : undefined}
         >
           {dictation.listening ? <MicOff className="size-4" /> : <Mic className="size-4" />}
         </Button>
       )}
       {busy ? (
-        <Button type="button" size="icon" variant="outline" onClick={onStop} aria-label="중지">
+        <Button type="button" size="icon" variant="outline" onClick={onStop} aria-label={chatCopy.input.stopAria}>
           <StopCircle className="size-4" />
         </Button>
       ) : (
@@ -632,7 +641,7 @@ function ChatInput({
           type="submit"
           size="icon"
           disabled={disabled || value.trim().length === 0}
-          aria-label="보내기"
+          aria-label={chatCopy.input.sendAria}
         >
           <ArrowUp className="size-4" />
         </Button>

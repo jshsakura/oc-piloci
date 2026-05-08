@@ -122,7 +122,7 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
                   </p>
                 )}
                 {installCommandWindows && (
-                  <CopyBlock value={installCommandWindows} label="Windows / 크로스플랫폼 (uvx)" />
+                  <CopyBlock value={installCommandWindows} label={t.tokenManager.crossPlatformLabel} />
                 )}
               </div>
 
@@ -182,13 +182,13 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
               </TabsList>
               <TabsContent value="claude" className="space-y-2 pt-3">
                 <p className="text-xs text-muted-foreground">
-                  Claude Desktop / Claude Code / Cursor — <code className="rounded bg-muted px-1 py-0.5">.mcp.json</code> 또는 <code className="rounded bg-muted px-1 py-0.5">claude_desktop_config.json</code>
+                  Claude Desktop / Claude Code / Cursor — <code className="rounded bg-muted px-1 py-0.5">.mcp.json</code> {t.tokenManager.mcpClaudeOr} <code className="rounded bg-muted px-1 py-0.5">claude_desktop_config.json</code>
                 </p>
                 <CopyBlock value={configs.claude} />
               </TabsContent>
               <TabsContent value="opencode" className="space-y-2 pt-3">
                 <p className="text-xs text-muted-foreground">
-                  OpenCode — <code className="rounded bg-muted px-1 py-0.5">opencode.json</code> (<code className="rounded bg-muted px-1 py-0.5">type: &quot;remote&quot;</code> 사용)
+                  OpenCode — <code className="rounded bg-muted px-1 py-0.5">opencode.json</code> (<code className="rounded bg-muted px-1 py-0.5">type: &quot;remote&quot;</code> {t.tokenManager.mcpOpencodeRemote})
                 </p>
                 <CopyBlock value={configs.opencode} />
               </TabsContent>
@@ -390,9 +390,9 @@ export function TokenManager() {
         <Card>
           <CardContent className="py-6 text-center space-y-3">
             <p className="text-sm text-destructive">
-              {(error as Error)?.message || "토큰 목록을 불러오지 못했습니다"}
+              {(error as Error)?.message || t.tokenManager.loadFailed}
             </p>
-            <Button size="sm" variant="outline" onClick={() => refetch()}>다시 시도</Button>
+            <Button size="sm" variant="outline" onClick={() => refetch()}>{t.tokenManager.retry}</Button>
           </CardContent>
         </Card>
       ) : tokens.length === 0 ? (
@@ -501,7 +501,7 @@ export function TokenManager() {
         const sel = tokens.find((t) => t.token_id === selectedTokenId);
         if (!sel) return null;
         const baseUrl = typeof window !== "undefined" ? window.location.origin : "https://piloci.opencourse.kr";
-        const placeholder = "<여기에_토큰_붙여넣기>";
+        const placeholder = t.tokenManager.tokenPlaceholder;
         const detailConfigs = buildMcpConfigs(placeholder, baseUrl);
         const isProjectScoped = sel.scope === "project";
 
@@ -524,7 +524,7 @@ export function TokenManager() {
               </Button>
             </div>
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
-              토큰은 발급 시에만 확인할 수 있습니다. 아래 설정에서 <code className="font-mono">&lt;여기에_토큰_붙여넣기&gt;</code> 부분을 발급받은 토큰으로 교체하세요.
+              {t.tokenManager.tokenPasteNotice}
             </div>
             <Card className="border bg-card shadow-sm">
               <CardContent className="p-4">

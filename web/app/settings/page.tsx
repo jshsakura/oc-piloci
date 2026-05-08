@@ -9,6 +9,7 @@ import { TokenManager } from "@/components/TokenManager";
 import { LLMProviderManager } from "@/components/LLMProviderManager";
 import { useAuthStore } from "@/lib/auth";
 import { api, type AuthProviderName } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import type { AuditLog } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +41,7 @@ function formatKST(iso: string): string {
 export default function SettingsPage() {
   const router = useRouter();
   const { user, hasHydrated, isBootstrapping } = useAuthStore();
+  const { t } = useTranslation();
 
   const [currentPw, setCurrentPw] = useState("");
   const [newPw, setNewPw] = useState("");
@@ -88,7 +90,7 @@ export default function SettingsPage() {
   if (!hasHydrated || isBootstrapping) {
     return (
       <AppShell>
-        <RoutePending title="설정 불러오는 중" description="세션이 복원되면 계정 및 보안 설정을 이어서 표시합니다." />
+        <RoutePending title={t.settings.pending.loadingTitle} description={t.settings.pending.loadingDesc} />
       </AppShell>
     );
   }
@@ -97,8 +99,8 @@ export default function SettingsPage() {
     return (
       <RoutePending
         fullScreen
-        title="로그인 화면으로 이동 중"
-        description="설정 페이지는 로그인 후에만 볼 수 있어 로그인 화면으로 이동합니다."
+        title={t.settings.pending.redirectTitle}
+        description={t.settings.pending.redirectDesc}
       />
     );
   }
@@ -107,9 +109,9 @@ export default function SettingsPage() {
     e.preventDefault();
     setPwError("");
     setPwSuccess(false);
-    if (!currentPw || !newPw || !confirmPw) { setPwError("모든 필드를 입력해주세요"); return; }
-    if (newPw !== confirmPw) { setPwError("새 비밀번호가 일치하지 않습니다"); return; }
-    if (newPw.length < 12) { setPwError("비밀번호는 12자 이상이어야 합니다"); return; }
+    if (!currentPw || !newPw || !confirmPw) { setPwError(t.settings.account.validation.allFieldsRequired); return; }
+    if (newPw !== confirmPw) { setPwError(t.settings.account.validation.passwordMismatch); return; }
+    if (newPw.length < 12) { setPwError(t.settings.account.validation.passwordMin); return; }
     try {
       await api.changePassword(currentPw, newPw);
       setPwSuccess(true);
@@ -117,7 +119,7 @@ export default function SettingsPage() {
       setNewPw("");
       setConfirmPw("");
     } catch (err) {
-      setPwError(err instanceof Error ? err.message : "비밀번호 변경에 실패했습니다");
+      setPwError(err instanceof Error ? err.message : t.settings.account.validation.changeFailed);
     }
   };
 
@@ -129,7 +131,7 @@ export default function SettingsPage() {
       setTotpSecret(data.secret);
       setTotpStep("setup");
     } catch (e: unknown) {
-      setTotpError((e as Error).message || "2FA 설정 실패");
+      setTotpError((e as Error).message || t.settings.security.error.setupFailed);
     }
   };
 
@@ -143,7 +145,7 @@ export default function SettingsPage() {
       setTotpStep("backup");
       setTotpCode("");
     } catch (e: unknown) {
-      setTotpError((e as Error).message || "코드 확인 실패");
+      setTotpError((e as Error).message || t.settings.security.error.confirmFailed);
     }
   };
 
@@ -157,7 +159,7 @@ export default function SettingsPage() {
       setDisablePassword("");
       setDisableCode("");
     } catch (e: unknown) {
-      setDisableError((e as Error).message || "비활성화 실패");
+      setDisableError((e as Error).message || t.settings.security.error.disableFailed);
     }
   };
 
@@ -175,9 +177,9 @@ export default function SettingsPage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      const message = err instanceof Error ? err.message : "내보내기에 실패했습니다";
+      const message = err instanceof Error ? err.message : t.settings.dataExport.error.generic;
       const status = (err as { status?: number })?.status;
-      setExportError(status === 429 ? "잠시 후 다시 시도해주세요" : message);
+      setExportError(status === 429 ? t.settings.dataExport.error.throttled : message);
     } finally {
       setExporting(false);
     }
@@ -189,7 +191,7 @@ export default function SettingsPage() {
     const fileInput = form.elements.namedItem("archive") as HTMLInputElement | null;
     const file = fileInput?.files?.[0];
     if (!file) {
-      setImportError("불러올 .zip 파일을 선택해주세요");
+      setImportError(t.settings.dataImport.error.missingFile);
       return;
     }
     setImportError("");
@@ -205,14 +207,14 @@ export default function SettingsPage() {
       });
       form.reset();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "가져오기에 실패했습니다";
+      const message = err instanceof Error ? err.message : t.settings.dataImport.error.generic;
       const status = (err as { status?: number })?.status;
       if (status === 409) {
-        setImportError("내보낸 서버와 임베딩 모델이 다릅니다. 다시 임베딩을 켜고 시도해주세요.");
+        setImportError(t.settings.dataImport.error.embeddingMismatch);
       } else if (status === 413) {
-        setImportError("파일이 너무 큽니다. 더 작게 나눠 내보내주세요.");
+        setImportError(t.settings.dataImport.error.tooLarge);
       } else if (status === 429) {
-        setImportError("잠시 후 다시 시도해주세요");
+        setImportError(t.settings.dataImport.error.throttled);
       } else {
         setImportError(message);
       }
@@ -230,7 +232,7 @@ export default function SettingsPage() {
       await api.disconnectProvider(user.oauth_provider as AuthProviderName);
       setDisconnectSuccess(true);
     } catch (err) {
-      setDisconnectError(err instanceof Error ? err.message : "연결 끊기에 실패했습니다");
+      setDisconnectError(err instanceof Error ? err.message : t.settings.account.validation.disconnectFailed);
     } finally {
       setDisconnecting(false);
     }
@@ -245,45 +247,45 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
-      <h1 className="text-2xl font-bold">설정</h1>
-      <p className="text-sm text-muted-foreground">계정 및 보안 설정을 관리합니다</p>
+      <h1 className="text-2xl font-bold">{t.settings.title}</h1>
+      <p className="text-sm text-muted-foreground">{t.settings.description}</p>
 
       <Tabs defaultValue="account" className="mt-6">
         <TabsList className="w-full">
-          <TabsTrigger value="account" className="flex-1">계정</TabsTrigger>
-          <TabsTrigger value="security" className="flex-1">보안</TabsTrigger>
-          <TabsTrigger value="tokens" className="flex-1">토큰</TabsTrigger>
-          <TabsTrigger value="llm" className="flex-1">LLM</TabsTrigger>
-          <TabsTrigger value="data" className="flex-1">데이터</TabsTrigger>
-          <TabsTrigger value="audit" className="flex-1">활동</TabsTrigger>
+          <TabsTrigger value="account" className="flex-1">{t.settings.tabs.account}</TabsTrigger>
+          <TabsTrigger value="security" className="flex-1">{t.settings.tabs.security}</TabsTrigger>
+          <TabsTrigger value="tokens" className="flex-1">{t.settings.tabs.tokens}</TabsTrigger>
+          <TabsTrigger value="llm" className="flex-1">{t.settings.tabs.llm}</TabsTrigger>
+          <TabsTrigger value="data" className="flex-1">{t.settings.tabs.data}</TabsTrigger>
+          <TabsTrigger value="audit" className="flex-1">{t.settings.tabs.audit}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="account" className="mt-4 space-y-4">
           <Card>
-            <CardHeader><CardTitle>계정 정보</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t.settings.account.infoTitle}</CardTitle></CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <Label>이메일</Label>
+                <Label>{t.settings.account.emailLabel}</Label>
                 <p className="rounded-md border bg-muted px-3 py-2 font-mono text-sm">{user.email}</p>
               </div>
               <Separator className="my-6" />
               <form onSubmit={handlePasswordChange} className="space-y-3">
-                <CardTitle className="text-base">비밀번호 변경</CardTitle>
+                <CardTitle className="text-base">{t.settings.account.passwordChangeTitle}</CardTitle>
                 <div className="space-y-1.5">
-                  <Label>현재 비밀번호</Label>
+                  <Label>{t.settings.account.currentPassword}</Label>
                   <Input type="password" value={currentPw} onChange={(e) => setCurrentPw(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>새 비밀번호</Label>
+                  <Label>{t.settings.account.newPassword}</Label>
                   <Input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>새 비밀번호 확인</Label>
+                  <Label>{t.settings.account.confirmPassword}</Label>
                   <Input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} />
                 </div>
                 {pwError && <p className="text-sm text-destructive">{pwError}</p>}
-                {pwSuccess && <p className="text-sm text-primary">비밀번호가 변경되었습니다</p>}
-                <Button type="submit" variant="outline">변경</Button>
+                {pwSuccess && <p className="text-sm text-primary">{t.settings.account.passwordChanged}</p>}
+                <Button type="submit" variant="outline">{t.settings.account.submit}</Button>
               </form>
             </CardContent>
           </Card>
@@ -292,21 +294,20 @@ export default function SettingsPage() {
             <Card>
               <CardHeader>
                 <div className="flex items-center gap-3">
-                  <CardTitle>소셜 로그인</CardTitle>
+                  <CardTitle>{t.settings.account.socialLoginTitle}</CardTitle>
                   <Badge variant="default">
-                    {providerLabel[user.oauth_provider] ?? user.oauth_provider} 연결됨
+                    {providerLabel[user.oauth_provider] ?? user.oauth_provider} {t.settings.account.connected}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="text-sm text-muted-foreground">
-                  {providerLabel[user.oauth_provider] ?? user.oauth_provider} 계정으로 로그인하고 있습니다.
-                  연결을 끊으려면 먼저 비밀번호를 설정하세요.
+                  {providerLabel[user.oauth_provider] ?? user.oauth_provider}{t.settings.account.socialDesc}
                 </p>
                 {disconnectError && <p className="text-sm text-destructive">{disconnectError}</p>}
                 {disconnectSuccess && (
                   <p className="text-sm text-primary">
-                    연결이 끊어졌습니다. 비밀번호로 로그인해주세요.
+                    {t.settings.account.disconnected}
                   </p>
                 )}
                 <Button
@@ -315,7 +316,7 @@ export default function SettingsPage() {
                   disabled={disconnecting}
                   onClick={handleDisconnect}
                 >
-                  {disconnecting ? "처리 중..." : "연결 끊기"}
+                  {disconnecting ? t.settings.account.disconnecting : t.settings.account.disconnect}
                 </Button>
               </CardContent>
             </Card>
@@ -326,9 +327,9 @@ export default function SettingsPage() {
           <Card>
             <CardHeader>
               <div className="flex items-center gap-3">
-                <CardTitle>2FA</CardTitle>
+                <CardTitle>{t.settings.security.title}</CardTitle>
                 <Badge variant={totpEnabled ? "default" : "secondary"}>
-                  {totpEnabled ? "활성" : "비활성"}
+                  {totpEnabled ? t.settings.security.enabled : t.settings.security.disabled}
                 </Badge>
               </div>
             </CardHeader>
@@ -336,28 +337,28 @@ export default function SettingsPage() {
               {totpStep === "idle" && !totpEnabled && (
                 <div>
                   <p className="mb-4 text-sm text-muted-foreground">
-                    TOTP 앱(Google Authenticator 등)으로 2FA를 활성화합니다
+                    {t.settings.security.setupDesc}
                   </p>
-                  <Button onClick={handle2faEnable}>2FA 활성화</Button>
+                  <Button onClick={handle2faEnable}>{t.settings.security.enableButton}</Button>
                   {totpError && <p className="mt-2 text-sm text-destructive">{totpError}</p>}
                 </div>
               )}
 
               {totpStep === "setup" && (
                 <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">QR 코드를 스캔한 후 인증 코드를 입력하세요</p>
+                  <p className="text-sm text-muted-foreground">{t.settings.security.setupGuide}</p>
                   {totpQr && (
                     <div>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src={totpQr} alt="QR" className="mb-3 size-48 rounded-lg border bg-white p-2" />
                       <p className="text-xs text-muted-foreground">
-                        수동 키: <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{totpSecret}</code>
+                        {t.settings.security.secretKey}: <code className="rounded bg-muted px-1.5 py-0.5 font-mono">{totpSecret}</code>
                       </p>
                     </div>
                   )}
                   <form onSubmit={handle2faConfirm} className="flex items-end gap-3 max-w-sm">
                     <div className="flex-1 space-y-1.5">
-                      <Label>인증 코드</Label>
+                      <Label>{t.settings.security.codeLabel}</Label>
                       <Input
                         type="text"
                         inputMode="numeric"
@@ -367,7 +368,7 @@ export default function SettingsPage() {
                         placeholder="123456"
                       />
                     </div>
-                    <Button type="submit">확인</Button>
+                    <Button type="submit">{t.settings.security.confirmButton}</Button>
                   </form>
                   {totpError && <p className="text-sm text-destructive">{totpError}</p>}
                 </div>
@@ -375,34 +376,34 @@ export default function SettingsPage() {
 
               {totpStep === "backup" && backupCodes.length > 0 && (
                 <div className="space-y-4">
-                  <p className="text-sm font-medium text-primary">백업 코드를 안전한 곳에 저장하세요</p>
+                  <p className="text-sm font-medium text-primary">{t.settings.security.backupTitle}</p>
                   <div className="grid grid-cols-2 gap-2 rounded-md bg-muted p-4 font-mono text-sm">
                     {backupCodes.map((code, i) => <span key={i}>{code}</span>)}
                   </div>
-                  <Button variant="outline" onClick={() => setTotpStep("idle")}>확인</Button>
+                  <Button variant="outline" onClick={() => setTotpStep("idle")}>{t.settings.security.confirmButton}</Button>
                 </div>
               )}
 
               {totpStep === "idle" && totpEnabled && !showDisableForm && (
                 <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => setShowDisableForm(true)}>
-                  2FA 비활성화
+                  {t.settings.security.disableButton}
                 </Button>
               )}
 
               {showDisableForm && (
                 <form onSubmit={handle2faDisable} className="max-w-sm space-y-3">
                   <div className="space-y-1.5">
-                    <Label>현재 비밀번호</Label>
+                    <Label>{t.settings.security.disablePasswordLabel}</Label>
                     <Input type="password" value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
                   </div>
                   <div className="space-y-1.5">
-                    <Label>TOTP 코드</Label>
+                    <Label>{t.settings.security.disableCodeLabel}</Label>
                     <Input type="text" inputMode="numeric" maxLength={6} value={disableCode} onChange={(e) => setDisableCode(e.target.value.replace(/\D/g, ""))} />
                   </div>
                   {disableError && <p className="text-sm text-destructive">{disableError}</p>}
                   <div className="flex gap-2">
-                    <Button type="submit" variant="destructive">비활성화</Button>
-                    <Button type="button" variant="outline" onClick={() => { setShowDisableForm(false); setDisableError(""); }}>취소</Button>
+                    <Button type="submit" variant="destructive">{t.settings.security.disableSubmit}</Button>
+                    <Button type="button" variant="outline" onClick={() => { setShowDisableForm(false); setDisableError(""); }}>{t.settings.security.cancelButton}</Button>
                   </div>
                 </form>
               )}
@@ -424,29 +425,27 @@ export default function SettingsPage() {
 
         <TabsContent value="data" className="mt-4 space-y-4">
           <Card>
-            <CardHeader><CardTitle>내 데이터 내보내기</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t.settings.dataExport.title}</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                지금까지 piLoci가 정리해 둔 내 프로젝트와 기억을 한 묶음 zip 파일로 받습니다.
-                다른 서버로 옮기거나 백업해 둘 때 사용합니다.
+                {t.settings.dataExport.desc}
               </p>
               <Button onClick={handleExport} disabled={exporting}>
-                {exporting ? "내보내는 중..." : "내보내기"}
+                {exporting ? t.settings.dataExport.exporting : t.settings.dataExport.export}
               </Button>
               {exportError && <p className="text-sm text-destructive">{exportError}</p>}
             </CardContent>
           </Card>
 
           <Card>
-            <CardHeader><CardTitle>가져오기</CardTitle></CardHeader>
+            <CardHeader><CardTitle>{t.settings.dataImport.title}</CardTitle></CardHeader>
             <CardContent>
               <form onSubmit={handleImport} className="space-y-4">
                 <p className="text-sm text-muted-foreground">
-                  다른 piLoci에서 내려받은 zip을 올려두면 현재 계정 안으로 조용히 합쳐집니다.
-                  이름이 같은 프로젝트는 자동으로 새 이름으로 들여옵니다.
+                  {t.settings.dataImport.desc}
                 </p>
                 <div className="space-y-1.5">
-                  <Label htmlFor="archive">아카이브 (.zip)</Label>
+                  <Label htmlFor="archive">{t.settings.dataImport.archiveLabel}</Label>
                   <Input id="archive" name="archive" type="file" accept=".zip,application/zip" />
                 </div>
                 <label className="flex items-center gap-2 text-sm">
@@ -456,19 +455,19 @@ export default function SettingsPage() {
                     onChange={(e) => setReembed(e.target.checked)}
                     className="size-4"
                   />
-                  <span>임베딩 모델이 다르면 다시 계산해서 합치기</span>
+                  <span>{t.settings.dataImport.reembedToggle}</span>
                 </label>
                 {importError && <p className="text-sm text-destructive">{importError}</p>}
                 {importResult && (
                   <div className="rounded-md border bg-muted px-3 py-2 text-sm text-muted-foreground">
-                    프로젝트 {importResult.projects_imported}개
-                    (이름 변경 {importResult.projects_renamed}개) ·
-                    기억 {importResult.memories_imported}개
-                    {importResult.re_embedded ? " · 다시 임베딩됨" : ""}
+                    {t.settings.dataImport.result.projects} {importResult.projects_imported}{t.settings.dataImport.result.unit}
+                    {" "}({t.settings.dataImport.result.renamed} {importResult.projects_renamed}{t.settings.dataImport.result.unit}) ·
+                    {" "}{t.settings.dataImport.result.memories} {importResult.memories_imported}{t.settings.dataImport.result.unit}
+                    {importResult.re_embedded ? t.settings.dataImport.result.reembedded : ""}
                   </div>
                 )}
                 <Button type="submit" disabled={importing}>
-                  {importing ? "가져오는 중..." : "가져오기"}
+                  {importing ? t.settings.dataImport.importing : t.settings.dataImport.import}
                 </Button>
               </form>
             </CardContent>
@@ -477,9 +476,9 @@ export default function SettingsPage() {
 
         <TabsContent value="audit" className="mt-4 space-y-3">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-muted-foreground">최근 활동 기록 (최대 20건)</p>
+            <p className="text-sm text-muted-foreground">{t.settings.audit.recentTitle}</p>
             <Button variant="outline" size="sm" asChild>
-              <Link href="/audit">전체 보기</Link>
+              <Link href="/audit">{t.settings.audit.viewAll}</Link>
             </Button>
           </div>
           {auditLoading ? (
@@ -489,7 +488,7 @@ export default function SettingsPage() {
           ) : !recentLogs || recentLogs.length === 0 ? (
             <Card>
               <CardContent className="py-8 text-center text-sm text-muted-foreground">
-                활동 기록이 없습니다
+                {t.settings.audit.empty}
               </CardContent>
             </Card>
           ) : (
