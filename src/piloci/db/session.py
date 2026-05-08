@@ -74,6 +74,9 @@ _SQLITE_ADD_COLUMNS: dict[str, dict[str, str]] = {
         "client_kinds": "TEXT",
         "hostname": "TEXT",
     },
+    "projects": {
+        "instinct_count": "INTEGER NOT NULL DEFAULT 0",
+    },
 }
 
 

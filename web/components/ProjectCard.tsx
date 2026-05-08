@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowRight, Pencil, Trash2 } from "lucide-react";
+import { ArrowRight, Pencil, Trash2, Brain, Lightbulb, Activity } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import type { Project } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,6 +26,7 @@ interface ProjectCardProps {
 
 export function ProjectCard({ project, onOpen }: ProjectCardProps) {
   const queryClient = useQueryClient();
+  const { t, locale } = useTranslation();
   const [editOpen, setEditOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [name, setName] = useState(project.name);
@@ -43,7 +45,7 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
       setError("");
     },
     onError: (err: unknown) => {
-      setError(err instanceof Error ? err.message : "저장에 실패했습니다");
+      setError(err instanceof Error ? err.message : t.projects.editSaveFailed);
     },
   });
 
@@ -78,7 +80,7 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
               variant="ghost"
               className="size-8"
               onClick={openEdit}
-              aria-label="프로젝트 편집"
+              aria-label={t.projects.editAria}
             >
               <Pencil className="size-3.5" />
             </Button>
@@ -87,7 +89,7 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
               variant="ghost"
               className="size-8 text-muted-foreground hover:text-destructive"
               onClick={() => setConfirmOpen(true)}
-              aria-label="프로젝트 삭제"
+              aria-label={t.projects.deleteAria}
             >
               <Trash2 className="size-3.5" />
             </Button>
@@ -96,15 +98,23 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
 
         <div className="mb-4 flex flex-wrap gap-2">
           <Badge variant="secondary">{project.slug}</Badge>
-          <Badge variant="outline">{project.memory_count} 메모리</Badge>
+          <Badge variant="outline" className="inline-flex items-center gap-1">
+            <Brain className="size-3" /> {project.memory_count} {t.projects.cardMemories}
+          </Badge>
+          <Badge variant="outline" className="inline-flex items-center gap-1">
+            <Lightbulb className="size-3" /> {project.instinct_count ?? 0} {t.projects.cardKnacks}
+          </Badge>
         </div>
 
         <div className="flex items-center justify-between border-t pt-3">
-          <span className="text-xs text-muted-foreground">
-            {new Date(project.created_at).toLocaleDateString("ko-KR")}
+          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+            <Activity className="size-3" />
+            {project.last_active_at
+              ? new Date(project.last_active_at).toLocaleDateString(locale)
+              : t.projects.neverActive}
           </span>
           <Button size="sm" onClick={() => onOpen(project)}>
-            열기
+            {t.projects.openButton}
             <ArrowRight className="ml-1 size-3" />
           </Button>
         </div>
@@ -113,14 +123,14 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>프로젝트 편집</DialogTitle>
+            <DialogTitle>{t.projects.editTitle}</DialogTitle>
           </DialogHeader>
           <form
             onSubmit={(e) => {
               e.preventDefault();
               setError("");
               if (!name.trim()) {
-                setError("이름은 비워둘 수 없습니다");
+                setError(t.projects.editNameRequired);
                 return;
               }
               updateMutation.mutate();
@@ -128,14 +138,12 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
             className="space-y-4"
           >
             <div className="space-y-2">
-              <Label>슬러그</Label>
+              <Label>{t.projects.editSlugLabel}</Label>
               <Input value={project.slug} disabled />
-              <p className="text-xs text-muted-foreground">
-                슬러그는 메모리·토큰 매핑 키라 변경할 수 없습니다.
-              </p>
+              <p className="text-xs text-muted-foreground">{t.projects.editSlugHelp}</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-name">이름 *</Label>
+              <Label htmlFor="edit-name">{t.projects.editNameLabel}</Label>
               <Input
                 id="edit-name"
                 value={name}
@@ -144,13 +152,13 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="edit-desc">설명</Label>
+              <Label htmlFor="edit-desc">{t.projects.editDescLabel}</Label>
               <Input
                 id="edit-desc"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 maxLength={2000}
-                placeholder="프로젝트 설명"
+                placeholder={t.projects.editDescPlaceholder}
               />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
@@ -160,10 +168,10 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
                 variant="outline"
                 onClick={() => setEditOpen(false)}
               >
-                취소
+                {t.projects.editCancel}
               </Button>
               <Button type="submit" disabled={updateMutation.isPending}>
-                {updateMutation.isPending ? "저장 중..." : "저장"}
+                {updateMutation.isPending ? t.projects.editSaving : t.projects.editSave}
               </Button>
             </div>
           </form>
@@ -173,9 +181,9 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title={`"${project.name}" 삭제`}
-        description="이 프로젝트와 연결된 모든 메모리·노트가 함께 사라집니다. 되돌릴 수 없습니다."
-        confirmLabel="삭제"
+        title={`"${project.name}" ${t.projects.deleteTitle}`}
+        description={t.projects.deleteDesc}
+        confirmLabel={t.projects.deleteConfirm}
         variant="destructive"
         pending={deleteMutation.isPending}
         onConfirm={() => deleteMutation.mutate()}

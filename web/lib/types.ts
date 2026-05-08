@@ -10,8 +10,12 @@ export interface Project {
   id: string;
   slug: string;
   name: string;
-  description?: string;
+  description?: string | null;
   memory_count: number;
+  instinct_count?: number;
+  session_count?: number;
+  last_active_at?: string | null;
+  last_analyzed_at?: string | null;
   created_at: string;
 }
 

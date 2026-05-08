@@ -98,6 +98,14 @@ async def _process_analyze_job(
                 instincts_extracted=saved,
             )
         )
+        if saved > 0:
+            from piloci.db.models import Project
+
+            await db.execute(
+                update(Project)
+                .where(Project.id == job.project_id)
+                .values(instinct_count=Project.instinct_count + saved)
+            )
         await db.commit()
 
     logger.info(

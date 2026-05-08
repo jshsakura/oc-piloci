@@ -2,6 +2,7 @@
 
 import { FileText } from "lucide-react";
 import type { VaultNote } from "@/lib/types";
+import { useTranslation } from "@/lib/i18n";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -11,12 +12,13 @@ interface VaultNoteDetailProps {
 }
 
 export function VaultNoteDetail({ note }: VaultNoteDetailProps) {
+  const { t } = useTranslation();
   if (!note) {
     return (
       <Card className="flex min-h-[400px] items-center justify-center">
         <div className="text-center text-muted-foreground">
           <FileText className="mx-auto mb-3 size-8" />
-          <p className="text-sm">노트를 선택하세요</p>
+          <p className="text-sm">{t.vaultNote.selectNote}</p>
         </div>
       </Card>
     );
@@ -42,16 +44,14 @@ export function VaultNoteDetail({ note }: VaultNoteDetailProps) {
           {note.markdown ?? note.excerpt}
         </pre>
         {!note.markdown && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            빠른 워크스페이스 프리뷰입니다. 전문은 vault export나 전체 workspace에서 확인할 수 있습니다.
-          </p>
+          <p className="mt-3 text-xs text-muted-foreground">{t.vaultNote.previewNotice}</p>
         )}
 
         {note.links.length > 0 && (
           <>
             <Separator className="my-4" />
             <div>
-              <p className="mb-2 text-sm font-medium text-muted-foreground">연결된 노트</p>
+              <p className="mb-2 text-sm font-medium text-muted-foreground">{t.vaultNote.linkedNotes}</p>
               <div className="flex flex-wrap gap-1.5">
                 {note.links.map((link) => (
                   <Badge key={link} variant="outline">{link}</Badge>

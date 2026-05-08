@@ -7,6 +7,7 @@ import { FolderPlus, RefreshCcw } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { ProjectCard } from "@/components/ProjectCard";
 import { useAuthStore } from "@/lib/auth";
+import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import type { Project } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import { Label } from "@/components/ui/label";
 export default function DashboardPage() {
   const router = useRouter();
   const { user, hasHydrated, isBootstrapping } = useAuthStore();
+  const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [newSlug, setNewSlug] = useState("");
@@ -44,7 +46,7 @@ export default function DashboardPage() {
       setFormError("");
     },
     onError: (err: unknown) => {
-      setFormError(err instanceof Error ? err.message : "프로젝트 생성에 실패했습니다");
+      setFormError(err instanceof Error ? err.message : t.dashboard.validation.createFailed);
     },
   });
 
@@ -55,7 +57,7 @@ export default function DashboardPage() {
   if (!hasHydrated || isBootstrapping) {
     return (
       <AppShell>
-        <RoutePending title="세션 확인 중" description="대시보드에 필요한 계정 정보를 불러오고 있습니다." />
+        <RoutePending title={t.dashboard.pending.title} description={t.dashboard.pending.desc} />
       </AppShell>
     );
   }
@@ -64,8 +66,8 @@ export default function DashboardPage() {
     return (
       <RoutePending
         fullScreen
-        title="로그인 화면으로 이동 중"
-        description="인증 상태를 확인했고, 로그인 페이지로 안전하게 전환하고 있습니다."
+        title={t.dashboard.redirect.title}
+        description={t.dashboard.redirect.desc}
       />
     );
   }
@@ -74,7 +76,7 @@ export default function DashboardPage() {
     e.preventDefault();
     setFormError("");
     if (!newSlug.trim() || !newName.trim()) {
-      setFormError("슬러그와 이름을 모두 입력해주세요");
+      setFormError(t.dashboard.validation.slugAndNameRequired);
       return;
     }
     createMutation.mutate();
@@ -82,28 +84,29 @@ export default function DashboardPage() {
 
   const projectCount = projects?.length ?? 0;
   const totalMemories = projects?.reduce((sum, p) => sum + p.memory_count, 0) ?? 0;
+  const totalKnacks = projects?.reduce((sum, p) => sum + (p.instinct_count ?? 0), 0) ?? 0;
 
   return (
     <AppShell>
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">대시보드</h1>
-          <p className="text-sm text-muted-foreground">프로젝트를 관리하고 워크스페이스에 접속하세요</p>
+          <h1 className="text-2xl font-bold">{t.dashboard.title}</h1>
+          <p className="text-sm text-muted-foreground">{t.dashboard.subtitle}</p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
             <Button size="sm">
               <FolderPlus className="mr-2 size-4" />
-              새 프로젝트
+              {t.dashboard.newProject}
             </Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>새 프로젝트 만들기</DialogTitle>
+              <DialogTitle>{t.dashboard.createTitle}</DialogTitle>
             </DialogHeader>
             <form onSubmit={handleCreate} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="slug">슬러그 *</Label>
+                <Label htmlFor="slug">{t.dashboard.slugLabel}</Label>
                 <Input
                   id="slug"
                   value={newSlug}
@@ -112,7 +115,7 @@ export default function DashboardPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="name">이름 *</Label>
+                <Label htmlFor="name">{t.dashboard.nameLabel}</Label>
                 <Input
                   id="name"
                   value={newName}
@@ -121,21 +124,21 @@ export default function DashboardPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="desc">설명</Label>
+                <Label htmlFor="desc">{t.dashboard.descLabel}</Label>
                 <Input
                   id="desc"
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
-                  placeholder="프로젝트 설명"
+                  placeholder={t.dashboard.descPlaceholder}
                 />
               </div>
               {formError && <p className="text-sm text-destructive">{formError}</p>}
               <div className="flex justify-end gap-2">
                 <Button type="button" variant="outline" onClick={() => setOpen(false)}>
-                  취소
+                  {t.dashboard.cancel}
                 </Button>
                 <Button type="submit" disabled={createMutation.isPending}>
-                  {createMutation.isPending ? "생성 중..." : "생성"}
+                  {createMutation.isPending ? t.dashboard.creating : t.dashboard.create}
                 </Button>
               </div>
             </form>
@@ -144,10 +147,12 @@ export default function DashboardPage() {
       </div>
 
       {/* Stats */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">프로젝트</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              {t.dashboard.stats.projects}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{projectCount}</p>
@@ -155,7 +160,9 @@ export default function DashboardPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">총 메모리</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              {t.dashboard.stats.totalMemories}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{totalMemories}</p>
@@ -163,10 +170,24 @@ export default function DashboardPage() {
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">상태</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              {t.dashboard.stats.totalKnacks}
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold">{isLoading ? "동기화 중" : "준비"}</p>
+            <p className="text-2xl font-bold">{totalKnacks}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              {t.dashboard.stats.status}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold">
+              {isLoading ? t.dashboard.stats.syncing : t.dashboard.stats.ready}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -189,9 +210,9 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="flex flex-col items-center gap-4 py-12">
               <RefreshCcw className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">프로젝트를 불러오지 못했습니다</p>
+              <p className="text-sm text-muted-foreground">{t.dashboard.error.title}</p>
               <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["projects"] })}>
-                재시도
+                {t.dashboard.error.retry}
               </Button>
             </CardContent>
           </Card>
@@ -199,8 +220,8 @@ export default function DashboardPage() {
           <Card>
             <CardContent className="flex flex-col items-center gap-4 py-12">
               <FolderPlus className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">아직 프로젝트가 없습니다</p>
-              <Button onClick={() => setOpen(true)}>프로젝트 만들기</Button>
+              <p className="text-sm text-muted-foreground">{t.dashboard.empty.title}</p>
+              <Button onClick={() => setOpen(true)}>{t.dashboard.empty.create}</Button>
             </CardContent>
           </Card>
         ) : (

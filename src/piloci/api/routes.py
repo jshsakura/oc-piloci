@@ -345,29 +345,64 @@ async def route_list_projects(request: Request) -> Response:
     if not user:
         return _json({"error": "Unauthorized"}, 401)
 
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
-    from piloci.db.models import Project
+    from piloci.db.models import Project, RawAnalysis, RawSession
+
+    user_id = _uid(user)
 
     async with async_session() as db:
         result = await db.execute(
-            select(Project).where(Project.user_id == _uid(user)).order_by(Project.created_at)
+            select(Project).where(Project.user_id == user_id).order_by(Project.created_at)
         )
         projects = result.scalars().all()
 
-    return _json(
-        [
+        # Project counts stay small per user — issue one aggregate query per source
+        # rather than joining through the dashboard hot path.
+        sess_rows = (
+            await db.execute(
+                select(
+                    RawSession.project_id,
+                    func.count().label("count"),
+                    func.max(RawSession.created_at).label("last_active"),
+                )
+                .where(RawSession.user_id == user_id)
+                .group_by(RawSession.project_id)
+            )
+        ).all()
+        analyze_rows = (
+            await db.execute(
+                select(
+                    RawAnalysis.project_id,
+                    func.max(RawAnalysis.processed_at).label("last_analyzed"),
+                )
+                .where(RawAnalysis.user_id == user_id)
+                .group_by(RawAnalysis.project_id)
+            )
+        ).all()
+
+    sess_by_pid = {row.project_id: (row.count, row.last_active) for row in sess_rows}
+    last_analyzed_by_pid = {row.project_id: row.last_analyzed for row in analyze_rows}
+
+    out: list[dict[str, Any]] = []
+    for p in projects:
+        sess_count, last_active = sess_by_pid.get(p.id, (0, None))
+        last_analyzed = last_analyzed_by_pid.get(p.id)
+        out.append(
             {
                 "id": p.id,
                 "slug": p.slug,
                 "name": p.name,
                 "description": p.description,
                 "memory_count": p.memory_count,
+                "instinct_count": p.instinct_count,
+                "session_count": int(sess_count or 0),
+                "last_active_at": last_active.isoformat() if last_active else None,
+                "last_analyzed_at": last_analyzed.isoformat() if last_analyzed else None,
                 "created_at": p.created_at.isoformat(),
             }
-            for p in projects
-        ]
-    )
+        )
+    return _json(out)
 
 
 async def route_create_project(request: Request) -> Response:

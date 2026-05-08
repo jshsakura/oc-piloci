@@ -506,12 +506,27 @@ async def test_route_list_projects_returns_project_payloads(
         name="Alpha",
         description="First",
         memory_count=3,
+        instinct_count=2,
         created_at=created_at,
     )
-    result = MagicMock()
-    result.scalars.return_value.all.return_value = [project]
+    project_select_result = MagicMock()
+    project_select_result.scalars.return_value.all.return_value = [project]
+    sess_row = SimpleNamespace(
+        project_id="project-1",
+        count=5,
+        last_active=datetime(2024, 1, 5, tzinfo=timezone.utc),
+    )
+    sess_result = MagicMock()
+    sess_result.all.return_value = [sess_row]
+    analyze_row = SimpleNamespace(
+        project_id="project-1",
+        last_analyzed=datetime(2024, 1, 6, tzinfo=timezone.utc),
+    )
+    analyze_result = MagicMock()
+    analyze_result.all.return_value = [analyze_row]
+
     db = _db_session()
-    db.execute.return_value = result
+    db.execute.side_effect = [project_select_result, sess_result, analyze_result]
 
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
 
@@ -526,6 +541,10 @@ async def test_route_list_projects_returns_project_payloads(
             "name": "Alpha",
             "description": "First",
             "memory_count": 3,
+            "instinct_count": 2,
+            "session_count": 5,
+            "last_active_at": sess_row.last_active.isoformat(),
+            "last_analyzed_at": analyze_row.last_analyzed.isoformat(),
             "created_at": created_at.isoformat(),
         }
     ]

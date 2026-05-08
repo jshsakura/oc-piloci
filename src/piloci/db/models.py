@@ -102,6 +102,7 @@ class Project(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     memory_count: Mapped[int] = mapped_column(Integer, default=0)
+    instinct_count: Mapped[int] = mapped_column(Integer, default=0)
     bytes_used: Mapped[int] = mapped_column(Integer, default=0)
 
     __table_args__ = (
