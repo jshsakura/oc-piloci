@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useCallback } from 'react';
-import { Locale, defaultLocale, getCopy } from './copy';
+import { Locale, defaultLocale, getCopy, locales } from './copy';
 
 type I18nContextType = {
   locale: Locale;
@@ -11,23 +11,28 @@ type I18nContextType = {
 
 const I18nContext = createContext<I18nContextType | undefined>(undefined);
 
+// Generic against the ``locales`` tuple — adding a new language is a single
+// edit there + a copy block + a localeLabel; this validator picks it up
+// automatically without any if/else maintenance here.
+function isLocale(value: unknown): value is Locale {
+  return typeof value === 'string' && (locales as readonly string[]).includes(value);
+}
+
 function readLocaleFromCookie(): Locale | null {
   if (typeof document === 'undefined') return null;
   const match = document.cookie.match(/(?:^|;\s*)locale=([^;]*)/);
   const value = match?.[1];
-  if (value === 'ko' || value === 'en') return value;
-  return null;
+  return isLocale(value) ? value : null;
 }
 
 function readLocaleFromStorage(): Locale | null {
   if (typeof window === 'undefined') return null;
   try {
     const saved = window.localStorage.getItem('locale');
-    if (saved === 'ko' || saved === 'en') return saved;
+    return isLocale(saved) ? saved : null;
   } catch {
-    // Ignore storage failures.
+    return null;
   }
-  return null;
 }
 
 function resolveInitialLocale(): Locale {

@@ -2,8 +2,18 @@ export const locales = ['ko', 'en'] as const;
 export type Locale = (typeof locales)[number];
 export const defaultLocale: Locale = 'ko';
 
-const copy = {
-  ko: {
+// Native label per locale — surface in the language switcher so users see
+// each language in its own script. Add a label here when introducing a new
+// locale (alongside the entry in ``locales`` and the copy block below).
+export const localeLabels: Record<Locale, { native: string; short: string }> = {
+  ko: { native: '한국어', short: 'KO' },
+  en: { native: 'English', short: 'EN' },
+};
+
+// ``ko`` is the canonical shape. Every other locale is typed as ``CopyShape``
+// so missing keys surface as a TypeScript error at build time — adding a
+// new language is a single mechanical pass with the compiler as a checklist.
+const ko = {
     metadata: { description: '라즈베리파이를 위한 고성능 MCP 메모리 엔진', title: 'piLoci, AI가 스스로 기억하게 돕는 세컨드 브레인' },
     common: { brandName: 'piLoci', login: '로그인', signup: '시작하기', badge: 'Self-Hosted', copy: '복사', copied: '✓ 복사됨', cancel: '취소', confirm: '확인', processing: '처리 중...', loading: '로딩 중...', backToHome: '홈으로' },
     landing: {
@@ -658,8 +668,8 @@ const copy = {
       ],
       thinking: '메모리에서 단서를 찾는 중…',
       errorPrefix: '오류',
-      placeholderDisabled: '프로젝트를 먼저 선택해주세요',
-      placeholderActive: '예: 지난 회의에서 누가 무슨 결정을 했지?  (마이크로도 가능)',
+      placeholderDisabled: '프로젝트를 먼저 선택해 주세요',
+      placeholderActive: '무엇이든 물어보세요',
       input: {
         questionAria: '질문 입력',
         sendAria: '보내기',
@@ -913,8 +923,11 @@ const copy = {
       open: '열기',
     },
     themeToggle: { toLightAriaLabel: '라이트 모드로 전환', toDarkAriaLabel: '다크 모드로 전환' },
-  },
-  en: {
+};
+
+type CopyShape = typeof ko;
+
+const en: CopyShape = {
     metadata: { description: 'High-performance MCP memory engine for Raspberry Pi', title: 'piLoci, The Second Brain That Helps AI Remember' },
     common: { brandName: 'piLoci', login: 'Log in', signup: 'Get Started', badge: 'Self-Hosted', copy: 'Copy', copied: '✓ Copied', cancel: 'Cancel', confirm: 'Confirm', processing: 'Processing...', loading: 'Loading...', backToHome: 'Home' },
     landing: {
@@ -1569,7 +1582,7 @@ const copy = {
       thinking: 'Looking through memories…',
       errorPrefix: 'Error',
       placeholderDisabled: 'Select a project first',
-      placeholderActive: 'e.g. Who decided what at the last meeting?  (mic supported)',
+      placeholderActive: 'Ask anything',
       input: {
         questionAria: 'Question input',
         sendAria: 'Send',
@@ -1822,10 +1835,11 @@ const copy = {
       memories: 'memories',
       open: 'Open',
     },
-    themeToggle: { toLightAriaLabel: 'Switch to light', toDarkAriaLabel: 'Switch to dark' }
-  }
-} as const;
+    themeToggle: { toLightAriaLabel: 'Switch to light', toDarkAriaLabel: 'Switch to dark' },
+};
 
-export function getCopy(locale: Locale = defaultLocale) {
+const copy: Record<Locale, CopyShape> = { ko, en };
+
+export function getCopy(locale: Locale = defaultLocale): CopyShape {
   return copy[locale];
 }
