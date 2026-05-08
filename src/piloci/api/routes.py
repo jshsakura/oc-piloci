@@ -427,11 +427,15 @@ async def route_dashboard_summary(request: Request) -> Response:
         reverse=True,
     )[:15]
 
-    # Recent ingested sessions + activity buckets (last 30 days) — single SQL pass.
+    # Recent ingested sessions + activity buckets — single SQL pass. Window
+    # matches raw_session_retention_days so the chart doesn't show fake zeros
+    # past the retention edge.
     from datetime import timedelta
 
+    settings = get_settings()
+    activity_window = getattr(settings, "raw_session_retention_days", 90)
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=30)
+    cutoff = now - timedelta(days=activity_window)
     async with async_session() as db:
         recent_sess_rows = (
             (
@@ -471,7 +475,7 @@ async def route_dashboard_summary(request: Request) -> Response:
 
     bucket_map = {str(row.day): int(row.count) for row in bucket_rows}
     activity = []
-    for offset_days in range(29, -1, -1):
+    for offset_days in range(activity_window - 1, -1, -1):
         d = (now - timedelta(days=offset_days)).date()
         activity.append({"date": d.isoformat(), "count": bucket_map.get(str(d), 0)})
 

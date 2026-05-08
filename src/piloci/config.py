@@ -82,7 +82,7 @@ class Settings(BaseSettings):
 
     # Ops / retention
     audit_log_retention_days: int = 90
-    raw_session_retention_days: int = 14
+    raw_session_retention_days: int = 90
     maintenance_interval_sec: int = 3600
     export_dir: Path = Path("/data/exports")
     vault_dir: Path = Path("/data/vaults")
@@ -150,7 +150,8 @@ class Settings(BaseSettings):
         self.curator_profile_project_limit = min(self.curator_profile_project_limit, 25)
         self.curator_profile_pause_ms = max(self.curator_profile_pause_ms, 250)
         self.curator_transcript_max_chars = min(self.curator_transcript_max_chars, 4000)
-        self.raw_session_retention_days = min(self.raw_session_retention_days, 7)
+        # raw_session_retention is a hard user preference (env override drives
+        # the dashboard look-back window) — don't clamp it from low_spec_mode.
         self.audit_log_retention_days = min(self.audit_log_retention_days, 30)
         self.maintenance_interval_sec = max(self.maintenance_interval_sec, 900)
 

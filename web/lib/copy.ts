@@ -747,7 +747,7 @@ const ko = {
       },
       stats: { projects: '프로젝트', totalMemories: '총 메모리', totalKnacks: '총 요령', status: '상태', syncing: '동기화 중', ready: '준비' },
       summary: {
-        activityTitle: '최근 30일 활동',
+        activityTitle: '최근 활동',
         activityEmpty: '아직 들어온 세션이 없습니다',
         recentMemoriesTitle: '최근 메모리',
         recentMemoriesEmpty: '아직 메모리가 없습니다',
@@ -1676,7 +1676,7 @@ const en: CopyShape = {
       },
       stats: { projects: 'Projects', totalMemories: 'Total Memories', totalKnacks: 'Total Knacks', status: 'Status', syncing: 'Syncing', ready: 'Ready' },
       summary: {
-        activityTitle: 'Activity (last 30 days)',
+        activityTitle: 'Recent activity',
         activityEmpty: 'No sessions yet',
         recentMemoriesTitle: 'Recent memories',
         recentMemoriesEmpty: 'No memories yet',
