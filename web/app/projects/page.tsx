@@ -13,7 +13,7 @@ import { ProjectSessionsPanel } from "@/components/ProjectSessionsPanel";
 import { api } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
@@ -97,39 +97,35 @@ function ProjectDetailContent() {
         </TabsList>
 
         <TabsContent value="memories" className="mt-4">
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:h-[calc(100vh-18rem)]">
-            <aside className="flex min-h-0 flex-col">
-              <div className="mb-3 flex items-baseline justify-between">
-                <h2 className="text-sm font-semibold tracking-tight">{t.projects.notes}</h2>
-                <span className="text-xs text-muted-foreground">{notes.length}</span>
-              </div>
-              <div className="flex-1 space-y-3 overflow-y-auto px-1">
-                {isLoading ? (
-                  [1, 2, 3].map((i) => <Skeleton key={i} className="h-32 w-full rounded-lg" />)
-                ) : notes.length === 0 ? (
-                  <Card>
-                    <CardContent className="flex flex-col items-center gap-3 py-10 text-muted-foreground">
+          <Card className="overflow-hidden lg:h-[calc(100vh-15rem)]">
+            <div className="grid h-full lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
+              <aside className="flex min-h-0 flex-col border-b lg:border-b-0 lg:border-r">
+                <div className="flex-1 space-y-2 overflow-y-auto p-3">
+                  {isLoading ? (
+                    [1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-20 w-full rounded-lg" />)
+                  ) : notes.length === 0 ? (
+                    <div className="flex flex-col items-center gap-3 py-10 text-muted-foreground">
                       <FileText className="size-8" />
                       <p className="text-sm">{t.projects.noNotes}</p>
-                    </CardContent>
-                  </Card>
-                ) : (
-                  notes.map((note) => (
-                    <VaultNoteCard
-                      key={note.memory_id}
-                      note={note}
-                      active={note.memory_id === selectedNote?.memory_id}
-                      onSelect={(n) => setSelectedNoteId(n.memory_id)}
-                    />
-                  ))
-                )}
-              </div>
-            </aside>
+                    </div>
+                  ) : (
+                    notes.map((note) => (
+                      <VaultNoteCard
+                        key={note.memory_id}
+                        note={note}
+                        active={note.memory_id === selectedNote?.memory_id}
+                        onSelect={(n) => setSelectedNoteId(n.memory_id)}
+                      />
+                    ))
+                  )}
+                </div>
+              </aside>
 
-            <section className="min-h-0 lg:overflow-y-auto">
-              <VaultNoteDetail note={selectedNote} />
-            </section>
-          </div>
+              <section className="min-h-0 overflow-y-auto">
+                <VaultNoteDetail note={selectedNote} />
+              </section>
+            </div>
+          </Card>
         </TabsContent>
 
         <TabsContent value="patterns" className="mt-4">
