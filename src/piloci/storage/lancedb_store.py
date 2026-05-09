@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 import time
 import uuid
@@ -8,7 +9,7 @@ from typing import Any, NotRequired, TypedDict
 
 import orjson
 import pyarrow as pa
-from lancedb.index import BTree, IvfPq, LabelList
+from lancedb.index import FTS, BTree, IvfPq, LabelList
 
 from piloci.config import Settings
 from piloci.utils.logging import get_runtime_profiler
@@ -109,6 +110,12 @@ class MemoryStore:
             except Exception:
                 pass  # Index already exists
 
+        # FTS index on content — enables hybrid search (BM25 + vector)
+        try:
+            await tbl.create_index("content", config=FTS(with_position=False), replace=False)
+        except Exception:
+            pass  # Already exists or not enough data
+
         # Vector index once table has enough rows
         if settings.lancedb_index_type == "IVF_PQ":
             try:
@@ -197,6 +204,29 @@ class MemoryStore:
             )
         return memory_ids
 
+    @staticmethod
+    def _recency_boost(
+        results: list[dict[str, Any]],
+        weight: float = 0.15,
+        half_life_days: float = 30.0,
+    ) -> list[dict[str, Any]]:
+        """Blend recency decay into relevance scores and re-sort."""
+        now = time.time()
+        for r in results:
+            age_days = max(0.0, (now - r.get("created_at", now)) / 86400.0)
+            recency = math.exp(-age_days * math.log(2) / half_life_days)
+            r["score"] = min(1.0, (1.0 - weight) * r["score"] + weight * recency)
+        results.sort(key=lambda r: r["score"], reverse=True)
+        return results
+
+    def _build_where(self, user_id: str, project_id: str, tags: list[str] | None) -> str:
+        where = self._must_filter_sql(user_id, project_id)
+        if tags:
+            for tag in tags:
+                safe_tag = tag.replace("'", "''")
+                where += f" AND list_contains(tags, '{safe_tag}')"
+        return where
+
     async def search(
         self,
         user_id: str,
@@ -207,11 +237,7 @@ class MemoryStore:
         min_score: float | None = None,
     ) -> list[dict[str, Any]]:
         tbl = await self._get_table()
-        where = self._must_filter_sql(user_id, project_id)
-        if tags:
-            for tag in tags:
-                safe_tag = tag.replace("'", "''")
-                where += f" AND list_contains(tags, '{safe_tag}')"
+        where = self._build_where(user_id, project_id, tags)
 
         with get_runtime_profiler().track("lancedb.search"):
             rows = await (
@@ -231,7 +257,74 @@ class MemoryStore:
             d = _row_to_dict(row)
             d["score"] = score
             results.append(d)
-        return results
+        return self._recency_boost(results)
+
+    async def hybrid_search(
+        self,
+        user_id: str,
+        project_id: str,
+        query_text: str,
+        query_vector: list[float],
+        top_k: int = 5,
+        tags: list[str] | None = None,
+        min_score: float | None = None,
+        rrf_k: int = 60,
+    ) -> list[dict[str, Any]]:
+        """Reciprocal Rank Fusion of vector search + FTS (BM25)."""
+        tbl = await self._get_table()
+        where = self._build_where(user_id, project_id, tags)
+        fetch_n = max(top_k * 3, 20)
+
+        # 1. Vector search
+        with get_runtime_profiler().track("lancedb.hybrid.vector"):
+            vec_rows = await (
+                tbl.vector_search(query_vector)
+                .distance_type("cosine")
+                .where(where)
+                .limit(fetch_n)
+                .to_list()
+            )
+
+        # 2. FTS search — falls back to empty list if index not ready
+        fts_rows: list[dict[str, Any]] = []
+        try:
+            with get_runtime_profiler().track("lancedb.hybrid.fts"):
+                fts_rows = await (
+                    tbl.search(query_text, query_type="fts", fts_columns="content")
+                    .where(where)
+                    .limit(fetch_n)
+                    .to_list()
+                )
+        except Exception:
+            pass
+
+        # 3. RRF merge
+        rrf_scores: dict[str, float] = {}
+        memory_map: dict[str, dict[str, Any]] = {}
+
+        for rank, row in enumerate(vec_rows, 1):
+            mid = row["memory_id"]
+            rrf_scores[mid] = rrf_scores.get(mid, 0.0) + 1.0 / (rrf_k + rank)
+            memory_map.setdefault(mid, row)
+
+        for rank, row in enumerate(fts_rows, 1):
+            mid = row["memory_id"]
+            rrf_scores[mid] = rrf_scores.get(mid, 0.0) + 1.0 / (rrf_k + rank)
+            memory_map.setdefault(mid, row)
+
+        max_rrf = 2.0 / (rrf_k + 1)
+        sorted_ids = sorted(rrf_scores, key=lambda m: rrf_scores[m], reverse=True)[:top_k]
+
+        results = []
+        for mid in sorted_ids:
+            score = min(1.0, rrf_scores[mid] / max_rrf)
+            if min_score is not None and score < min_score:
+                continue
+            d = _row_to_dict(memory_map[mid])
+            d["score"] = score
+            results.append(d)
+
+        return self._recency_boost(results)
 
     async def get(self, user_id: str, project_id: str, memory_id: str) -> dict[str, Any] | None:
         tbl = await self._get_table()
@@ -253,6 +346,11 @@ class MemoryStore:
             return None
         return _row_to_dict(rows[0])
 
+    async def count(self, user_id: str, project_id: str, tags: list[str] | None = None) -> int:
+        tbl = await self._get_table()
+        where = self._build_where(user_id, project_id, tags)
+        return await tbl.count_rows(where)
+
     async def list(
         self,
         user_id: str,
@@ -262,11 +360,7 @@ class MemoryStore:
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         tbl = await self._get_table()
-        where = self._must_filter_sql(user_id, project_id)
-        if tags:
-            for tag in tags:
-                safe_tag = tag.replace("'", "''")
-                where += f" AND list_contains(tags, '{safe_tag}')"
+        where = self._build_where(user_id, project_id, tags)
 
         _SCALAR_COLS = [
             "memory_id",

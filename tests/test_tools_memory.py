@@ -63,24 +63,24 @@ async def test_memory_forget_with_id(mock_store):
 # ---------------------------------------------------------------------------
 
 
+_RECALL_ROW_M1 = {
+    "memory_id": "m1",
+    "content": "hello world this is a fairly long content string",
+    "score": 0.92,
+    "tags": ["test"],
+    "created_at": 1700000000,
+}
+
+
 @pytest.mark.asyncio
 async def test_recall_preview_mode(mock_store):
-    mock_store.search.return_value = [
-        {
-            "memory_id": "m1",
-            "content": "hello world this is a fairly long content string",
-            "score": 0.92,
-            "tags": ["test"],
-            "created_at": 1700000000,
-        },
-    ]
+    mock_store.hybrid_search.return_value = [_RECALL_ROW_M1]
     args = RecallInput(query="hello", include_profile=False)
     result = await handle_recall(args, USER, PROJECT, mock_store, embed)
     assert result["mode"] == "preview"
     assert result["total"] == 1
     mem = result["memories"][0]
     assert mem["id"] == "m1"
-    assert mem["score"] == 0.92
     assert mem["tags"] == ["test"]
     assert "excerpt" in mem
     assert mem["length"] == len("hello world this is a fairly long content string")
@@ -89,7 +89,7 @@ async def test_recall_preview_mode(mock_store):
 
 @pytest.mark.asyncio
 async def test_recall_preview_truncates_long_content(mock_store):
-    mock_store.search.return_value = [
+    mock_store.hybrid_search.return_value = [
         {"memory_id": "m2", "content": "x" * 200, "score": 0.8, "tags": [], "created_at": 0},
     ]
     args = RecallInput(query="test", include_profile=False)
@@ -134,7 +134,7 @@ async def test_recall_fetch_ids_skips_missing(mock_store):
 
 @pytest.mark.asyncio
 async def test_recall_to_file(mock_store, tmp_path):
-    mock_store.search.return_value = [
+    mock_store.hybrid_search.return_value = [
         {"memory_id": "m1", "content": "x" * 200, "score": 0.95, "tags": ["a"], "created_at": 0},
     ]
     args = RecallInput(query="test", to_file=True, include_profile=False)
@@ -154,7 +154,7 @@ async def test_recall_to_file(mock_store, tmp_path):
 
 @pytest.mark.asyncio
 async def test_recall_includes_profile(mock_store):
-    mock_store.search.return_value = []
+    mock_store.hybrid_search.return_value = []
 
     async def profile_fn(uid, pid):
         return {"static": ["prefers TypeScript"], "dynamic": []}
@@ -166,7 +166,7 @@ async def test_recall_includes_profile(mock_store):
 
 @pytest.mark.asyncio
 async def test_recall_handles_profile_error(mock_store):
-    mock_store.search.return_value = []
+    mock_store.hybrid_search.return_value = []
 
     async def bad_profile(uid, pid):
         raise RuntimeError("boom")

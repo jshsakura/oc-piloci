@@ -261,11 +261,12 @@ export default function LandingPage() {
               {t.landing.sections.install.eyebrow}
             </p>
 
-            <div className="space-y-2">
-              <div className="flex items-baseline justify-between gap-3">
+            {/* setup — recommended */}
+            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-5 space-y-3">
+              <div className="flex items-center justify-between gap-3">
                 <h3 className="text-sm font-semibold">{t.landing.sections.install.setup.title}</h3>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
-                  {t.landing.sections.install.statusLabels.auto}
+                <span className="rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground">
+                  {t.landing.sections.install.recommendedLabel}
                 </span>
               </div>
               <p className="text-xs sm:text-sm text-muted-foreground">
@@ -285,10 +286,9 @@ export default function LandingPage() {
               </button>
             </div>
 
+            {/* install — alternative */}
             <div className="space-y-2">
-              <div className="flex items-baseline justify-between gap-3">
-                <h3 className="text-sm font-semibold">{t.landing.sections.install.install.title}</h3>
-              </div>
+              <h3 className="text-sm font-semibold text-muted-foreground">{t.landing.sections.install.install.title}</h3>
               <p className="text-xs sm:text-sm text-muted-foreground">
                 {t.landing.sections.install.install.desc}
               </p>

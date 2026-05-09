@@ -205,9 +205,10 @@ const ko = {
         },
         install: {
           eyebrow: '원클릭 설치',
+          recommendedLabel: '추천',
           setup: {
             title: 'uvx oc-piloci setup',
-            desc: '브라우저로 한 번 로그인하면, 선택한 클라이언트에 토큰과 MCP 설정까지 한 번에 깔립니다. (추천)',
+            desc: '브라우저로 한 번 로그인하면, 선택한 클라이언트에 토큰과 MCP 설정까지 한 번에 깔립니다.',
           },
           install: {
             title: 'uvx oc-piloci install',
@@ -224,7 +225,7 @@ const ko = {
             { name: 'Codex CLI', status: 'auto' },
             { name: 'AntiGravity', status: 'auto' },
             { name: 'Zed', status: 'auto' },
-            { name: 'ChatGPT Desktop · Codex', status: 'manual' },
+            { name: 'ChatGPT Desktop', status: 'manual' },
           ],
           statusLabels: { auto: '자동', manual: '수동' },
         },
@@ -1218,9 +1219,10 @@ const en: CopyShape = {
         },
         install: {
           eyebrow: 'One-click install',
+          recommendedLabel: 'Recommended',
           setup: {
             title: 'uvx oc-piloci setup',
-            desc: 'Sign in once in the browser — your token and MCP config land on every selected client. (Recommended)',
+            desc: 'Sign in once in the browser — your token and MCP config land on every selected client.',
           },
           install: {
             title: 'uvx oc-piloci install',
@@ -1237,7 +1239,7 @@ const en: CopyShape = {
             { name: 'Codex CLI', status: 'auto' },
             { name: 'AntiGravity', status: 'auto' },
             { name: 'Zed', status: 'auto' },
-            { name: 'ChatGPT Desktop · Codex', status: 'manual' },
+            { name: 'ChatGPT Desktop', status: 'manual' },
           ],
           statusLabels: { auto: 'Auto', manual: 'Manual' },
         },

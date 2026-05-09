@@ -3441,6 +3441,12 @@ def get_routes() -> list[Route]:
         # v1 SDK REST surface — thin shims over MCP tool handlers
         Route("/api/v1/memory", v1.route_v1_memory, methods=["POST"]),
         Route("/api/v1/recall", v1.route_v1_recall, methods=["POST"]),
+        Route("/api/v1/memories", v1.route_v1_memories_list, methods=["GET"]),
+        Route(
+            "/api/v1/memories/{memory_id}",
+            v1.route_v1_memory_detail,
+            methods=["GET", "PATCH", "DELETE"],
+        ),
         Route("/api/v1/projects", v1.route_v1_projects, methods=["GET"]),
         Route("/api/v1/whoami", v1.route_v1_whoami, methods=["GET"]),
         Route("/api/v1/init", v1.route_v1_init, methods=["POST"]),

@@ -148,6 +148,7 @@ async def test_call_tool_requires_authentication(tmp_path: Path):
 async def test_memory_tool_saves_and_invalidates_vault_cache(tmp_path: Path):
     store = AsyncMock()
     store.save.return_value = "mem-123"
+    store.search.return_value = []  # no duplicates
     server = create_mcp_server(_server_settings(tmp_path), store)
     tracker = McpSessionTracker()
     auth_token = mcp_auth_ctx.set(
@@ -220,15 +221,14 @@ async def test_project_scoped_tool_requires_project_id(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_recall_tool_searches_with_embed_and_profile(tmp_path: Path):
     store = AsyncMock()
-    store.search.return_value = [
-        {
-            "memory_id": "mem-1",
-            "content": "Stored memory text for previews",
-            "tags": ["ops"],
-            "score": 0.88,
-            "created_at": "2026-04-27T00:00:00Z",
-        }
-    ]
+    _recall_row = {
+        "memory_id": "mem-1",
+        "content": "Stored memory text for previews",
+        "tags": ["ops"],
+        "score": 0.88,
+        "created_at": 1714176000,
+    }
+    store.hybrid_search.return_value = [_recall_row]
     profile_fn = AsyncMock(return_value={"static": ["prefers uv"], "dynamic": ["recent test work"]})
     server = create_mcp_server(_server_settings(tmp_path), store, profile_fn=profile_fn)
     tracker = McpSessionTracker()
@@ -260,9 +260,10 @@ async def test_recall_tool_searches_with_embed_and_profile(tmp_path: Path):
     assert payload["profile"] == {"static": ["prefers uv"], "dynamic": ["recent test work"]}
     assert payload["memories"][0]["id"] == "mem-1"
     assert payload["memories"][0]["excerpt"].startswith("Stored memory text")
-    store.search.assert_awaited_once_with(
+    store.hybrid_search.assert_awaited_once_with(
         user_id="user-1",
         project_id="project-1",
+        query_text="preview search",
         query_vector=[0.9],
         top_k=3,
         tags=["ops"],

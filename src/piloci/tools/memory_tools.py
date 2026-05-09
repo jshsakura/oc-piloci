@@ -364,6 +364,9 @@ def build_setup_snippets(
 # ---------------------------------------------------------------------------
 
 
+_DEDUP_THRESHOLD = 0.95  # cosine similarity above which we update instead of insert
+
+
 async def handle_memory(
     args: MemoryInput,
     user_id: str,
@@ -391,6 +394,33 @@ async def handle_memory(
         return {"success": True, "action": "forget", "memory_id": args.memory_id}
 
     vector = await embed_fn(args.content)
+
+    # Deduplication: if a near-identical memory exists, refresh it instead of duplicating
+    similar = await store.search(
+        user_id=user_id,
+        project_id=project_id,
+        query_vector=vector,
+        top_k=1,
+        min_score=_DEDUP_THRESHOLD,
+    )
+    if similar:
+        existing = similar[0]
+        await store.update(
+            user_id=user_id,
+            project_id=project_id,
+            memory_id=existing["id"],
+            content=args.content,
+            new_vector=vector,
+            tags=args.tags if args.tags is not None else existing.get("tags"),
+        )
+        return {
+            "success": True,
+            "action": "updated",
+            "memory_id": existing["id"],
+            "project_id": project_id,
+            "was_duplicate": True,
+        }
+
     memory_id = await store.save(
         user_id=user_id,
         project_id=project_id,
@@ -482,13 +512,24 @@ async def handle_recall(
         return {"memories": [], "mode": "preview", "total": 0, "error": "query required"}
 
     vector = await embed_fn(args.query)
-    results = await store.search(
-        user_id=user_id,
-        project_id=project_id,
-        query_vector=vector,
-        top_k=args.limit,
-        tags=args.tags,
-    )
+    use_hybrid = hasattr(store, "hybrid_search")
+    if use_hybrid:
+        results = await store.hybrid_search(
+            user_id=user_id,
+            project_id=project_id,
+            query_text=args.query,
+            query_vector=vector,
+            top_k=args.limit,
+            tags=args.tags,
+        )
+    else:
+        results = await store.search(
+            user_id=user_id,
+            project_id=project_id,
+            query_vector=vector,
+            top_k=args.limit,
+            tags=args.tags,
+        )
 
     if args.to_file and export_dir is not None:
         profile = (

@@ -429,3 +429,140 @@ async def route_v1_contradict(request: Request) -> Response:
 
     result = await handle_contradict(args, user_id, project_id, instincts_store)
     return _json(result)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/v1/memories   — list with pagination
+# ---------------------------------------------------------------------------
+
+
+async def route_v1_memories_list(request: Request) -> Response:
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "Unauthorized"}, 401)
+
+    project_id = _require_project_id(user)
+    if not project_id:
+        return _json({"error": "project-scoped token required"}, 403)
+
+    user_id = _uid(user)
+
+    try:
+        limit = int(request.query_params.get("limit", "20"))
+        offset = int(request.query_params.get("offset", "0"))
+        limit = max(1, min(limit, 100))
+        offset = max(0, offset)
+    except ValueError:
+        return _json({"error": "limit and offset must be integers"}, 400)
+
+    tags_param = request.query_params.get("tags", "").strip()
+    tags = [t.strip() for t in tags_param.split(",") if t.strip()] if tags_param else None
+
+    store = request.app.state.store
+    memories = await store.list(
+        user_id=user_id,
+        project_id=project_id,
+        tags=tags,
+        limit=limit,
+        offset=offset,
+    )
+    total = await store.count(user_id=user_id, project_id=project_id, tags=tags)
+    return _json({"memories": memories, "total": total, "limit": limit, "offset": offset})
+
+
+# ---------------------------------------------------------------------------
+# GET  /api/v1/memories/{id}
+# PATCH /api/v1/memories/{id}
+# DELETE /api/v1/memories/{id}
+# ---------------------------------------------------------------------------
+
+
+async def route_v1_memory_detail(request: Request) -> Response:
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "Unauthorized"}, 401)
+
+    project_id = _require_project_id(user)
+    if not project_id:
+        return _json({"error": "project-scoped token required"}, 403)
+
+    user_id = _uid(user)
+    memory_id = request.path_params.get("memory_id", "")
+    if not memory_id:
+        return _json({"error": "memory_id required"}, 400)
+
+    store = request.app.state.store
+
+    if request.method == "GET":
+        row = await store.get(user_id, project_id, memory_id)
+        if row is None:
+            return _json({"error": "not found"}, 404)
+        return _json(row)
+
+    if request.method == "DELETE":
+        deleted = await store.delete(user_id, project_id, memory_id)
+        if not deleted:
+            return _json({"error": "not found"}, 404)
+
+        settings = get_settings()
+        await invalidate_project_vault_cache(
+            settings.vault_dir,
+            user_id,
+            project_id,
+            user.get("project_slug"),
+        )
+        return _json({"success": True, "memory_id": memory_id})
+
+    if request.method == "PATCH":
+        try:
+            raw = orjson.loads(await request.body())
+        except Exception:
+            return _json({"error": "invalid JSON"}, 400)
+
+        content = raw.get("content")
+        tags = raw.get("tags")
+        if content is None and tags is None:
+            return _json({"error": "provide content and/or tags"}, 400)
+        if content is not None and not isinstance(content, str):
+            return _json({"error": "content must be a string"}, 422)
+        if tags is not None and not isinstance(tags, list):
+            return _json({"error": "tags must be a list"}, 422)
+
+        if content is not None:
+            from piloci.config import get_settings as _gs
+
+            settings = _gs()
+            from piloci.storage import embed as _embed_mod
+
+            new_vector = await _embed_mod.embed_one(
+                content,
+                model=settings.embed_model,
+                cache_dir=settings.embed_cache_dir,
+                lru_size=settings.embed_lru_size,
+                executor_workers=settings.embed_executor_workers,
+                max_concurrency=settings.embed_max_concurrency,
+            )
+        else:
+            new_vector = None
+
+        updated = await store.update(
+            user_id=user_id,
+            project_id=project_id,
+            memory_id=memory_id,
+            content=content,
+            new_vector=new_vector,
+            tags=tags,
+        )
+        if not updated:
+            return _json({"error": "not found"}, 404)
+
+        settings = get_settings()
+        await invalidate_project_vault_cache(
+            settings.vault_dir,
+            user_id,
+            project_id,
+            user.get("project_slug"),
+        )
+        return _json({"success": True, "memory_id": memory_id})
+
+    return _json({"error": "method not allowed"}, 405)

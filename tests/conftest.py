@@ -33,6 +33,8 @@ def mock_store():
     store.save.return_value = "test-memory-id"
     store.save_many.return_value = ["test-memory-id"]
     store.search.return_value = []
+    store.hybrid_search.return_value = []
+    store.count.return_value = 0
     store.get.return_value = None
     store.list.return_value = []
     store.update.return_value = True
