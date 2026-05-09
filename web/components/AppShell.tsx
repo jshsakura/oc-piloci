@@ -41,9 +41,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background landing-pattern">
-      <header className="shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-4">
+    <div className="pi-app-bg flex h-screen flex-col overflow-hidden">
+      <header className="pi-glass-nav shrink-0 border-b backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+        <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
           <BrandMark />
           <div className="flex shrink-0 items-center gap-1.5">
             <nav className="flex items-center gap-1">
@@ -51,7 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 const active = pathname.startsWith(href);
                 return (
                   <Link key={href} href={href}>
-                    <Button variant={active ? "secondary" : "ghost"} size="sm" className="gap-1.5 text-sm">
+                    <Button variant={active ? "secondary" : "ghost"} size="sm" className="rounded-full gap-1.5 text-sm">
                       <Icon className="size-4" />
                       <span className="hidden sm:inline">{label}</span>
                     </Button>
@@ -66,7 +66,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="ml-1 flex size-8 cursor-pointer items-center justify-center rounded-full transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="ms-1 flex size-9 cursor-pointer items-center justify-center rounded-full border bg-background/60 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Avatar className="size-8">
                     <AvatarFallback className="text-xs">{user?.email?.charAt(0).toUpperCase() ?? "U"}</AvatarFallback>
@@ -78,13 +78,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/settings">
-                    <Settings className="mr-2 size-4" />
+                    <Settings className="me-2 size-4" />
                     {t.appShell.dropdown.settings}
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link href="/audit">
-                    <ClipboardList className="mr-2 size-4" />
+                    <ClipboardList className="me-2 size-4" />
                     {t.appShell.dropdown.activity}
                   </Link>
                 </DropdownMenuItem>
@@ -93,7 +93,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
                       <Link href="/admin/users">
-                        <ShieldCheck className="mr-2 size-4" />
+                        <ShieldCheck className="me-2 size-4" />
                         {t.appShell.dropdown.admin}
                       </Link>
                     </DropdownMenuItem>
@@ -101,7 +101,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="text-destructive">
-                  <LogOut className="mr-2 size-4" />
+                  <LogOut className="me-2 size-4" />
                   {t.appShell.dropdown.logout}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -110,10 +110,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
       <main className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-6xl px-4 py-6">{children}</div>
+        <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">{children}</div>
       </main>
-      <footer className="shrink-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-10 w-full max-w-6xl items-center justify-between px-4 text-xs text-muted-foreground">
+      <footer className="pi-glass-nav shrink-0 border-t backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+        <div className="mx-auto flex h-11 w-full max-w-7xl items-center justify-between px-4 text-xs text-muted-foreground sm:px-6">
           <p>© piLoci 2026</p>
           <div className="flex items-center gap-4">
             <Link href="/privacy" className="hover:text-foreground transition-colors">

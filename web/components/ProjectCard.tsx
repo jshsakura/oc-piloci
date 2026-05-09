@@ -65,7 +65,7 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
   };
 
   return (
-    <Card className="group transition-shadow hover:shadow-md">
+    <Card className="group transition-transform duration-200 hover:-translate-y-0.5">
       <CardContent className="p-5">
         <div className="mb-3 flex items-start justify-between gap-2">
           <div className="min-w-0">
@@ -115,7 +115,7 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
           </span>
           <Button size="sm" onClick={() => onOpen(project)}>
             {t.projects.openButton}
-            <ArrowRight className="ml-1 size-3" />
+            <ArrowRight className="ms-1 size-3" />
           </Button>
         </div>
       </CardContent>

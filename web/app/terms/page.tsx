@@ -11,15 +11,15 @@ export default function TermsPage() {
   const terms = t.terms;
 
   return (
-    <div className="min-h-screen bg-background landing-pattern">
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
+    <div className="pi-app-bg min-h-screen">
+      <header className="pi-glass-nav sticky top-0 z-50 border-b backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-4xl items-center justify-between px-4">
           <BrandMark />
           <div className="flex items-center gap-3">
             <select
               value={locale}
               onChange={(e) => setLocale(e.target.value as Locale)}
-              className="h-8 rounded-md border bg-background px-2 text-xs text-muted-foreground"
+              className="pi-soft-input h-8 px-2 text-xs text-muted-foreground"
             >
               <option value="ko">KO</option>
               <option value="en">EN</option>
@@ -30,14 +30,16 @@ export default function TermsPage() {
       </header>
 
       <main className="mx-auto max-w-4xl px-4 py-16">
-        <h1 className="text-3xl font-bold">{terms.title}</h1>
-        <h2 className="mt-2 text-lg text-muted-foreground">{terms.subtitle}</h2>
+        <section className="pi-page-hero">
+          <h1 className="pi-title">{terms.title}</h1>
+          <h2 className="pi-subtitle text-base">{terms.subtitle}</h2>
+        </section>
 
         <p className="mt-8 leading-relaxed text-muted-foreground">{terms.preamble}</p>
 
-        <div className="mt-12 space-y-12">
+        <div className="mt-12 space-y-4">
           {terms.sections.map((section) => (
-            <section key={section.title}>
+            <section key={section.title} className="pi-panel p-5 sm:p-6">
               <h3 className="text-lg font-semibold">{section.title}</h3>
               {section.content && (
                 <p className="mt-2 text-sm text-muted-foreground">{section.content}</p>

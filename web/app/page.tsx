@@ -62,7 +62,7 @@ export default function LandingPage() {
       }, "followUp" in ex && ex.followUp ? 3800 : 2800);
     }
     return () => { if (termTimer.current) clearTimeout(termTimer.current); };
-  }, [typed, totalChars, terminal.examples.length]);
+  }, [typed, totalChars, terminal.examples.length, ex]);
 
   const copyInstall = () => {
     navigator.clipboard.writeText("uvx oc-piloci install");
@@ -96,9 +96,9 @@ export default function LandingPage() {
   const engIcons = [Database, HardDrive, Microchip, MemoryStick, FileJson, Globe];
 
   return (
-    <div className="bg-background landing-pattern">
+    <div className="pi-app-bg bg-background">
       {/* Nav */}
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
+      <header className="pi-glass-nav sticky top-0 z-50 border-b backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
           <div className="flex items-center gap-2">
             <BrandMark />
@@ -200,12 +200,12 @@ export default function LandingPage() {
 
           {/* Terminal demo */}
           <div className="mx-auto mt-10 sm:mt-12 max-w-2xl text-left">
-            <div className="overflow-hidden rounded-xl border bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+            <div className="pi-panel overflow-hidden rounded-xl">
               <div className="flex items-center gap-2 border-b px-4 py-2.5">
                 <span className="size-2.5 rounded-full bg-[oklch(0.65_0.2_25)]" />
                 <span className="size-2.5 rounded-full bg-[oklch(0.82_0.16_85)]" />
                 <span className="size-2.5 rounded-full bg-[oklch(0.7_0.18_145)]" />
-                <span className="ml-2 text-xs font-medium text-muted-foreground">{terminal.title}</span>
+                <span className="ms-2 text-xs font-medium text-muted-foreground">{terminal.title}</span>
               </div>
               <div className="px-4 py-3 font-mono text-[11px] sm:text-xs leading-relaxed overflow-hidden h-[260px] sm:h-[300px]">
                 {(() => {
@@ -256,38 +256,101 @@ export default function LandingPage() {
           </div>
 
           {/* Install command */}
-          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-2">
-            <button
-              onClick={copyInstall}
-              className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
-            >
-              <span className="flex items-center gap-3">
-                <span className="text-muted-foreground">$</span>
-                <span>uvx oc-piloci install</span>
-              </span>
-              <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                {copied ? t.common.copied : t.common.copy}
-              </span>
-            </button>
-            <button
-              onClick={copySetup}
-              className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
-            >
-              <span className="flex items-center gap-3">
-                <span className="text-muted-foreground">$</span>
-                <span>uvx oc-piloci setup</span>
-              </span>
-              <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                {copiedSetup ? t.common.copied : t.common.copy}
-              </span>
-            </button>
+          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-5 text-left">
+            <p className="text-center text-[11px] font-semibold uppercase tracking-[0.28em] text-primary">
+              {t.landing.sections.install.eyebrow}
+            </p>
+
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="text-sm font-semibold">{t.landing.sections.install.setup.title}</h3>
+                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                  {t.landing.sections.install.statusLabels.auto}
+                </span>
+              </div>
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                {t.landing.sections.install.setup.desc}
+              </p>
+              <button
+                onClick={copySetup}
+                className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
+              >
+                <span className="flex items-center gap-3">
+                  <span className="text-muted-foreground">$</span>
+                  <span>uvx oc-piloci setup</span>
+                </span>
+                <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                  {copiedSetup ? t.common.copied : t.common.copy}
+                </span>
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-baseline justify-between gap-3">
+                <h3 className="text-sm font-semibold">{t.landing.sections.install.install.title}</h3>
+              </div>
+              <p className="text-xs sm:text-sm text-muted-foreground">
+                {t.landing.sections.install.install.desc}
+              </p>
+              <button
+                onClick={copyInstall}
+                className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
+              >
+                <span className="flex items-center gap-3">
+                  <span className="text-muted-foreground">$</span>
+                  <span>uvx oc-piloci install</span>
+                </span>
+                <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                  {copied ? t.common.copied : t.common.copy}
+                </span>
+              </button>
+            </div>
+
+            <div className="rounded-xl border bg-muted/40 p-4 sm:p-5">
+              <div className="mb-2 flex items-baseline justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {t.landing.sections.install.platformsLabel}
+                </p>
+              </div>
+              <p className="mb-3 text-xs text-muted-foreground">
+                {t.landing.sections.install.platformsHint}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {t.landing.sections.install.platforms.map((p) => (
+                  <span
+                    key={p.name}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
+                      p.status === "auto"
+                        ? "border-primary/30 bg-primary/5 text-foreground"
+                        : "border-border bg-background text-muted-foreground"
+                    }`}
+                  >
+                    <span
+                      className={`size-1.5 rounded-full ${
+                        p.status === "auto" ? "bg-primary" : "bg-muted-foreground/40"
+                      }`}
+                    />
+                    {p.name}
+                    <span
+                      className={`text-[9px] uppercase tracking-wider ${
+                        p.status === "auto" ? "text-primary/70" : "text-muted-foreground/60"
+                      }`}
+                    >
+                      {p.status === "auto"
+                        ? t.landing.sections.install.statusLabels.auto
+                        : t.landing.sections.install.statusLabels.manual}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="mt-8 sm:mt-10">
             <Button size="lg" asChild>
               <Link href="/signup">
                 {t.common.signup}
-                <ArrowRight className="ml-2 size-4" />
+                <ArrowRight className="ms-2 size-4" />
               </Link>
             </Button>
           </div>

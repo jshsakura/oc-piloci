@@ -25,11 +25,11 @@ function RainbowAI({ text }: { text: string }) {
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
   return (
-    <div className="flex min-h-screen">
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between p-12 bg-muted/50 border-r section-pattern">
+    <div className="pi-app-bg flex min-h-screen">
+      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between border-r p-12">
         <BrandMark />
-        <div className="space-y-4">
-          <h1 className="text-3xl font-bold tracking-tight">
+        <div className="pi-page-hero max-w-xl space-y-4">
+          <h1 className="text-3xl font-semibold tracking-[-0.04em]">
             <RainbowAI text={t.authLayout.heading1} />
             <br />
             {t.authLayout.heading2}
@@ -49,7 +49,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </Link>
         </p>
       </div>
-      <div className="flex w-full lg:w-1/2 items-center justify-center p-6 landing-pattern">
+      <div className="flex w-full items-center justify-center p-6 lg:w-1/2">
         {children}
       </div>
     </div>

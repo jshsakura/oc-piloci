@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 
 interface TypingQuotesProps {
   quotes: readonly string[];
@@ -18,26 +18,6 @@ export default function TypingQuotes({
   const [index, setIndex] = useState(0);
   const [text, setText] = useState("");
   const [isDeleting, setIsDeleting] = useState(false);
-
-  const tick = useCallback(() => {
-    const current = quotes[index];
-    if (!current) return;
-
-    if (!isDeleting) {
-      setText(current.slice(0, text.length + 1));
-      if (text.length + 1 === current.length) {
-        return { pause: true };
-      }
-    } else {
-      setText(current.slice(0, text.length - 1));
-      if (text.length <= 1) {
-        setIndex((i) => (i + 1) % quotes.length);
-        setIsDeleting(false);
-        return { pause: false };
-      }
-    }
-    return { pause: false };
-  }, [text, index, isDeleting, quotes]);
 
   useEffect(() => {
     if (!quotes[index]) return;
@@ -68,7 +48,7 @@ export default function TypingQuotes({
   return (
     <span className="inline-flex items-center">
       <span>{text}</span>
-      <span className="ml-0.5 inline-block w-[2px] animate-[blink_0.8s_step-end_infinite] bg-foreground/60 h-[1em]" />
+      <span className="ms-0.5 inline-block h-[1em] w-[2px] animate-[blink_0.8s_step-end_infinite] bg-foreground/60" />
     </span>
   );
 }

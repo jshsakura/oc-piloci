@@ -183,7 +183,7 @@ export default function LoginClient({ authProviders: initialProviders }: { authP
 
   return (
     <AuthLayout>
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
+      <div className="pi-panel w-full max-w-sm p-8">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
             <UserRound className="h-7 w-7 text-primary" />
@@ -195,13 +195,13 @@ export default function LoginClient({ authProviders: initialProviders }: { authP
         </div>
 
         {resetNotice && (
-          <div className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 shadow-sm dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+            <div className="mb-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
             {resetNotice}
           </div>
         )}
 
         {oauthError && (
-          <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+          <div className="mb-4 rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
             {oauthError}
           </div>
         )}
@@ -278,7 +278,7 @@ export default function LoginClient({ authProviders: initialProviders }: { authP
             />
 
             {serverError && (
-              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
                 {serverError}
               </div>
             )}

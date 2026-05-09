@@ -174,20 +174,21 @@ export default function ChatClient() {
 
   return (
     <AppShell>
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 pb-4 pt-4">
-        <header className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex w-full flex-col gap-4 pb-4">
+        <header className="pi-page-hero flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-              <MessageSquareText className="size-5 text-muted-foreground" />
+            <p className="pi-eyebrow">{t.chat.eyebrow}</p>
+            <h1 className="mt-2 flex items-center gap-2 text-2xl font-semibold tracking-[-0.03em]">
+              <MessageSquareText className="size-5 text-primary" />
               {t.chat.title}
             </h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="pi-subtitle">
               {t.chat.subtitle}
             </p>
           </div>
           <Select value={projectSlug} onValueChange={setProjectSlug} disabled={busy}>
             <SelectTrigger
-              className="h-8 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs font-medium text-muted-foreground shadow-none hover:text-foreground focus:ring-0 focus:ring-offset-0"
+              className="pi-soft-input h-9 w-auto min-w-36 gap-1.5 px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
               aria-label={t.chat.projectSelectAria}
             >
               <SelectValue placeholder={t.chat.projectPlaceholder} />
@@ -210,7 +211,7 @@ export default function ChatClient() {
 
         <div
           ref={transcriptRef}
-          className="flex min-h-[55vh] flex-1 flex-col gap-5 overflow-y-auto rounded-2xl border bg-card p-5 shadow-sm"
+          className="pi-panel flex min-h-[55vh] flex-1 flex-col gap-5 overflow-y-auto p-5"
         >
           {empty ? (
             <EmptyState chatCopy={t.chat} />
@@ -247,7 +248,7 @@ export default function ChatClient() {
 function EmptyState({ chatCopy }: { chatCopy: ChatCopy }) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-10 text-center">
-      <div className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+      <div className="pi-icon-cell size-12 rounded-full">
         <Sparkles className="size-6" />
       </div>
       <div>
@@ -296,7 +297,7 @@ function TurnView({
       <div className="text-sm leading-relaxed text-foreground">
         {turn.content || (turn.isStreaming ? <ThinkingDots /> : null)}
         {turn.isStreaming && turn.content && (
-          <span className="ml-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-foreground/60 align-middle" />
+          <span className="ms-0.5 inline-block h-3.5 w-[2px] animate-pulse bg-foreground/60 align-middle" />
         )}
       </div>
       {turn.errorMessage && (
@@ -599,7 +600,7 @@ function ChatInput({
           e.preventDefault();
           onSubmit();
         }}
-        className="flex items-end gap-2 rounded-2xl border bg-background p-2 shadow-lg"
+        className="pi-panel flex items-end gap-2 p-2"
       >
       <textarea
         ref={inputRef}

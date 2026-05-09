@@ -49,9 +49,10 @@ export default function DashboardPage() {
 
   return (
     <AppShell>
-      <div>
-        <h1 className="text-2xl font-bold">{t.dashboard.title}</h1>
-        <p className="text-sm text-muted-foreground">{t.dashboard.subtitle}</p>
+      <div className="pi-page-hero">
+        <p className="pi-eyebrow">{t.dashboard.eyebrow}</p>
+        <h1 className="pi-title mt-2">{t.dashboard.title}</h1>
+        <p className="pi-subtitle">{t.dashboard.subtitle}</p>
       </div>
 
       <DashboardSummaryPanels

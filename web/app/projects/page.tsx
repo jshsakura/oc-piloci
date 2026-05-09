@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, FileText } from "lucide-react";
@@ -19,7 +19,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
 function StatChip({ label, value }: { label: string; value: number }) {
   return (
-    <div className="flex items-baseline gap-1.5 rounded-full border bg-card px-3 py-1 shadow-sm">
+    <div className="pi-chip">
       <span className="text-base font-semibold tabular-nums">{value}</span>
       <span className="text-xs text-muted-foreground">{label}</span>
     </div>
@@ -39,7 +39,7 @@ function ProjectDetailContent() {
     enabled: Boolean(slug),
   });
 
-  const notes = data?.workspace.notes ?? [];
+  const notes = useMemo(() => data?.workspace.notes ?? [], [data?.workspace.notes]);
 
   useEffect(() => {
     if (!selectedNoteId && notes.length > 0) {
@@ -60,13 +60,13 @@ function ProjectDetailContent() {
 
   return (
     <AppShell>
-      <header className="flex flex-col gap-2 border-b pb-4">
+      <header className="pi-page-hero flex flex-col gap-2">
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="-ml-2" onClick={() => router.push("/projects")}>
-            <ArrowLeft className="mr-1 size-4" /> {t.projects.breadcrumb}
+          <Button variant="ghost" size="sm" className="-ms-2 rounded-full" onClick={() => router.push("/projects")}>
+            <ArrowLeft className="me-1 size-4" /> {t.projects.breadcrumb}
           </Button>
           <span className="text-sm text-muted-foreground">/</span>
-          <h1 className="truncate text-xl font-semibold tracking-tight">
+          <h1 className="truncate text-xl font-semibold tracking-[-0.03em]">
             {data?.project.name ?? slug}
           </h1>
         </div>
@@ -97,7 +97,7 @@ function ProjectDetailContent() {
         </TabsList>
 
         <TabsContent value="memories" className="mt-4">
-          <Card className="overflow-hidden lg:h-[calc(100vh-15rem)]">
+          <Card className="overflow-hidden lg:h-[calc(100vh-16rem)]">
             <div className="grid h-full lg:grid-cols-[minmax(0,340px)_minmax(0,1fr)]">
               <aside className="flex min-h-0 flex-col border-b lg:border-b-0 lg:border-r">
                 <div className="flex-1 space-y-2 overflow-y-auto p-3">

@@ -284,7 +284,7 @@ export function LLMProviderManager() {
               setFormError("");
             }}
           >
-            <Plus className="mr-1 size-4" /> {t.llm.add}
+            <Plus className="me-1 size-4" /> {t.llm.add}
           </Button>
         </div>
 

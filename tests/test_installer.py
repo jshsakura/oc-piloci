@@ -415,3 +415,129 @@ def test_post_install_heartbeat_swallows_failures() -> None:
     with patch("piloci.installer.urllib.request.urlopen", _fake_urlopen):
         ok = installer.post_install_heartbeat("https://x.example", "tok", client_kinds=["claude"])
     assert ok is False
+
+
+# ---------------------------------------------------------------------------
+# Secondary clients — Cursor / Gemini / Windsurf / AntiGravity / Zed / Codex.
+# ---------------------------------------------------------------------------
+
+
+def test_install_cursor_mcp_writes_http_entry(tmp_path: Path) -> None:
+    cfg = installer.install_cursor_mcp("https://piloci.example/", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg.read_text())
+    assert data["mcpServers"]["piloci"]["url"] == "https://piloci.example/mcp/http"
+    assert data["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer JWT.tok"
+
+
+def test_install_gemini_mcp_uses_httpurl_field(tmp_path: Path) -> None:
+    cfg = installer.install_gemini_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg.read_text())
+    # Gemini CLI keys the HTTP transport on ``httpUrl`` (not ``url``).
+    assert data["mcpServers"]["piloci"]["httpUrl"] == "https://piloci.example/mcp/http"
+
+
+def test_install_windsurf_mcp_uses_serverurl_field(tmp_path: Path) -> None:
+    cfg = installer.install_windsurf_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg.read_text())
+    assert data["mcpServers"]["piloci"]["serverUrl"] == "https://piloci.example/mcp/http"
+
+
+def test_install_zed_mcp_writes_under_context_servers(tmp_path: Path) -> None:
+    cfg = installer.install_zed_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg.read_text())
+    assert "mcpServers" not in data
+    assert data["context_servers"]["piloci"]["url"].endswith("/mcp/http")
+
+
+def test_install_cursor_mcp_preserves_other_servers(tmp_path: Path) -> None:
+    cfg_path = tmp_path / installer.CURSOR_DIR_NAME / "mcp.json"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(json.dumps({"mcpServers": {"other": {"url": "https://other/mcp"}}}))
+    installer.install_cursor_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg_path.read_text())
+    assert "other" in data["mcpServers"]
+    assert "piloci" in data["mcpServers"]
+
+
+def test_install_codex_mcp_writes_fenced_toml_block(tmp_path: Path) -> None:
+    cfg = installer.install_codex_mcp("https://piloci.example/", "JWT.tok", home=tmp_path)
+    raw = cfg.read_text()
+    assert "[mcp_servers.piloci]" in raw
+    assert 'url = "https://piloci.example/mcp/http"' in raw
+    assert 'Authorization = "Bearer JWT.tok"' in raw
+    assert raw.count("# >>> piloci managed >>>") == 1
+
+
+def test_install_codex_mcp_replaces_prior_block(tmp_path: Path) -> None:
+    installer.install_codex_mcp("https://old.example", "OLD", home=tmp_path)
+    cfg = installer.install_codex_mcp("https://new.example", "NEW", home=tmp_path)
+    raw = cfg.read_text()
+    # Re-running must not stack duplicate fenced blocks.
+    assert raw.count("# >>> piloci managed >>>") == 1
+    assert "OLD" not in raw
+    assert "NEW" in raw
+    assert "https://new.example/mcp/http" in raw
+
+
+def test_install_codex_mcp_preserves_user_content(tmp_path: Path) -> None:
+    cfg_path = tmp_path / installer.CODEX_DIR_NAME / "config.toml"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text('[profile]\nname = "alice"\n')
+    installer.install_codex_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+    raw = cfg_path.read_text()
+    assert "[profile]" in raw
+    assert 'name = "alice"' in raw
+    assert "[mcp_servers.piloci]" in raw
+
+
+def test_detect_all_targets_reports_per_kind(tmp_path: Path) -> None:
+    (tmp_path / installer.CURSOR_DIR_NAME).mkdir(parents=True)
+    (tmp_path / installer.ZED_DIR_NAME).mkdir(parents=True)
+    with patch("piloci.installer.shutil.which", return_value=None):
+        targets = installer.detect_all_targets(home=tmp_path)
+    assert targets["cursor"] is True
+    assert targets["zed"] is True
+    assert targets["claude"] is False
+    assert targets["gemini"] is False
+    assert set(targets) == set(installer.CLIENT_LABELS)
+
+
+def test_run_install_explicit_targets_skips_detection(tmp_path: Path) -> None:
+    # No client dirs exist — but explicit targets must still install.
+    with patch("piloci.installer.shutil.which", return_value=None):
+        report = installer.run_install(
+            "tok", "https://piloci.example", home=tmp_path, targets=["cursor", "zed"]
+        )
+    assert report.clients["cursor"] == "ok"
+    assert report.clients["zed"] == "ok"
+    assert report.claude_configured is False
+    assert (tmp_path / installer.CURSOR_DIR_NAME / "mcp.json").exists()
+    assert (tmp_path / installer.ZED_DIR_NAME / "settings.json").exists()
+
+
+def test_run_install_explicit_targets_filters_unknown_kinds(tmp_path: Path) -> None:
+    with patch("piloci.installer.shutil.which", return_value=None):
+        with pytest.raises(RuntimeError):
+            installer.run_install("tok", "https://piloci.example", home=tmp_path, targets=["bogus"])
+
+
+def test_run_uninstall_removes_secondary_client_entries(tmp_path: Path) -> None:
+    installer.install_cursor_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+    installer.install_zed_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+    installer.install_codex_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+
+    removed = installer.run_uninstall(home=tmp_path)
+    cursor_cfg = tmp_path / installer.CURSOR_DIR_NAME / "mcp.json"
+    zed_cfg = tmp_path / installer.ZED_DIR_NAME / "settings.json"
+    codex_cfg = tmp_path / installer.CODEX_DIR_NAME / "config.toml"
+
+    cursor_data = json.loads(cursor_cfg.read_text())
+    zed_data = json.loads(zed_cfg.read_text())
+    codex_raw = codex_cfg.read_text()
+
+    assert "piloci" not in cursor_data.get("mcpServers", {})
+    assert "piloci" not in zed_data.get("context_servers", {})
+    assert "[mcp_servers.piloci]" not in codex_raw
+    assert any("mcp.json" in r for r in removed)
+    assert any("settings.json" in r for r in removed)
+    assert any("config.toml" in r for r in removed)

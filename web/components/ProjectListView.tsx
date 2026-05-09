@@ -63,14 +63,15 @@ export function ProjectListView() {
 
   return (
     <>
-      <div className="flex items-center justify-between">
+      <div className="pi-page-hero flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">{t.appShell.nav.projects}</h1>
+          <p className="pi-eyebrow">{t.projects.eyebrow}</p>
+          <h1 className="pi-title mt-2">{t.appShell.nav.projects}</h1>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button size="sm">
-              <FolderPlus className="mr-2 size-4" />
+            <Button size="sm" className="rounded-full">
+              <FolderPlus className="me-2 size-4" />
               {t.dashboard.newProject}
             </Button>
           </DialogTrigger>

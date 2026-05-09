@@ -203,6 +203,31 @@ const ko = {
           setupTitle: '2. 백엔드 구성 (.env)',
           setupDesc: '환경 변수를 통해 SQLite 경로 및 인덱싱 엔진을 자유롭게 설정하세요.',
         },
+        install: {
+          eyebrow: '원클릭 설치',
+          setup: {
+            title: 'uvx oc-piloci setup',
+            desc: '브라우저로 한 번 로그인하면, 선택한 클라이언트에 토큰과 MCP 설정까지 한 번에 깔립니다. (추천)',
+          },
+          install: {
+            title: 'uvx oc-piloci install',
+            desc: '설정 → 토큰 화면에서 발급한 일회성 install code로 직접 설치할 때 사용합니다.',
+          },
+          platformsLabel: '지원 클라이언트',
+          platformsHint: 'setup 한 번이면 감지된 클라이언트의 글로벌 설정에 piloci MCP가 머지됩니다.',
+          platforms: [
+            { name: 'Claude Code', status: 'auto' },
+            { name: 'OpenCode', status: 'auto' },
+            { name: 'Cursor', status: 'auto' },
+            { name: 'Gemini CLI', status: 'auto' },
+            { name: 'Windsurf', status: 'auto' },
+            { name: 'Codex CLI', status: 'auto' },
+            { name: 'AntiGravity', status: 'auto' },
+            { name: 'Zed', status: 'auto' },
+            { name: 'ChatGPT Desktop · Codex', status: 'manual' },
+          ],
+          statusLabels: { auto: '자동', manual: '수동' },
+        },
         capabilities: {
           title: '반드시 필요한 툴만, 극한의 미니멀리즘',
           desc: 'LLM의 프롬프트 맥락을 해치지 않도록, 최소한의 툴 개수로 최대한의 효율을 추구합니다.',
@@ -381,6 +406,7 @@ const ko = {
       dates: '공고일자: 2026년 1월 1일 / 시행일자: 2026년 1월 1일',
     },
     admin: {
+      eyebrow: '관리자 콘솔',
       title: '사용자 관리',
       description: '사용자 계정을 관리합니다.',
       filterAll: '전체',
@@ -545,6 +571,7 @@ const ko = {
       },
     },
     settings: {
+      eyebrow: '컨트롤 센터',
       title: '설정',
       description: '계정 및 보안 설정을 관리합니다',
       tabs: { account: '계정', security: '보안', tokens: '토큰', llm: 'LLM', data: '데이터', audit: '활동', mcp: 'MCP' },
@@ -651,6 +678,7 @@ const ko = {
       footer: { privacy: '개인정보 처리방침', terms: '서비스 약관' },
     },
     chat: {
+      eyebrow: '메모리 채팅',
       title: '대화로 메모리 꺼내기',
       subtitle: '저장된 메모리에서 답을 가져옵니다. 인용 번호로 출처를 확인하세요.',
       projectSelectAria: '프로젝트 선택',
@@ -710,6 +738,23 @@ const ko = {
       deniedMessage: '요청을 거부했습니다. 새 코드로 다시 시도해 주세요.',
       footer1: ' 또는 ',
       footer2: ' 명령으로 발급된 코드입니다.',
+      targets: {
+        title: '설치 대상',
+        hint: '체크한 클라이언트의 글로벌 설정에만 piloci MCP 서버를 머지합니다. 최소 한 개는 골라야 승인됩니다.',
+        selectAll: '전체',
+        clearAll: '해제',
+        emptyError: '설치 대상을 한 개 이상 선택하세요.',
+        list: [
+          { kind: 'claude', label: 'Claude Code', path: '~/.claude/plugins/piloci/' },
+          { kind: 'opencode', label: 'OpenCode', path: '~/.config/opencode/plugins/piloci.ts' },
+          { kind: 'cursor', label: 'Cursor', path: '~/.cursor/mcp.json' },
+          { kind: 'gemini', label: 'Gemini CLI', path: '~/.gemini/settings.json' },
+          { kind: 'windsurf', label: 'Windsurf', path: '~/.codeium/windsurf/mcp_config.json' },
+          { kind: 'codex', label: 'Codex CLI', path: '~/.codex/config.toml' },
+          { kind: 'antigravity', label: 'AntiGravity', path: '~/.antigravity/mcp.json' },
+          { kind: 'zed', label: 'Zed', path: '~/.config/zed/settings.json' },
+        ],
+      },
       error: {
         invalidFormat: '코드 형식은 ABCD-1234 입니다.',
         serverPrefix: '서버가',
@@ -731,6 +776,7 @@ const ko = {
       github: 'GitHub로 계속하기',
     },
     dashboard: {
+      eyebrow: '메모리 작업공간',
       title: '대시보드',
       subtitle: '최근 활동과 메모리 흐름을 한눈에 살펴봅니다.',
       newProject: '새 프로젝트',
@@ -781,6 +827,7 @@ const ko = {
       redirect: { title: '로그인 화면으로 이동 중', desc: '인증 상태를 확인했고, 로그인 페이지로 안전하게 전환하고 있습니다.' },
     },
     projects: {
+      eyebrow: '프로젝트 메모리',
       breadcrumb: '대시보드',
       notes: '노트',
       nodes: '노드',
@@ -835,6 +882,7 @@ const ko = {
       pending: { title: '프로젝트 위치 확인 중', desc: '열어야 할 프로젝트를 찾는 중이며, 정보가 없으면 대시보드로 돌아갑니다.' },
     },
     audit: {
+      eyebrow: '보안 타임라인',
       title: '활동 기록',
       subtitle: '보안 이벤트 및 접근 기록',
       filter: '필터',
@@ -1168,6 +1216,31 @@ const en: CopyShape = {
           setupTitle: '2. Backend Config (.env)',
           setupDesc: 'Freely configure SQLite paths and indexing engines via environment variables.',
         },
+        install: {
+          eyebrow: 'One-click install',
+          setup: {
+            title: 'uvx oc-piloci setup',
+            desc: 'Sign in once in the browser — your token and MCP config land on every selected client. (Recommended)',
+          },
+          install: {
+            title: 'uvx oc-piloci install',
+            desc: 'Use a one-time install code from Settings → Tokens to install directly.',
+          },
+          platformsLabel: 'Supported clients',
+          platformsHint: 'A single setup merges the piloci MCP entry into the global config of every detected client.',
+          platforms: [
+            { name: 'Claude Code', status: 'auto' },
+            { name: 'OpenCode', status: 'auto' },
+            { name: 'Cursor', status: 'auto' },
+            { name: 'Gemini CLI', status: 'auto' },
+            { name: 'Windsurf', status: 'auto' },
+            { name: 'Codex CLI', status: 'auto' },
+            { name: 'AntiGravity', status: 'auto' },
+            { name: 'Zed', status: 'auto' },
+            { name: 'ChatGPT Desktop · Codex', status: 'manual' },
+          ],
+          statusLabels: { auto: 'Auto', manual: 'Manual' },
+        },
         capabilities: {
           title: 'Only What You Need — Radical Minimalism',
           desc: 'Minimal tool count by design — to preserve LLM prompt context while maximizing efficiency.',
@@ -1345,6 +1418,7 @@ const en: CopyShape = {
       dates: 'Published: January 1, 2026 / Effective: January 1, 2026',
     },
     admin: {
+      eyebrow: 'Admin console',
       title: 'User Management',
       description: 'Manage user accounts.',
       filterAll: 'All',
@@ -1509,6 +1583,7 @@ const en: CopyShape = {
       },
     },
     settings: {
+      eyebrow: 'Control center',
       title: 'Settings',
       description: 'Manage account and security settings',
       tabs: { account: 'Account', security: 'Security', tokens: 'Tokens', llm: 'LLM', data: 'Data', audit: 'Audit', mcp: 'MCP' },
@@ -1615,6 +1690,7 @@ const en: CopyShape = {
       footer: { privacy: 'Privacy Policy', terms: 'Terms of Service' },
     },
     chat: {
+      eyebrow: 'Memory chat',
       title: 'Pull memories with chat',
       subtitle: 'Answers come from saved memories. Use the citation numbers to inspect sources.',
       projectSelectAria: 'Select project',
@@ -1674,6 +1750,23 @@ const en: CopyShape = {
       deniedMessage: 'Request denied. Generate a new code and try again.',
       footer1: ' or ',
       footer2: ' issues the code.',
+      targets: {
+        title: 'Install targets',
+        hint: 'We merge the piloci MCP server only into the global config of the clients you tick. At least one is required.',
+        selectAll: 'All',
+        clearAll: 'Clear',
+        emptyError: 'Pick at least one install target.',
+        list: [
+          { kind: 'claude', label: 'Claude Code', path: '~/.claude/plugins/piloci/' },
+          { kind: 'opencode', label: 'OpenCode', path: '~/.config/opencode/plugins/piloci.ts' },
+          { kind: 'cursor', label: 'Cursor', path: '~/.cursor/mcp.json' },
+          { kind: 'gemini', label: 'Gemini CLI', path: '~/.gemini/settings.json' },
+          { kind: 'windsurf', label: 'Windsurf', path: '~/.codeium/windsurf/mcp_config.json' },
+          { kind: 'codex', label: 'Codex CLI', path: '~/.codex/config.toml' },
+          { kind: 'antigravity', label: 'AntiGravity', path: '~/.antigravity/mcp.json' },
+          { kind: 'zed', label: 'Zed', path: '~/.config/zed/settings.json' },
+        ],
+      },
       error: {
         invalidFormat: 'Code format is ABCD-1234.',
         serverPrefix: 'Server returned',
@@ -1695,6 +1788,7 @@ const en: CopyShape = {
       github: 'Continue with GitHub',
     },
     dashboard: {
+      eyebrow: 'Memory workspace',
       title: 'Dashboard',
       subtitle: 'A quick look at recent activity and how memories are flowing.',
       newProject: 'New Project',
@@ -1745,6 +1839,7 @@ const en: CopyShape = {
       redirect: { title: 'Redirecting to login', desc: 'Verified auth state and safely redirecting to the login page.' },
     },
     projects: {
+      eyebrow: 'Project memory',
       breadcrumb: 'Dashboard',
       notes: 'Notes',
       nodes: 'Nodes',
@@ -1799,6 +1894,7 @@ const en: CopyShape = {
       pending: { title: 'Locating project', desc: 'Finding the project to open. If not found, you\'ll be redirected to the dashboard.' },
     },
     audit: {
+      eyebrow: 'Security timeline',
       title: 'Activity Log',
       subtitle: 'Security events and access records',
       filter: 'Filter',

@@ -117,13 +117,14 @@ export default function AuditPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">{t.audit.title}</h1>
-          <p className="text-sm text-muted-foreground">{t.audit.subtitle}</p>
-        </div>
+      <div className="pi-page">
+        <section className="pi-page-hero">
+          <p className="pi-eyebrow">{t.audit.eyebrow}</p>
+          <h1 className="pi-title mt-2">{t.audit.title}</h1>
+          <p className="pi-subtitle">{t.audit.subtitle}</p>
+        </section>
 
-        <Card className="bg-card shadow-sm">
+        <Card>
           <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-medium">{t.audit.filter}</p>
@@ -131,7 +132,7 @@ export default function AuditPage() {
             </div>
             <div className="w-full sm:w-56">
               <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setOffset(0); }}>
-                <SelectTrigger className="bg-card"><SelectValue placeholder={t.audit.filter} /></SelectTrigger>
+                <SelectTrigger className="pi-soft-input"><SelectValue placeholder={t.audit.filter} /></SelectTrigger>
                 <SelectContent>
                   {ACTION_KEYS.map((key) => {
                     const labels = t.audit.actions as Record<string, string | undefined>;
@@ -150,7 +151,7 @@ export default function AuditPage() {
         <div className="space-y-3 md:hidden">
           {isLoading ? (
             Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i} className="bg-card shadow-sm">
+              <Card key={i}>
                 <CardContent className="space-y-3 pt-6">
                   <Skeleton className="h-4 w-32" />
                   <Skeleton className="h-5 w-20" />
@@ -160,16 +161,16 @@ export default function AuditPage() {
               </Card>
             ))
           ) : isError ? (
-            <Card className="bg-card shadow-sm">
+            <Card>
               <CardContent className="py-12 text-center text-muted-foreground">{t.audit.empty.error}</CardContent>
             </Card>
           ) : !logs || logs.length === 0 ? (
-            <Card className="bg-card shadow-sm">
+            <Card>
               <CardContent className="py-12 text-center text-muted-foreground">{t.audit.empty.noLogs}</CardContent>
             </Card>
           ) : (
             logs.map((log) => (
-              <Card key={log.id} className="bg-card shadow-sm">
+              <Card key={log.id}>
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -187,9 +188,9 @@ export default function AuditPage() {
           )}
         </div>
 
-        <Card className="hidden overflow-hidden bg-card shadow-sm md:block">
+        <Card className="pi-table-shell hidden md:block">
           <Table>
-            <TableHeader className="bg-muted/50">
+            <TableHeader className="bg-muted/50 text-xs uppercase tracking-[0.12em] text-muted-foreground">
               <TableRow>
                 <TableHead>{t.audit.table.time}</TableHead>
                 <TableHead>{t.audit.table.event}</TableHead>

@@ -148,10 +148,11 @@ export default function AdminUsersPage() {
 
   return (
     <AppShell>
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">{t.admin.title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">{t.admin.description}</p>
+      <div className="pi-page">
+        <div className="pi-page-hero">
+          <p className="pi-eyebrow">{t.admin.eyebrow}</p>
+          <h1 className="pi-title mt-2">{t.admin.title}</h1>
+          <p className="pi-subtitle">{t.admin.description}</p>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -160,26 +161,26 @@ export default function AdminUsersPage() {
             { label: t.admin.statsPending, value: stats.pending, icon: Clock, color: "text-amber-600 dark:text-amber-400" },
             { label: t.admin.statsAdmins, value: stats.admins, icon: ShieldCheck, color: "text-primary" },
           ].map((s) => (
-            <div key={s.label} className="flex items-center gap-3 rounded-lg border bg-card p-4 shadow-sm">
-              <div className={`flex h-9 w-9 items-center justify-center rounded-lg bg-muted ${s.color}`}>
-                <s.icon className="h-4 w-4" />
+            <div key={s.label} className="pi-metric-card flex items-center gap-3">
+              <div className={`pi-icon-cell ${s.color}`}>
+                <s.icon className="size-4" />
               </div>
               <div>
-                <p className="text-2xl font-bold leading-none">{s.value}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{s.label}</p>
+                <p className="text-3xl font-semibold leading-none tracking-[-0.04em] tabular-nums">{s.value}</p>
+                <p className="mt-1 text-xs font-medium text-muted-foreground">{s.label}</p>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="pi-panel flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex gap-1 overflow-x-auto pb-1 sm:flex-wrap sm:pb-0">
             {filters.map((f) => (
               <Button
                 key={f.key}
                 variant={filter === f.key ? "secondary" : "ghost"}
                 size="sm"
-                className="shrink-0"
+                className="shrink-0 rounded-full"
                 onClick={() => setFilter(f.key)}
               >
                 {f.label}
@@ -193,7 +194,7 @@ export default function AdminUsersPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t.admin.searchPlaceholder}
-              className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring sm:w-56"
+              className="pi-soft-input h-9 w-full pl-8 pr-3 text-sm placeholder:text-muted-foreground sm:w-64"
             />
           </div>
         </div>
@@ -233,10 +234,10 @@ export default function AdminUsersPage() {
           <>
             <div className="space-y-3 md:hidden">
               {filtered.map((u) => (
-                <div key={u.id} className="rounded-lg border bg-card p-4 shadow-sm">
+                <div key={u.id} className="pi-panel p-4">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-2 min-w-0">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium">
+                      <div className="pi-icon-cell text-sm font-medium">
                         {(u.email?.charAt(0) ?? "?").toUpperCase()}
                       </div>
                       <div className="min-w-0">
@@ -303,9 +304,9 @@ export default function AdminUsersPage() {
                             disabled={actionPending}
                           >
                             {u.is_admin ? (
-                              <><ShieldOff className="mr-1.5 h-3.5 w-3.5" />{t.admin.demoteAdmin}</>
+                              <><ShieldOff className="me-1.5 size-3.5" />{t.admin.demoteAdmin}</>
                             ) : (
-                              <><ShieldCheck className="mr-1.5 h-3.5 w-3.5" />{t.admin.promoteAdmin}</>
+                              <><ShieldCheck className="me-1.5 size-3.5" />{t.admin.promoteAdmin}</>
                             )}
                           </Button>
                           <Button
@@ -319,9 +320,9 @@ export default function AdminUsersPage() {
                             disabled={actionPending}
                           >
                             {u.is_active ? (
-                              <><ToggleLeft className="mr-1.5 h-3.5 w-3.5" />{t.admin.deactivateUser}</>
+                              <><ToggleLeft className="me-1.5 size-3.5" />{t.admin.deactivateUser}</>
                             ) : (
-                              <><ToggleRight className="mr-1.5 h-3.5 w-3.5" />{t.admin.activateUser}</>
+                              <><ToggleRight className="me-1.5 size-3.5" />{t.admin.activateUser}</>
                             )}
                           </Button>
                           <Button
@@ -340,9 +341,9 @@ export default function AdminUsersPage() {
                 </div>
               ))}
             </div>
-            <div className="hidden overflow-x-auto rounded-lg border bg-card shadow-sm md:block">
+            <div className="pi-table-shell hidden overflow-x-auto md:block">
               <table className="w-full text-sm">
-                <thead className="border-b bg-muted/50">
+                <thead className="border-b bg-muted/50 text-xs uppercase tracking-[0.12em] text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 text-left font-medium">{t.admin.emailLabel}</th>
                     <th className="px-4 py-3 text-left font-medium">{t.admin.statusLabel}</th>
@@ -354,10 +355,10 @@ export default function AdminUsersPage() {
                 </thead>
                 <tbody>
                   {filtered.map((u) => (
-                    <tr key={u.id} className="border-b last:border-0 transition-colors hover:bg-muted/30">
+                    <tr key={u.id} className="border-b last:border-0 transition-colors hover:bg-muted/40">
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-medium">
+                          <div className="flex size-8 items-center justify-center rounded-full bg-muted text-xs font-medium ring-1 ring-border/70">
                             {(u.email?.charAt(0) ?? "?").toUpperCase()}
                           </div>
                           <div>
@@ -391,7 +392,7 @@ export default function AdminUsersPage() {
                       <td className="hidden px-4 py-3 text-muted-foreground md:table-cell">
                         {u.oauth_provider ?? "—"}
                         {u.totp_enabled && (
-                          <span className="ml-1 text-[10px] text-muted-foreground">{t.admin.twoFactor}</span>
+                          <span className="ms-1 text-[10px] text-muted-foreground">{t.admin.twoFactor}</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -418,9 +419,9 @@ export default function AdminUsersPage() {
                                   fillEmail(u.is_admin ? t.admin.toastDemoted : t.admin.toastPromoted, u.email),
                                 )}>
                                   {u.is_admin ? (
-                                    <><ShieldOff className="mr-2 h-4 w-4" />{t.admin.demoteAdmin}</>
+                                    <><ShieldOff className="me-2 size-4" />{t.admin.demoteAdmin}</>
                                   ) : (
-                                    <><ShieldCheck className="mr-2 h-4 w-4" />{t.admin.promoteAdmin}</>
+                                    <><ShieldCheck className="me-2 size-4" />{t.admin.promoteAdmin}</>
                                   )}
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => void handleAction(
@@ -428,14 +429,14 @@ export default function AdminUsersPage() {
                                   fillEmail(u.is_active ? t.admin.toastDeactivated : t.admin.toastActivated, u.email),
                                 )}>
                                   {u.is_active ? (
-                                    <><ToggleLeft className="mr-2 h-4 w-4" />{t.admin.deactivateUser}</>
+                                    <><ToggleLeft className="me-2 size-4" />{t.admin.deactivateUser}</>
                                   ) : (
-                                    <><ToggleRight className="mr-2 h-4 w-4" />{t.admin.activateUser}</>
+                                    <><ToggleRight className="me-2 size-4" />{t.admin.activateUser}</>
                                   )}
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem className="text-destructive" onClick={() => setDeleteTarget(u)}>
-                                  <Trash2 className="mr-2 h-4 w-4" />
+                                  <Trash2 className="me-2 size-4" />
                                   {t.admin.deleteUser}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>

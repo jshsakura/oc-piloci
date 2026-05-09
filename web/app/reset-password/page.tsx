@@ -100,7 +100,7 @@ function ResetPasswordForm() {
 
   return (
     <AuthLayout>
-      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
+      <div className="pi-panel w-full max-w-sm p-8">
         <div className="mb-8 text-center">
           <h2 className="text-2xl font-bold">{t.resetPassword.title}</h2>
           <p className="mt-2 text-sm text-muted-foreground">
@@ -208,7 +208,7 @@ function ResetPasswordForm() {
             />
 
             {serverError && (
-              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+              <div className="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
                 {serverError}
               </div>
             )}

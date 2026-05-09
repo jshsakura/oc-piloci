@@ -84,39 +84,45 @@ button {
 }
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: oklch(0.985 0.006 260);
+  --foreground: oklch(0.16 0.018 260);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.16 0.018 260);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.16 0.018 260);
+  --primary: oklch(0.26 0.035 260);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.955 0.010 260);
+  --secondary-foreground: oklch(0.22 0.020 260);
+  --muted: oklch(0.955 0.010 260);
+  --muted-foreground: oklch(0.49 0.022 260);
+  --accent: oklch(0.93 0.022 260);
+  --accent-foreground: oklch(0.20 0.025 260);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
+  --border: oklch(0.89 0.012 260);
+  --input: oklch(0.89 0.012 260);
+  --ring: oklch(0.62 0.075 260);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.714);
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar: oklch(0.965 0.010 260);
+  --sidebar-foreground: oklch(0.16 0.018 260);
+  --sidebar-primary: oklch(0.26 0.035 260);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: oklch(0.93 0.022 260);
+  --sidebar-accent-foreground: oklch(0.20 0.025 260);
+  --sidebar-border: oklch(0.89 0.012 260);
+  --sidebar-ring: oklch(0.62 0.075 260);
+
+  --pi-shell: color-mix(in oklch, var(--background) 82%, white);
+  --pi-line: color-mix(in oklch, var(--border) 72%, transparent);
+  --pi-glow: color-mix(in oklch, var(--primary) 10%, transparent);
+  --pi-shadow: 0 20px 60px color-mix(in oklch, var(--foreground) 7%, transparent);
+  --pi-shadow-sm: 0 10px 30px color-mix(in oklch, var(--foreground) 5%, transparent);
 }
 
 .dark {
@@ -156,6 +162,12 @@ button {
   --sidebar-accent-foreground: oklch(0.94 0.01 280);
   --sidebar-border: oklch(0.30 0.020 280);
   --sidebar-ring: oklch(0.62 0.12 300);
+
+  --pi-shell: oklch(0.19 0.014 280);
+  --pi-line: color-mix(in oklch, var(--border) 70%, transparent);
+  --pi-glow: color-mix(in oklch, var(--primary) 18%, transparent);
+  --pi-shadow: 0 20px 70px color-mix(in oklch, black 36%, transparent);
+  --pi-shadow-sm: 0 12px 36px color-mix(in oklch, black 24%, transparent);
 }
 
 @layer base {
@@ -165,6 +177,78 @@ button {
   body {
     @apply bg-background text-foreground;
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  .pi-app-bg {
+    background:
+      radial-gradient(circle at 14% 10%, var(--pi-glow), transparent 34rem),
+      radial-gradient(circle at 86% 0%, color-mix(in oklch, var(--accent) 36%, transparent), transparent 28rem),
+      linear-gradient(180deg, var(--pi-shell), var(--background) 42%);
+  }
+
+  .pi-glass-nav {
+    border-color: var(--pi-line);
+    background: color-mix(in oklch, var(--background) 78%, transparent);
+    box-shadow: 0 1px 0 color-mix(in oklch, white 35%, transparent) inset;
+  }
+
+  .pi-page {
+    @apply space-y-6;
+  }
+
+  .pi-page-hero {
+    @apply overflow-hidden rounded-[1.75rem] border p-5 sm:p-7;
+    border-color: var(--pi-line);
+    background:
+      linear-gradient(135deg, color-mix(in oklch, var(--card) 94%, transparent), color-mix(in oklch, var(--muted) 62%, transparent)),
+      radial-gradient(circle at 100% 0%, var(--pi-glow), transparent 18rem);
+    box-shadow: var(--pi-shadow-sm);
+  }
+
+  .pi-eyebrow {
+    @apply text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground;
+  }
+
+  .pi-title {
+    @apply text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-3xl;
+  }
+
+  .pi-subtitle {
+    @apply mt-2 max-w-2xl text-sm leading-6 text-muted-foreground;
+  }
+
+  .pi-panel {
+    @apply rounded-[1.35rem] border bg-card/90 shadow-none backdrop-blur;
+    border-color: var(--pi-line);
+    box-shadow: var(--pi-shadow-sm);
+  }
+
+  .pi-metric-card {
+    @apply rounded-[1.35rem] border bg-card/90 p-4 backdrop-blur transition-transform duration-200 hover:-translate-y-0.5;
+    border-color: var(--pi-line);
+    box-shadow: var(--pi-shadow-sm);
+  }
+
+  .pi-icon-cell {
+    @apply flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/10;
+  }
+
+  .pi-chip {
+    @apply inline-flex items-center gap-1 rounded-full border bg-background/70 px-3 py-1 text-xs font-medium text-muted-foreground;
+    border-color: var(--pi-line);
+  }
+
+  .pi-table-shell {
+    @apply overflow-hidden rounded-[1.35rem] border bg-card/90 backdrop-blur;
+    border-color: var(--pi-line);
+    box-shadow: var(--pi-shadow-sm);
+  }
+
+  .pi-soft-input {
+    @apply rounded-full border bg-background/70 shadow-none transition-colors focus:outline-none focus:ring-2 focus:ring-ring/30;
+    border-color: var(--pi-line);
   }
 }
 

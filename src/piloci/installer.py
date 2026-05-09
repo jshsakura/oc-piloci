@@ -17,16 +17,36 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import urllib.error
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
 PILOCI_DIR_NAME = ".config/piloci"
 CLAUDE_DIR_NAME = ".claude"
 OPENCODE_DIR_NAME = ".config/opencode"
+CURSOR_DIR_NAME = ".cursor"
+GEMINI_DIR_NAME = ".gemini"
+WINDSURF_DIR_NAME = ".codeium/windsurf"
+ANTIGRAVITY_DIR_NAME = ".antigravity"
+ZED_DIR_NAME = ".config/zed"
+CODEX_DIR_NAME = ".codex"
 PILOCI_PATH_TAG = "~/.config/piloci/"
+
+# Display label per kind — used in InstallReport notes and surfaced in the CLI.
+CLIENT_LABELS: dict[str, str] = {
+    "claude": "Claude Code",
+    "opencode": "OpenCode",
+    "cursor": "Cursor",
+    "gemini": "Gemini CLI",
+    "windsurf": "Windsurf",
+    "antigravity": "AntiGravity",
+    "zed": "Zed",
+    "codex": "Codex CLI",
+}
 
 
 @dataclass
@@ -36,6 +56,10 @@ class InstallReport:
     config_path: Path
     claude_configured: bool = False
     opencode_configured: bool = False
+    # Per-kind status: "ok" on success, "failed: <reason>" otherwise. Populated
+    # for every client run_install actually attempted (whether or not it was
+    # auto-detected). Older booleans above are mirrors for legacy callers/tests.
+    clients: dict[str, str] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
 
@@ -45,6 +69,29 @@ def detect_clients(home: Path | None = None) -> tuple[bool, bool]:
     has_claude = (h / CLAUDE_DIR_NAME).is_dir()
     has_opencode = (h / OPENCODE_DIR_NAME).is_dir() or shutil.which("opencode") is not None
     return has_claude, has_opencode
+
+
+def detect_all_targets(home: Path | None = None) -> dict[str, bool]:
+    """Return ``{kind: detected}`` for every client piloci can install into.
+
+    Detection is best-effort — presence of the config dir or the CLI binary
+    counts as "detected". The /device approve page uses this to preselect
+    checkboxes; ``run_install`` falls back to it when no explicit ``targets``
+    list is supplied.
+    """
+    h = home or Path.home()
+    has_claude, has_opencode = detect_clients(home=h)
+    return {
+        "claude": has_claude,
+        "opencode": has_opencode,
+        "cursor": (h / CURSOR_DIR_NAME).is_dir() or shutil.which("cursor") is not None,
+        "gemini": (h / GEMINI_DIR_NAME).is_dir() or shutil.which("gemini") is not None,
+        "windsurf": (h / WINDSURF_DIR_NAME).is_dir() or shutil.which("windsurf") is not None,
+        "antigravity": (h / ANTIGRAVITY_DIR_NAME).is_dir()
+        or shutil.which("antigravity") is not None,
+        "zed": (h / ZED_DIR_NAME).is_dir() or shutil.which("zed") is not None,
+        "codex": (h / CODEX_DIR_NAME).is_dir() or shutil.which("codex") is not None,
+    }
 
 
 def write_config_json(token: str, base_url: str, *, home: Path | None = None) -> Path:
@@ -336,6 +383,193 @@ def install_opencode_mcp(base_url: str, token: str, *, home: Path | None = None)
     return cfg_path
 
 
+# ---------------------------------------------------------------------------
+# Generic per-client MCP merge (Cursor, Gemini, Windsurf, AntiGravity, Zed)
+# ---------------------------------------------------------------------------
+
+
+def _merge_json_mcp(
+    cfg_path: Path,
+    *,
+    parent_key: str,
+    server_name: str,
+    server_entry: dict,
+) -> Path:
+    """Merge ``server_entry`` into ``cfg_path`` under ``parent_key.server_name``.
+
+    Idempotent — re-running replaces the prior piloci entry without touching
+    sibling servers. Backs the original up to ``<file>.piloci-bak`` once so a
+    user can revert by hand. A corrupt JSON file is moved aside to
+    ``<file>.piloci-corrupt-bak`` and the merge starts from a clean slate.
+    """
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+
+    existing: dict = {}
+    if cfg_path.exists():
+        raw = cfg_path.read_text()
+        try:
+            loaded = json.loads(raw)
+            if isinstance(loaded, dict):
+                existing = loaded
+        except json.JSONDecodeError:
+            cfg_path.with_suffix(cfg_path.suffix + ".piloci-corrupt-bak").write_text(raw)
+            existing = {}
+
+    backup = cfg_path.with_suffix(cfg_path.suffix + ".piloci-bak")
+    if not backup.exists() and cfg_path.exists():
+        backup.write_text(cfg_path.read_text())
+
+    bucket = existing.setdefault(parent_key, {})
+    if not isinstance(bucket, dict):
+        bucket = {}
+        existing[parent_key] = bucket
+    bucket[server_name] = server_entry
+
+    cfg_path.write_text(json.dumps(existing, indent=2))
+    try:
+        cfg_path.chmod(0o600)
+    except PermissionError:
+        pass
+    return cfg_path
+
+
+def _remove_json_mcp_entry(cfg_path: Path, *, parent_key: str, server_name: str) -> bool:
+    """Drop ``parent_key.server_name`` from ``cfg_path``. Returns True if changed."""
+    if not cfg_path.exists():
+        return False
+    try:
+        loaded = json.loads(cfg_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(loaded, dict):
+        return False
+    bucket = loaded.get(parent_key)
+    if not isinstance(bucket, dict) or server_name not in bucket:
+        return False
+    bucket.pop(server_name)
+    if not bucket:
+        loaded.pop(parent_key, None)
+    cfg_path.write_text(json.dumps(loaded, indent=2))
+    return True
+
+
+def install_cursor_mcp(base_url: str, token: str, *, home: Path | None = None) -> Path:
+    """Merge piloci into Cursor's global ``~/.cursor/mcp.json`` (HTTP transport)."""
+    h = home or Path.home()
+    base = base_url.rstrip("/")
+    return _merge_json_mcp(
+        h / CURSOR_DIR_NAME / "mcp.json",
+        parent_key="mcpServers",
+        server_name="piloci",
+        server_entry={
+            "url": base + "/mcp/http",
+            "headers": {"Authorization": "Bearer " + token},
+        },
+    )
+
+
+def install_gemini_mcp(base_url: str, token: str, *, home: Path | None = None) -> Path:
+    """Merge piloci into Gemini CLI's ``~/.gemini/settings.json``."""
+    h = home or Path.home()
+    base = base_url.rstrip("/")
+    return _merge_json_mcp(
+        h / GEMINI_DIR_NAME / "settings.json",
+        parent_key="mcpServers",
+        server_name="piloci",
+        server_entry={
+            "httpUrl": base + "/mcp/http",
+            "headers": {"Authorization": "Bearer " + token},
+        },
+    )
+
+
+def install_windsurf_mcp(base_url: str, token: str, *, home: Path | None = None) -> Path:
+    """Merge piloci into Windsurf's ``~/.codeium/windsurf/mcp_config.json``."""
+    h = home or Path.home()
+    base = base_url.rstrip("/")
+    return _merge_json_mcp(
+        h / WINDSURF_DIR_NAME / "mcp_config.json",
+        parent_key="mcpServers",
+        server_name="piloci",
+        server_entry={
+            "serverUrl": base + "/mcp/http",
+            "headers": {"Authorization": "Bearer " + token},
+        },
+    )
+
+
+def install_antigravity_mcp(base_url: str, token: str, *, home: Path | None = None) -> Path:
+    """Merge piloci into AntiGravity's ``~/.antigravity/mcp.json``."""
+    h = home or Path.home()
+    base = base_url.rstrip("/")
+    return _merge_json_mcp(
+        h / ANTIGRAVITY_DIR_NAME / "mcp.json",
+        parent_key="mcpServers",
+        server_name="piloci",
+        server_entry={
+            "url": base + "/mcp/http",
+            "headers": {"Authorization": "Bearer " + token},
+        },
+    )
+
+
+def install_zed_mcp(base_url: str, token: str, *, home: Path | None = None) -> Path:
+    """Merge piloci into Zed's ``~/.config/zed/settings.json`` (context_servers)."""
+    h = home or Path.home()
+    base = base_url.rstrip("/")
+    return _merge_json_mcp(
+        h / ZED_DIR_NAME / "settings.json",
+        parent_key="context_servers",
+        server_name="piloci",
+        server_entry={
+            "url": base + "/mcp/http",
+            "headers": {"Authorization": "Bearer " + token},
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Codex CLI — TOML config. Maintained as a fenced block so we can rewrite the
+# piloci section without parsing/reformatting the user's hand-edited TOML.
+# ---------------------------------------------------------------------------
+
+_CODEX_BLOCK_BEGIN = "# >>> piloci managed >>>"
+_CODEX_BLOCK_END = "# <<< piloci managed <<<"
+_CODEX_BLOCK_RE = re.compile(
+    r"\n*" + re.escape(_CODEX_BLOCK_BEGIN) + r".*?" + re.escape(_CODEX_BLOCK_END) + r"\n?",
+    re.DOTALL,
+)
+
+
+def install_codex_mcp(base_url: str, token: str, *, home: Path | None = None) -> Path:
+    """Append piloci's MCP server to Codex CLI's ``~/.codex/config.toml``."""
+    h = home or Path.home()
+    cfg = h / CODEX_DIR_NAME / "config.toml"
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    base = base_url.rstrip("/")
+
+    raw = cfg.read_text() if cfg.exists() else ""
+    backup = cfg.with_suffix(".toml.piloci-bak")
+    if not backup.exists() and cfg.exists():
+        backup.write_text(raw)
+
+    block = (
+        f"\n{_CODEX_BLOCK_BEGIN}\n"
+        "[mcp_servers.piloci]\n"
+        f'url = "{base}/mcp/http"\n'
+        "[mcp_servers.piloci.headers]\n"
+        f'Authorization = "Bearer {token}"\n'
+        f"{_CODEX_BLOCK_END}\n"
+    )
+    stripped = _CODEX_BLOCK_RE.sub("\n", raw).rstrip()
+    cfg.write_text((stripped + block) if stripped else block.lstrip("\n"))
+    try:
+        cfg.chmod(0o600)
+    except PermissionError:
+        pass
+    return cfg
+
+
 def cleanup_legacy_install(*, home: Path | None = None, remove_plugins: bool = False) -> list[str]:
     """Remove pre-plugin-folder install artifacts so they don't fire alongside the
     new plugin (which would double-ingest each session).
@@ -418,8 +652,10 @@ def cleanup_legacy_install(*, home: Path | None = None, remove_plugins: bool = F
 
 def run_uninstall(*, home: Path | None = None) -> list[str]:
     """Remove every piloci artifact from the host: plugin folders, legacy hooks,
-    legacy hook scripts, the shared config dir (token + endpoints), and the
-    pre-install ``settings.json.piloci-bak`` backup.
+    legacy hook scripts, the shared config dir (token + endpoints), the
+    pre-install ``settings.json.piloci-bak`` backup, and any piloci entry
+    merged into the secondary clients (Cursor / Gemini / Windsurf / AntiGravity
+    / Zed / Codex).
 
     Returns the list of removed paths/keys for the CLI to print.
     """
@@ -435,6 +671,25 @@ def run_uninstall(*, home: Path | None = None) -> list[str]:
     if bak.exists():
         bak.unlink()
         removed.append(str(bak))
+
+    json_targets: list[tuple[Path, str]] = [
+        (h / CURSOR_DIR_NAME / "mcp.json", "mcpServers"),
+        (h / GEMINI_DIR_NAME / "settings.json", "mcpServers"),
+        (h / WINDSURF_DIR_NAME / "mcp_config.json", "mcpServers"),
+        (h / ANTIGRAVITY_DIR_NAME / "mcp.json", "mcpServers"),
+        (h / ZED_DIR_NAME / "settings.json", "context_servers"),
+    ]
+    for cfg_path, parent_key in json_targets:
+        if _remove_json_mcp_entry(cfg_path, parent_key=parent_key, server_name="piloci"):
+            removed.append(f"{cfg_path} ({parent_key}.piloci)")
+
+    codex_cfg = h / CODEX_DIR_NAME / "config.toml"
+    if codex_cfg.exists():
+        raw = codex_cfg.read_text()
+        stripped = _CODEX_BLOCK_RE.sub("\n", raw).rstrip()
+        if stripped != raw.rstrip():
+            codex_cfg.write_text(stripped + ("\n" if stripped else ""))
+            removed.append(f"{codex_cfg} (mcp_servers.piloci)")
 
     return removed
 
@@ -485,7 +740,12 @@ def _cli_version() -> str:
 
 
 def run_install(
-    token: str, base_url: str, *, home: Path | None = None, force: bool = False
+    token: str,
+    base_url: str,
+    *,
+    home: Path | None = None,
+    force: bool = False,
+    targets: list[str] | None = None,
 ) -> InstallReport:
     """Detect clients and run the appropriate installers. Pure orchestration.
 
@@ -496,13 +756,25 @@ def run_install(
 
     ``force=True`` additionally wipes the plugin folders so this run re-downloads
     them fresh.
+
+    ``targets`` is the explicit list selected by the user on the /device approve
+    page (``["claude", "cursor", ...]``). When omitted the orchestrator falls
+    back to auto-detection so ``piloci install`` keeps working from a plain CLI
+    invocation.
     """
     h = home or Path.home()
-    has_claude, has_opencode = detect_clients(home=h)
-    if not has_claude and not has_opencode:
+    detected = detect_all_targets(home=h)
+
+    if targets is not None:
+        chosen = [k for k in targets if k in CLIENT_LABELS]
+    else:
+        chosen = [k for k, v in detected.items() if v]
+
+    if not chosen:
         raise RuntimeError(
-            "Claude Code(~/.claude) 또는 OpenCode(~/.config/opencode 또는 'opencode' CLI)를 "
-            "먼저 설치해 주세요."
+            "지원하는 클라이언트가 감지되지 않았습니다. Claude Code, OpenCode, Cursor, "
+            "Gemini CLI, Windsurf, Codex CLI, AntiGravity, Zed 중 하나 이상을 먼저 설치하거나 "
+            "/device 화면에서 설치 대상을 선택하세요."
         )
 
     swept = cleanup_legacy_install(home=h, remove_plugins=force)
@@ -512,32 +784,40 @@ def run_install(
     for item in swept:
         report.notes.append(f"정리: {item}")
 
-    if has_claude:
-        try:
-            plugin_dir = install_claude_plugin(base_url, token, home=h)
-            report.claude_configured = True
-            report.notes.append(
-                f"Claude Code 플러그인 설치: {plugin_dir} "
-                "(hooks + MCP 자동 발견; 설정 파일 안 건드림)"
-            )
-        except (urllib.error.URLError, OSError) as e:
-            report.notes.append(f"Claude 플러그인 설치 실패: {e}")
+    install_table: dict[str, Callable[[], Path]] = {
+        "claude": lambda: install_claude_plugin(base_url, token, home=h),
+        "opencode": lambda: install_opencode_plugin(base_url, token, home=h),
+        "cursor": lambda: install_cursor_mcp(base_url, token, home=h),
+        "gemini": lambda: install_gemini_mcp(base_url, token, home=h),
+        "windsurf": lambda: install_windsurf_mcp(base_url, token, home=h),
+        "antigravity": lambda: install_antigravity_mcp(base_url, token, home=h),
+        "zed": lambda: install_zed_mcp(base_url, token, home=h),
+        "codex": lambda: install_codex_mcp(base_url, token, home=h),
+    }
 
-    if has_opencode:
+    for kind in chosen:
+        label = CLIENT_LABELS[kind]
         try:
-            plugin_path = install_opencode_plugin(base_url, token, home=h)
-            report.opencode_configured = True
-            report.notes.append(
-                f"OpenCode 플러그인 설치: {plugin_path} " "(자동 캡처 + MCP; 설정 파일 안 건드림)"
-            )
+            path = install_table[kind]()
+            report.clients[kind] = "ok"
+            if kind == "claude":
+                report.claude_configured = True
+                report.notes.append(
+                    f"Claude Code 플러그인 설치: {path} "
+                    "(hooks + MCP 자동 발견; 설정 파일 안 건드림)"
+                )
+            elif kind == "opencode":
+                report.opencode_configured = True
+                report.notes.append(
+                    f"OpenCode 플러그인 설치: {path} " "(자동 캡처 + MCP; 설정 파일 안 건드림)"
+                )
+            else:
+                report.notes.append(f"{label} MCP 설정 머지: {path}")
         except (urllib.error.URLError, OSError) as e:
-            report.notes.append(f"OpenCode 플러그인 설치 실패: {e}")
+            report.clients[kind] = f"failed: {e}"
+            report.notes.append(f"{label} 설치 실패: {e}")
 
-    kinds: list[str] = []
-    if report.claude_configured:
-        kinds.append("claude")
-    if report.opencode_configured:
-        kinds.append("opencode")
+    kinds = [k for k, v in report.clients.items() if v == "ok"]
     if kinds:
         import socket
 

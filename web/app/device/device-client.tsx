@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, ShieldAlert, Smartphone } from "lucide-react";
 
@@ -37,6 +37,31 @@ export default function DeviceClient() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // Default-on selection: every supported client is ticked. The user uncheck
+  // anything they don't want touched. The CLI installer falls back to local
+  // auto-detection if we somehow send nothing — but the form blocks empty
+  // submit before that happens.
+  const allKinds = useMemo(
+    () => t.device.targets.list.map((p) => p.kind),
+    [t.device.targets.list]
+  );
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(allKinds));
+
+  useEffect(() => {
+    // When the locale flips the kind list might change shape; keep selection
+    // aligned to the current set of known kinds.
+    setSelected((prev) => new Set(allKinds.filter((k) => prev.has(k))));
+  }, [allKinds]);
+
+  const toggleKind = (kind: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  };
+
   // Pre-fill from ?code=ABCD-1234 (the verification_uri_complete the CLI prints).
   useEffect(() => {
     const initial = params.get("code");
@@ -60,14 +85,23 @@ export default function DeviceClient() {
       setErrorMessage(t.device.error.invalidFormat);
       return;
     }
+    if (action === "approve" && selected.size === 0) {
+      setStatus("error");
+      setErrorMessage(t.device.targets.emptyError);
+      return;
+    }
     setStatus(action === "approve" ? "approving" : "idle");
     setErrorMessage(null);
     try {
+      const body: Record<string, unknown> = { user_code: code, action };
+      if (action === "approve") {
+        body.targets = allKinds.filter((k) => selected.has(k));
+      }
       const res = await fetch("/api/device/approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ user_code: code, action }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
@@ -93,7 +127,7 @@ export default function DeviceClient() {
 
   return (
     <AppShell>
-      <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 py-8">
+      <div className="mx-auto flex w-full max-w-md flex-col gap-4 py-8">
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-lg">
@@ -122,9 +156,69 @@ export default function DeviceClient() {
               />
             </div>
 
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-foreground">
+                  {t.device.targets.title}
+                </span>
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                  <button
+                    type="button"
+                    className="hover:text-foreground"
+                    onClick={() => setSelected(new Set(allKinds))}
+                    disabled={status === "approving" || status === "approved"}
+                  >
+                    {t.device.targets.selectAll}
+                  </button>
+                  <span className="text-border">·</span>
+                  <button
+                    type="button"
+                    className="hover:text-foreground"
+                    onClick={() => setSelected(new Set())}
+                    disabled={status === "approving" || status === "approved"}
+                  >
+                    {t.device.targets.clearAll}
+                  </button>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground leading-relaxed">
+                {t.device.targets.hint}
+              </p>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                {t.device.targets.list.map((p) => {
+                  const checked = selected.has(p.kind);
+                  const disabled = status === "approving" || status === "approved";
+                  return (
+                    <label
+                      key={p.kind}
+                      className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs transition-colors ${
+                        checked
+                          ? "border-primary/40 bg-primary/5"
+                          : "border-border bg-background hover:bg-muted/40"
+                      } ${disabled ? "opacity-60" : "cursor-pointer"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 size-3.5 accent-primary"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => toggleKind(p.kind)}
+                      />
+                      <span className="flex flex-col leading-tight">
+                        <span className="font-medium text-foreground">{p.label}</span>
+                        <span className="font-mono text-[10px] text-muted-foreground">
+                          {p.path}
+                        </span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
             {errorMessage && status === "error" && (
               <div
-                className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 shadow-sm dark:border-red-800 dark:bg-red-950 dark:text-red-200"
+                className="flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"
                 role="alert"
               >
                 <ShieldAlert className="mt-0.5 size-4 shrink-0" />
@@ -133,14 +227,14 @@ export default function DeviceClient() {
             )}
 
             {status === "approved" && (
-              <div className="flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 shadow-sm dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+              <div className="flex items-start gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
                 <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
                 <span>{t.device.successMessage}</span>
               </div>
             )}
 
             {status === "denied" && (
-              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 shadow-sm dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+              <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
                 {t.device.deniedMessage}
               </div>
             )}
@@ -153,7 +247,8 @@ export default function DeviceClient() {
                 disabled={
                   status === "approving" ||
                   status === "approved" ||
-                  !CODE_REGEX.test(code)
+                  !CODE_REGEX.test(code) ||
+                  selected.size === 0
                 }
               >
                 {status === "approving" ? t.device.approving : t.device.approveButton}

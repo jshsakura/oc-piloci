@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """CLI entry point: `piloci` command."""
+
+from __future__ import annotations
 
 import argparse
 import sys
@@ -255,8 +255,15 @@ def _resolve_server(arg_server: str | None) -> str:
     sys.exit(2)
 
 
-def _device_login(server: str, *, open_browser: bool) -> str:
-    """Run the device flow against ``server`` and return the issued JWT."""
+def _device_login(server: str, *, open_browser: bool) -> tuple[str, list[str] | None]:
+    """Run the device flow against ``server``.
+
+    Returns ``(jwt_token, targets)`` where ``targets`` is the list of client
+    kinds the user picked on the /device page (``["claude", "cursor", ...]``)
+    or ``None`` when the server does not return a selection — in that case
+    ``run_install`` falls back to local auto-detection so older servers keep
+    working.
+    """
     import json as _json
     import time
     import urllib.error
@@ -324,8 +331,14 @@ def _device_login(server: str, *, open_browser: bool) -> str:
             if not token:
                 sys.stderr.write("[piloci] 승인됐으나 토큰이 비어있습니다.\n")
                 sys.exit(1)
+            raw_targets = payload.get("targets")
+            targets: list[str] | None = None
+            if isinstance(raw_targets, list):
+                targets = [str(t) for t in raw_targets if isinstance(t, str)] or None
             print("  ✓ 승인됨")
-            return token
+            if targets:
+                print(f"  ↳ 설치 대상: {', '.join(targets)}")
+            return token, targets
         if status == "denied":
             sys.stderr.write("[piloci] 사용자가 승인을 거부했습니다.\n")
             sys.exit(1)
@@ -338,7 +351,7 @@ def _run_login(args: argparse.Namespace) -> None:
     from piloci.installer import write_config_json
 
     server = _resolve_server(args.server)
-    token = _device_login(server, open_browser=not args.no_browser)
+    token, _targets = _device_login(server, open_browser=not args.no_browser)
     cfg = write_config_json(token, server)
     print(f"  ✓ 토큰 저장: {cfg}")
 
@@ -428,13 +441,13 @@ def _run_uninstall(args: argparse.Namespace) -> None:
 
 
 def _run_setup(args: argparse.Namespace) -> None:
-    """One-shot: login + install."""
+    """One-shot: login + install. Honors the platform multi-select from /device."""
     from piloci.installer import run_install
 
     server = _resolve_server(args.server)
-    token = _device_login(server, open_browser=not args.no_browser)
+    token, targets = _device_login(server, open_browser=not args.no_browser)
     try:
-        report = run_install(token, server, force=args.force)
+        report = run_install(token, server, force=args.force, targets=targets)
     except RuntimeError as e:
         sys.stderr.write(f"[piloci] {e}\n")
         sys.exit(1)

@@ -312,7 +312,7 @@ export function TokenManager() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{t.tokenManager.desc}</p>
         <Button size="sm" onClick={() => setShowCreate(true)}>
-          <Plus className="mr-1 size-4" /> {t.tokenManager.issue}
+          <Plus className="me-1 size-4" /> {t.tokenManager.issue}
         </Button>
       </div>
 
@@ -425,7 +425,7 @@ export function TokenManager() {
                         <span>
                           {token.name}
                           {project && (
-                            <span className="ml-2 text-xs text-muted-foreground">
+                            <span className="ms-2 text-xs text-muted-foreground">
                               ({project.slug})
                             </span>
                           )}

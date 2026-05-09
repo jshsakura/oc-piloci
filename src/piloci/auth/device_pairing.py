@@ -75,7 +75,7 @@ class DevicePairingStore:
                 return device_code, user_code
         raise RuntimeError("could not allocate user_code after 8 attempts")
 
-    async def lookup_user_code(self, user_code: str) -> dict[str, str] | None:
+    async def lookup_user_code(self, user_code: str) -> dict[str, object] | None:
         """Resolve a user_code to its device record. Used by the /device page."""
         if not user_code:
             return None
@@ -88,13 +88,27 @@ class DevicePairingStore:
             return None
         return {"device_code": device_code, **record}
 
-    async def approve(self, device_code: str, *, token: str) -> bool:
-        """Mark a pairing approved and attach the issued JWT."""
+    async def approve(
+        self,
+        device_code: str,
+        *,
+        token: str,
+        targets: list[str] | None = None,
+    ) -> bool:
+        """Mark a pairing approved and attach the issued JWT.
+
+        ``targets`` carries the list of client kinds the user selected on the
+        web approval form (``["claude", "cursor", ...]``). The CLI reads it back
+        on its next poll so ``run_install`` only touches what the user picked.
+        ``None`` means the CLI should fall back to its own auto-detection.
+        """
         record = await self._read(device_code)
         if record is None or record.get("status") != "pending":
             return False
         record["status"] = "approved"
         record["token"] = token
+        if targets is not None:
+            record["targets"] = list(targets)
         await self._redis.set(
             f"{DEVICE_PREFIX}{device_code}",
             orjson.dumps(record),
@@ -115,7 +129,7 @@ class DevicePairingStore:
         )
         return True
 
-    async def poll(self, device_code: str) -> dict[str, str] | None:
+    async def poll(self, device_code: str) -> dict[str, object] | None:
         """Read the pairing state. Once a terminal state is delivered the
         records are deleted so the CLI cannot re-poll for the same token."""
         record = await self._read(device_code)
@@ -129,7 +143,7 @@ class DevicePairingStore:
                 await self._redis.delete(f"{USER_CODE_PREFIX}{user_code}")
         return record
 
-    async def _read(self, device_code: str) -> dict[str, str] | None:
+    async def _read(self, device_code: str) -> dict[str, object] | None:
         if not device_code:
             return None
         raw = await self._redis.get(f"{DEVICE_PREFIX}{device_code}")

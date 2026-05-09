@@ -247,11 +247,15 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
-      <h1 className="text-2xl font-bold">{t.settings.title}</h1>
-      <p className="text-sm text-muted-foreground">{t.settings.description}</p>
+      <div className="pi-page">
+        <section className="pi-page-hero">
+          <p className="pi-eyebrow">{t.settings.eyebrow}</p>
+          <h1 className="pi-title mt-2">{t.settings.title}</h1>
+          <p className="pi-subtitle">{t.settings.description}</p>
+        </section>
 
-      <Tabs defaultValue="account" className="mt-6">
-        <TabsList className="w-full">
+      <Tabs defaultValue="account">
+        <TabsList className="pi-panel h-auto w-full flex-wrap justify-start gap-1 p-1">
           <TabsTrigger value="account" className="flex-1">{t.settings.tabs.account}</TabsTrigger>
           <TabsTrigger value="security" className="flex-1">{t.settings.tabs.security}</TabsTrigger>
           <TabsTrigger value="tokens" className="flex-1">{t.settings.tabs.tokens}</TabsTrigger>
@@ -508,6 +512,7 @@ export default function SettingsPage() {
           )}
         </TabsContent>
       </Tabs>
+      </div>
     </AppShell>
   );
 }

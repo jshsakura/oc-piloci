@@ -2443,7 +2443,11 @@ async def route_device_poll(request: Request) -> Response:
 
     status = record.get("status", "pending")
     if status == "approved":
-        return _json({"status": "approved", "token": record.get("token", "")})
+        payload = {"status": "approved", "token": record.get("token", "")}
+        targets = record.get("targets")
+        if isinstance(targets, list):
+            payload["targets"] = [str(t) for t in targets]
+        return _json(payload)
     if status == "denied":
         return _json({"status": "denied"})
     return _json({"status": "pending"})
@@ -2469,6 +2473,18 @@ async def route_device_approve(request: Request) -> Response:
     action = (body.get("action") or "approve").strip().lower()
     if not user_code or action not in ("approve", "deny"):
         return _json({"error": "user_code and action(approve|deny) required"}, 422)
+
+    # Optional install-target list — the /device form passes the kinds the
+    # user ticked on the approval card. Filter to known kinds so a stale or
+    # malicious client cannot smuggle arbitrary strings through to the CLI.
+    raw_targets = body.get("targets")
+    selected_targets: list[str] | None = None
+    if isinstance(raw_targets, list):
+        from piloci.installer import CLIENT_LABELS as _LABELS
+
+        selected_targets = [str(t) for t in raw_targets if str(t) in _LABELS]
+        if not selected_targets:
+            return _json({"error": "targets must include at least one known client"}, 422)
 
     settings = get_settings()
     from piloci.auth.device_pairing import get_device_pairing_store
@@ -2535,7 +2551,7 @@ async def route_device_approve(request: Request) -> Response:
             )
         )
 
-    ok = await store.approve(device_code, token=jwt_token)
+    ok = await store.approve(device_code, token=jwt_token, targets=selected_targets)
     if not ok:
         return _json({"error": "could not approve (race?)"}, 409)
     return _json({"ok": True, "status": "approved"})

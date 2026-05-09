@@ -151,3 +151,30 @@ async def test_create_corrupt_payload_returns_none() -> None:
     # Sanity: a clean record still parses.
     await redis.set(f"{dp.DEVICE_PREFIX}clean", orjson.dumps({"status": "pending"}))
     assert (await store._read("clean")) == {"status": "pending"}
+
+
+@pytest.mark.asyncio
+async def test_approve_with_targets_persists_selection_for_poll() -> None:
+    redis = _fake_redis()
+    store = dp.DevicePairingStore(redis=redis)
+    device, _ = await store.create()
+
+    assert await store.approve(device, token="JWT.fake", targets=["claude", "cursor"]) is True
+    record = await store.poll(device)
+    assert record is not None
+    assert record["status"] == "approved"
+    assert record["targets"] == ["claude", "cursor"]
+
+
+@pytest.mark.asyncio
+async def test_approve_without_targets_omits_field() -> None:
+    redis = _fake_redis()
+    store = dp.DevicePairingStore(redis=redis)
+    device, _ = await store.create()
+
+    assert await store.approve(device, token="JWT.fake") is True
+    record = await store.poll(device)
+    assert record is not None
+    # Older clients that don't pass targets must not see a stray empty list —
+    # the CLI keys on its absence to fall back to local auto-detection.
+    assert "targets" not in record

@@ -37,12 +37,15 @@ function StatCard({
   value: number | string;
 }) {
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-1 p-4">
-        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Icon className="size-3.5 text-primary" /> {label}
+    <Card className="pi-metric-card">
+      <CardContent className="flex flex-col gap-2 p-0">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <span className="flex size-6 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/10">
+            <Icon className="size-3.5" />
+          </span>
+          {label}
         </span>
-        <span className="text-2xl font-bold tabular-nums leading-tight">{value}</span>
+        <span className="text-3xl font-semibold tabular-nums leading-none tracking-[-0.04em]">{value}</span>
       </CardContent>
     </Card>
   );
@@ -96,9 +99,12 @@ function PanelCard({
 }) {
   return (
     <Card className="flex flex-col">
-      <CardHeader className="space-y-0 border-b px-4 py-2.5">
-        <h3 className="inline-flex items-center gap-1.5 text-sm font-semibold">
-          <Icon className="size-4 text-primary" /> {title}
+      <CardHeader className="space-y-0 border-b px-4 py-3">
+        <h3 className="inline-flex items-center gap-2 text-sm font-semibold">
+          <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/10">
+            <Icon className="size-4" />
+          </span>
+          {title}
         </h3>
       </CardHeader>
       <CardContent className="max-h-[320px] flex-1 overflow-y-auto p-3">{children}</CardContent>
@@ -199,9 +205,12 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
         <StatCard icon={Brain} label={t.dashboard.stats.totalMemories} value={totalMemories} />
         <StatCard icon={Lightbulb} label={t.dashboard.stats.totalKnacks} value={totalKnacks} />
         <Card className="col-span-3 flex flex-col">
-          <CardHeader className="space-y-0 border-b px-4 py-2.5">
-            <h3 className="inline-flex items-center gap-1.5 text-sm font-semibold">
-              <Activity className="size-4 text-primary" /> {summary.activityTitle}
+          <CardHeader className="space-y-0 border-b px-4 py-3">
+            <h3 className="inline-flex items-center gap-2 text-sm font-semibold">
+              <span className="flex size-7 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/10">
+                <Activity className="size-4" />
+              </span>
+              {summary.activityTitle}
             </h3>
           </CardHeader>
           <CardContent className="flex-1 p-3">
@@ -331,7 +340,7 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
             <div className="flex flex-wrap gap-1.5">
               {tagPager.slice.map((tag) => (
                 <Badge key={tag.tag} variant="secondary" className="break-all">
-                  #{tag.tag} <span className="ml-1 opacity-60 tabular-nums">×{tag.count}</span>
+                  #{tag.tag} <span className="ms-1 opacity-60 tabular-nums">×{tag.count}</span>
                 </Badge>
               ))}
             </div>
