@@ -58,6 +58,7 @@ def _resolve_base_url(request: Request, settings: Any) -> str:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from piloci.api import v1
 from piloci.curator.vault import (
     build_project_vault_preview,
     ensure_project_vault,
@@ -3437,4 +3438,12 @@ def get_routes() -> list[Route]:
         Route("/api/admin/users/{id}/toggle-admin", route_admin_toggle_admin, methods=["POST"]),
         Route("/api/admin/users/{id}/toggle-active", route_admin_toggle_active, methods=["POST"]),
         Route("/api/admin/users/{id}", route_admin_delete_user, methods=["DELETE"]),
+        # v1 SDK REST surface — thin shims over MCP tool handlers
+        Route("/api/v1/memory", v1.route_v1_memory, methods=["POST"]),
+        Route("/api/v1/recall", v1.route_v1_recall, methods=["POST"]),
+        Route("/api/v1/projects", v1.route_v1_projects, methods=["GET"]),
+        Route("/api/v1/whoami", v1.route_v1_whoami, methods=["GET"]),
+        Route("/api/v1/init", v1.route_v1_init, methods=["POST"]),
+        Route("/api/v1/recommend", v1.route_v1_recommend, methods=["POST"]),
+        Route("/api/v1/contradict", v1.route_v1_contradict, methods=["POST"]),
     ]
