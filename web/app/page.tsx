@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Fingerprint, Code2, Zap, ShieldCheck, BrainCircuit, Network,
@@ -20,7 +19,6 @@ import ThemeToggle from "@/components/ThemeToggle";
 import TypingQuotes from "@/components/TypingQuotes";
 
 export default function LandingPage() {
-  const router = useRouter();
   const { user, hasHydrated } = useAuthStore();
   const { locale, setLocale, t } = useTranslation();
   const [mounted, setMounted] = useState(false);
@@ -78,11 +76,7 @@ export default function LandingPage() {
     setTimeout(() => setCopiedSetup(false), 2000);
   };
 
-  useEffect(() => {
-    if (hasHydrated && user) router.replace("/dashboard");
-  }, [hasHydrated, user, router]);
-
-  if (!mounted || !hasHydrated || user) {
+  if (!mounted || !hasHydrated) {
     return (
       <RoutePending
         fullScreen
@@ -117,14 +111,24 @@ export default function LandingPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              asChild
-              className="border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground active:bg-primary/80"
-            >
-              <Link href="/login">{t.common.login}</Link>
-            </Button>
+            {user ? (
+              <Button
+                size="sm"
+                asChild
+                className="bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                <Link href="/dashboard">{t.appShell.nav.dashboard}</Link>
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+                className="border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground active:bg-primary/80"
+              >
+                <Link href="/login">{t.common.login}</Link>
+              </Button>
+            )}
             <button
               onClick={() => setLocale(locale === "ko" ? "en" : "ko")}
               className="flex h-8 cursor-pointer items-center gap-1 rounded-md border border-border px-2 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
