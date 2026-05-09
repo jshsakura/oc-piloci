@@ -2038,7 +2038,7 @@ async def test_route_sessions_ingest_user_scoped_unknown_slug(
         _make_request({"cwd": "/work/unknown", "sessions": [{}]}, user={"sub": "u1"})
     )
     assert response.status_code == 404
-    assert "no project found for slug 'unknown'" in orjson.loads(response.body)["error"]
+    assert "no project found for cwd '/work/unknown'" in orjson.loads(response.body)["error"]
 
 
 @pytest.mark.asyncio

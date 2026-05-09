@@ -568,6 +568,11 @@ async def route_create_project(request: Request) -> Response:
     slug = (body.get("slug") or "").strip().lower()
     name = (body.get("name") or "").strip()
     description = body.get("description")
+    cwd = body.get("cwd")
+    if isinstance(cwd, str):
+        cwd = cwd.strip() or None
+    else:
+        cwd = None
 
     if not slug or not name:
         return _json({"error": "slug and name are required"}, 400)
@@ -587,6 +592,7 @@ async def route_create_project(request: Request) -> Response:
         slug=slug,
         name=name,
         description=description,
+        cwd=cwd,
         created_at=now,
         updated_at=now,
     )
@@ -2493,7 +2499,9 @@ async def route_sessions_ingest(request: Request) -> Response:
 
     project_id: str | None = user.get("project_id")
 
-    # User-scoped token: resolve project from cwd slug
+    # User-scoped token: resolve project from cwd. Match by exact cwd first so
+    # two folders with the same basename don't merge; fall back to slug for
+    # legacy projects whose cwd hasn't been backfilled.
     if not project_id:
         cwd = (body.get("cwd") or "").strip()
         if not cwd:
@@ -2509,15 +2517,24 @@ async def route_sessions_ingest(request: Request) -> Response:
             row = (
                 await db.execute(
                     _slug_sel(Project.id)
-                    .where(
-                        Project.user_id == user_id,
-                        Project.slug == slug,
-                    )
+                    .where(Project.user_id == user_id, Project.cwd == cwd)
                     .limit(1)
                 )
             ).scalar_one_or_none()
+            if row is None:
+                row = (
+                    await db.execute(
+                        _slug_sel(Project.id)
+                        .where(
+                            Project.user_id == user_id,
+                            Project.slug == slug,
+                            Project.cwd.is_(None),
+                        )
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
         if row is None:
-            return _json({"error": f"no project found for slug '{slug}' — run init first"}, 404)
+            return _json({"error": f"no project found for cwd '{cwd}' — run init first"}, 404)
         project_id = row
 
     sessions = body.get("sessions")
@@ -2925,7 +2942,8 @@ async def route_analyze_session(request: Request) -> Response:
     if not isinstance(transcript, str) or not transcript.strip():
         return _json({"error": "transcript required"}, 400)
 
-    # User-scoped token: resolve project from cwd slug (matches ingest route).
+    # User-scoped token: resolve project from cwd. Match by exact cwd first;
+    # legacy projects without cwd fall back to slug.
     if not isinstance(project_id, str) or not project_id:
         cwd = (body.get("cwd") or "").strip()
         if not cwd:
@@ -2943,13 +2961,23 @@ async def route_analyze_session(request: Request) -> Response:
         async with async_session() as db:
             row = (
                 await db.execute(
-                    _sel(Project.id)
-                    .where(Project.user_id == user_id, Project.slug == slug)
-                    .limit(1)
+                    _sel(Project.id).where(Project.user_id == user_id, Project.cwd == cwd).limit(1)
                 )
             ).scalar_one_or_none()
+            if row is None:
+                row = (
+                    await db.execute(
+                        _sel(Project.id)
+                        .where(
+                            Project.user_id == user_id,
+                            Project.slug == slug,
+                            Project.cwd.is_(None),
+                        )
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
         if row is None:
-            return _json({"error": f"no project found for slug '{slug}' — run init first"}, 404)
+            return _json({"error": f"no project found for cwd '{cwd}' — run init first"}, 404)
         project_id = row
 
     settings = get_settings()

@@ -105,7 +105,13 @@ def _build_mcp(settings, store: MemoryStore, instincts_store: InstinctsStore | N
                 .all()
             )
         projects = [
-            {"id": p.id, "slug": p.slug, "name": p.name, "memory_count": p.memory_count}
+            {
+                "id": p.id,
+                "slug": p.slug,
+                "name": p.name,
+                "memory_count": p.memory_count,
+                "cwd": p.cwd,
+            }
             for p in rows
         ]
         return projects_cache.set(user_id, projects)
@@ -115,7 +121,14 @@ def _build_mcp(settings, store: MemoryStore, instincts_store: InstinctsStore | N
         rows.sort(key=lambda m: m.get("updated_at", 0), reverse=True)
         return rows
 
-    async def create_project_fn(user_id: str, name: str, slug: str) -> dict[str, Any]:
+    async def create_project_fn(
+        user_id: str, name: str, slug: str, cwd: str | None = None
+    ) -> dict[str, Any]:
+        """Create a project for ``user_id``. On slug collision with a *different*
+        cwd, disambiguate by appending a short hash so two folders sharing a
+        name don't merge. If the existing row has no cwd or the same cwd, return
+        it as-is (claim/idempotent)."""
+        import hashlib
         import uuid
         from datetime import datetime, timezone
 
@@ -123,30 +136,90 @@ def _build_mcp(settings, store: MemoryStore, instincts_store: InstinctsStore | N
 
         from piloci.db.models import Project
 
-        now = datetime.now(timezone.utc)
-        project = Project(
-            id=str(uuid.uuid4()),
-            user_id=user_id,
-            slug=slug,
-            name=name,
-            created_at=now,
-            updated_at=now,
-        )
+        async def _try_insert(target_slug: str, target_cwd: str | None) -> Project | None:
+            now = datetime.now(timezone.utc)
+            project = Project(
+                id=str(uuid.uuid4()),
+                user_id=user_id,
+                slug=target_slug,
+                name=name,
+                cwd=target_cwd,
+                created_at=now,
+                updated_at=now,
+            )
+            async with async_session() as db:
+                db.add(project)
+                try:
+                    await db.commit()
+                except IntegrityError:
+                    await db.rollback()
+                    return None
+            return project
+
+        # First try the requested slug.
+        created = await _try_insert(slug, cwd)
+        if created is not None:
+            return {
+                "id": created.id,
+                "slug": created.slug,
+                "name": created.name,
+                "cwd": created.cwd,
+            }
+
+        # Slug taken — load the existing row to decide whether to claim or split.
         async with async_session() as db:
-            db.add(project)
-            try:
-                await db.commit()
-            except IntegrityError:
-                await db.rollback()
-                row = (
-                    await db.execute(
-                        select(Project).where(Project.user_id == user_id, Project.slug == slug)
-                    )
-                ).scalar_one_or_none()
-                if row:
-                    return {"id": row.id, "slug": row.slug, "name": row.name}
-                raise
-        return {"id": project.id, "slug": project.slug, "name": project.name}
+            row = (
+                await db.execute(
+                    select(Project).where(Project.user_id == user_id, Project.slug == slug)
+                )
+            ).scalar_one_or_none()
+
+        if row is not None:
+            same_cwd = (row.cwd or None) == (cwd or None)
+            legacy_no_cwd = row.cwd is None and cwd is not None
+            if same_cwd or legacy_no_cwd:
+                # Idempotent (re-init on same dir) OR legacy row with no cwd —
+                # claim it by stamping the cwd if missing.
+                if legacy_no_cwd:
+                    async with async_session() as db:
+                        await db.execute(
+                            select(Project).where(Project.id == row.id).execution_options()
+                        )
+                        live = (
+                            await db.execute(select(Project).where(Project.id == row.id))
+                        ).scalar_one()
+                        live.cwd = cwd
+                        await db.commit()
+                return {"id": row.id, "slug": row.slug, "name": row.name, "cwd": cwd or row.cwd}
+
+            # Conflict: different cwd wants the same slug. Disambiguate.
+            if cwd:
+                suffix = hashlib.sha1(cwd.encode("utf-8")).hexdigest()[:6]
+                disambig = f"{slug}-{suffix}"[:50]
+                created = await _try_insert(disambig, cwd)
+                if created is not None:
+                    return {
+                        "id": created.id,
+                        "slug": created.slug,
+                        "name": created.name,
+                        "cwd": created.cwd,
+                    }
+
+        # Fall through: re-raise by retrying the original insert (will throw).
+        async with async_session() as db:
+            db.add(
+                Project(
+                    id=str(uuid.uuid4()),
+                    user_id=user_id,
+                    slug=slug,
+                    name=name,
+                    cwd=cwd,
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                )
+            )
+            await db.commit()
+        raise RuntimeError("create_project_fn: unreachable")
 
     return create_mcp_server(
         settings,

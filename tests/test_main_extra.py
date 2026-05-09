@@ -197,8 +197,8 @@ async def test_build_mcp_wires_resource_callbacks(monkeypatch) -> None:
     db = AsyncMock()
     db.execute.return_value = _ProjectRowsResult(
         [
-            SimpleNamespace(id="p1", slug="alpha", name="Alpha", memory_count=2),
-            SimpleNamespace(id="p2", slug="beta", name="Beta", memory_count=5),
+            SimpleNamespace(id="p1", slug="alpha", name="Alpha", memory_count=2, cwd=None),
+            SimpleNamespace(id="p2", slug="beta", name="Beta", memory_count=5, cwd=None),
         ]
     )
 
@@ -237,8 +237,8 @@ async def test_build_mcp_wires_resource_callbacks(monkeypatch) -> None:
 
     assert profile == {"user_id": "user-1", "project_id": "project-1"}
     assert projects_first == [
-        {"id": "p1", "slug": "alpha", "name": "Alpha", "memory_count": 2},
-        {"id": "p2", "slug": "beta", "name": "Beta", "memory_count": 5},
+        {"id": "p1", "slug": "alpha", "name": "Alpha", "memory_count": 2, "cwd": None},
+        {"id": "p2", "slug": "beta", "name": "Beta", "memory_count": 5, "cwd": None},
     ]
     assert projects_cached == projects_first
     assert projects_refresh == projects_first

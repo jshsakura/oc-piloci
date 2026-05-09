@@ -99,6 +99,10 @@ class Project(Base):
     slug: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Filesystem path the project was initialized from. Disambiguates two
+    # projects whose folder names slugify the same (e.g. ~/code/foo vs
+    # ~/work/foo). NULL on legacy rows — resolution falls back to slug.
+    cwd: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     memory_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -108,6 +112,7 @@ class Project(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "slug"),
         Index("idx_projects_user", "user_id"),
+        Index("idx_projects_user_cwd", "user_id", "cwd"),
     )
 
     user: Mapped[User] = relationship("User", back_populates="projects")

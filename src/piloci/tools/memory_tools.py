@@ -571,7 +571,8 @@ async def handle_init(
     display_name = args.project_name or cwd_folder
     slug = cwd_to_slug(args.cwd) if args.cwd else _slugify(display_name or "project")
 
-    # If no project-scoped token, resolve or create a project by cwd slug
+    # If no project-scoped token, resolve or create a project — preferring an
+    # exact cwd match so two folders that slugify the same don't merge.
     if not project_id:
         projects: list[dict[str, Any]] = []
         if projects_fn:
@@ -580,18 +581,34 @@ async def handle_init(
             except Exception:
                 pass
 
-        matched_by_slug = next((p for p in projects if p.get("slug") == slug), None)
+        matched: dict[str, Any] | None = None
+        if args.cwd:
+            matched = next((p for p in projects if p.get("cwd") == args.cwd), None)
+        if matched is None:
+            # Legacy fallback: slug match where existing row has no cwd yet.
+            matched = next(
+                (p for p in projects if p.get("slug") == slug and not p.get("cwd")), None
+            )
 
-        if matched_by_slug:
-            project_id = matched_by_slug.get("id")
+        if matched:
+            project_id = matched.get("id")
             if not args.project_name:
-                display_name = matched_by_slug.get("name") or display_name
+                display_name = matched.get("name") or display_name
+            slug = matched.get("slug") or slug
         else:
-            # No slug match — always create for this exact directory
+            # No match — create. create_project_fn handles slug-collision
+            # disambiguation when another project already owns this slug.
             if create_project_fn:
                 try:
-                    new_proj = await create_project_fn(user_id, display_name or slug, slug)
+                    try:
+                        new_proj = await create_project_fn(
+                            user_id, display_name or slug, slug, cwd=args.cwd
+                        )
+                    except TypeError:
+                        # Older mocks/impls that don't accept cwd kwarg.
+                        new_proj = await create_project_fn(user_id, display_name or slug, slug)
                     project_id = new_proj.get("id") or new_proj.get("project_id")
+                    slug = new_proj.get("slug") or slug
                 except Exception as e:
                     return {"success": False, "error": f"Failed to create project: {e}"}
 
