@@ -27,7 +27,7 @@ interface Props {
   projectCount: number;
 }
 
-function StatPill({
+function StatCard({
   icon: Icon,
   label,
   value,
@@ -37,13 +37,14 @@ function StatPill({
   value: number | string;
 }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-md border bg-card px-3 py-2">
-      <Icon className="size-4 shrink-0 text-primary" />
-      <div className="min-w-0">
-        <p className="truncate text-xs text-muted-foreground">{label}</p>
-        <p className="truncate text-base font-semibold tabular-nums">{value}</p>
-      </div>
-    </div>
+    <Card>
+      <CardContent className="flex flex-col gap-1 p-4">
+        <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Icon className="size-3.5 text-primary" /> {label}
+        </span>
+        <span className="text-2xl font-bold tabular-nums leading-tight">{value}</span>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -193,20 +194,17 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
 
   return (
     <div className="mt-6 space-y-4">
-      <Card>
-        <CardContent className="flex flex-col gap-4 p-4 lg:flex-row lg:items-center">
-          <div className="grid grid-cols-3 gap-2 lg:w-auto">
-            <StatPill icon={FileText} label={t.dashboard.stats.projects} value={projectCount} />
-            <StatPill icon={Brain} label={t.dashboard.stats.totalMemories} value={totalMemories} />
-            <StatPill icon={Lightbulb} label={t.dashboard.stats.totalKnacks} value={totalKnacks} />
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="mb-1.5 flex items-center justify-between text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1">
-                <Activity className="size-3" />
-                {summary.activityTitle}
-              </span>
-            </div>
+      <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
+        <StatCard icon={FileText} label={t.dashboard.stats.projects} value={projectCount} />
+        <StatCard icon={Brain} label={t.dashboard.stats.totalMemories} value={totalMemories} />
+        <StatCard icon={Lightbulb} label={t.dashboard.stats.totalKnacks} value={totalKnacks} />
+        <Card className="col-span-3 flex flex-col">
+          <CardHeader className="space-y-0 border-b px-4 py-2.5">
+            <h3 className="inline-flex items-center gap-1.5 text-sm font-semibold">
+              <Activity className="size-4 text-primary" /> {summary.activityTitle}
+            </h3>
+          </CardHeader>
+          <CardContent className="flex-1 p-3">
             {isLoading ? (
               <Skeleton className="h-16 w-full" />
             ) : !data?.activity?.length ? (
@@ -214,9 +212,9 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
             ) : (
               <ActivityChart buckets={data.activity} />
             )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <PanelCard
