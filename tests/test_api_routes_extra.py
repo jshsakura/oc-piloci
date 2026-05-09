@@ -870,15 +870,14 @@ async def test_route_project_workspace_family_validation(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio
-async def test_route_create_token_success_with_project_setup(
+async def test_route_create_token_ignores_legacy_project_scope_request(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Project-scoped issuance retired in v0.2.68 — body ``project_id``/``scope``
+    are silently coerced to user scope so old clients keep working."""
     from piloci.api import routes
 
     db = _db_session()
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = SimpleNamespace(slug="alpha")
-    db.execute.return_value = result
     settings = SimpleNamespace(base_url="https://piloci.example.com")
     create = MagicMock(return_value="jwt-token")
 
@@ -897,22 +896,16 @@ async def test_route_create_token_success_with_project_setup(
 
     assert response.status_code == 201
     assert payload["token"] == "jwt-token"
-    assert payload["token_id"] == "token-uuid"
-    assert payload["name"] == "CLI"
-    assert payload["setup"]["mcp_config"]["mcpServers"]["piloci"]["headers"] == {
-        "Authorization": "Bearer jwt-token"
-    }
     create.assert_called_once_with(
         user_id="user-1",
         email="user@example.com",
-        project_id="project-1",
-        project_slug="alpha",
-        scope="project",
+        project_id=None,
+        project_slug=None,
+        scope="user",
         settings=settings,
         token_id="token-uuid",
         expire_days=365,
     )
-    db.add.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -974,7 +967,7 @@ async def test_route_create_token_user_scope_returns_setup(
 
 
 @pytest.mark.asyncio
-async def test_route_create_token_validation_and_missing_project(
+async def test_route_create_token_validation_minimal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from piloci.api import routes
@@ -984,46 +977,10 @@ async def test_route_create_token_validation_and_missing_project(
     assert orjson.loads(unauthorized.body) == {"error": "Unauthorized"}
 
     missing_name = await routes.route_create_token(
-        _make_request({"name": " ", "scope": "user"}, user={"sub": "user-1", "email": "u@e"})
+        _make_request({"name": " "}, user={"sub": "user-1", "email": "u@e"})
     )
     assert missing_name.status_code == 400
     assert orjson.loads(missing_name.body) == {"error": "name is required"}
-
-    invalid_scope = await routes.route_create_token(
-        _make_request(
-            {"name": "CLI", "scope": "team"},
-            user={"sub": "user-1", "email": "u@e"},
-        )
-    )
-    assert invalid_scope.status_code == 422
-    assert orjson.loads(invalid_scope.body) == {"error": "scope must be 'project' or 'user'"}
-
-    missing_project_id = await routes.route_create_token(
-        _make_request(
-            {"name": "CLI", "scope": "project"},
-            user={"sub": "user-1", "email": "u@e"},
-        )
-    )
-    assert missing_project_id.status_code == 422
-    assert orjson.loads(missing_project_id.body) == {
-        "error": "project_id required for project scope"
-    }
-
-    db = _db_session()
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = None
-    db.execute.return_value = result
-    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
-    monkeypatch.setattr(routes, "get_settings", lambda: SimpleNamespace(base_url=None))
-
-    not_found = await routes.route_create_token(
-        _make_request(
-            {"name": "CLI", "scope": "project", "project_id": "project-1"},
-            user={"sub": "user-1", "email": "u@e"},
-        )
-    )
-    assert not_found.status_code == 404
-    assert orjson.loads(not_found.body) == {"error": "Project not found"}
 
 
 @pytest.mark.asyncio
@@ -2022,23 +1979,20 @@ async def test_route_sessions_ingest_user_scoped_requires_cwd(
 
 
 @pytest.mark.asyncio
-async def test_route_sessions_ingest_user_scoped_unknown_slug(
+async def test_route_sessions_ingest_user_scoped_refuses_home_dir(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Auto-create refuses home/root paths so the bug-magnet 'home as project'
+    case never lands an ingest. Anything else auto-creates."""
     from piloci.api import routes
 
-    db = _db_session()
-    result = MagicMock()
-    result.scalar_one_or_none.return_value = None
-    db.execute.return_value = result
-    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
     monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings())
 
     response = await routes.route_sessions_ingest(
-        _make_request({"cwd": "/work/unknown", "sessions": [{}]}, user={"sub": "u1"})
+        _make_request({"cwd": "/home/u", "sessions": [{}]}, user={"sub": "u1"})
     )
-    assert response.status_code == 404
-    assert "no project found for cwd '/work/unknown'" in orjson.loads(response.body)["error"]
+    assert response.status_code == 422
+    assert "home or root dir" in orjson.loads(response.body)["error"]
 
 
 @pytest.mark.asyncio

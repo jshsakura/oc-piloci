@@ -248,8 +248,6 @@ export function TokenManager() {
   const { t } = useTranslation();
   const [showCreate, setShowCreate] = useState(false);
   const [formName, setFormName] = useState("");
-  const [formScope, setFormScope] = useState<"user" | "project">("user");
-  const [formProjectId, setFormProjectId] = useState("");
   const [formExpireDays, setFormExpireDays] = useState<number | null>(365);
   const [createdToken, setCreatedToken] = useState<CreatedToken | null>(null);
   const [selectedTokenId, setSelectedTokenId] = useState<string | null>(null);
@@ -282,8 +280,6 @@ export function TokenManager() {
       queryClient.invalidateQueries({ queryKey: ["tokens"] });
       setShowCreate(false);
       setFormName("");
-      setFormScope("user");
-      setFormProjectId("");
       setFormExpireDays(365);
     },
   });
@@ -298,8 +294,8 @@ export function TokenManager() {
     if (!formName.trim()) return;
     createMutation.mutate({
       name: formName.trim(),
-      scope: formScope,
-      project_id: formScope === "project" && formProjectId ? formProjectId : undefined,
+      scope: "user",
+      project_id: undefined,
       expire_days: formExpireDays,
     });
   };
@@ -336,41 +332,9 @@ export function TokenManager() {
                   placeholder={t.tokenManager.formNamePlaceholder}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label>{t.tokenManager.formScope}</Label>
-                <Select
-                  value={formScope}
-                  onValueChange={(v: "user" | "project") => {
-                    setFormScope(v);
-                    if (v === "user") setFormProjectId("");
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="user">{t.tokenManager.scopeUser}</SelectItem>
-                    <SelectItem value="project">{t.tokenManager.scopeProject}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              {formScope === "project" && (
-                <div className="space-y-1.5">
-                  <Label>{t.tokenManager.formProject}</Label>
-                  <Select value={formProjectId} onValueChange={setFormProjectId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder={t.tokenManager.selectProject} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {projects.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.name} ({p.slug})
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+              {/* Project-scoped tokens were retired in v0.2.68 — projects are
+                  auto-classified from cwd by ingest, so a single user token
+                  covers every workspace. */}
               <div className="space-y-1.5">
                 <Label>{t.tokenManager.formExpire}</Label>
                 <Select

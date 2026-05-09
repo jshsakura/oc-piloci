@@ -555,6 +555,82 @@ async def route_list_projects(request: Request) -> Response:
     return _json(out)
 
 
+async def _resolve_or_create_project(user_id: str, cwd: str) -> str | None:
+    """Resolve a user's project for ``cwd``, auto-creating one on first sight.
+
+    Returns the project_id string, or None if the cwd is a home/root dir
+    (init refuses those — same guard applies here).
+    """
+    import hashlib
+    import uuid as _uuid_mod
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select as _sel
+    from sqlalchemy.exc import IntegrityError
+
+    from piloci.db.models import Project
+    from piloci.tools.memory_tools import _dir_name, _is_home_or_root, cwd_to_slug
+
+    if _is_home_or_root(cwd):
+        return None
+
+    slug = cwd_to_slug(cwd)
+
+    async with async_session() as db:
+        # Exact cwd match wins.
+        row = (
+            await db.execute(
+                _sel(Project.id).where(Project.user_id == user_id, Project.cwd == cwd).limit(1)
+            )
+        ).scalar_one_or_none()
+        if row is not None:
+            return row
+        # Legacy slug match (cwd not yet stamped) — claim by backfilling cwd.
+        legacy = (
+            await db.execute(
+                _sel(Project)
+                .where(
+                    Project.user_id == user_id,
+                    Project.slug == slug,
+                    Project.cwd.is_(None),
+                )
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        if legacy is not None:
+            legacy.cwd = cwd
+            await db.commit()
+            return legacy.id
+
+    # Auto-create. On slug collision (different cwd already owns this slug),
+    # disambiguate with a 6-char hash so the two folders don't merge.
+    now = datetime.now(timezone.utc)
+    candidate_slug = slug
+    for attempt in range(2):
+        new_proj = Project(
+            id=str(_uuid_mod.uuid4()),
+            user_id=user_id,
+            slug=candidate_slug,
+            name=_dir_name(cwd) or candidate_slug,
+            cwd=cwd,
+            created_at=now,
+            updated_at=now,
+        )
+        try:
+            async with async_session() as db:
+                db.add(new_proj)
+                await db.commit()
+            return new_proj.id
+        except IntegrityError:
+            if attempt == 0:
+                suffix = hashlib.sha1(cwd.encode("utf-8")).hexdigest()[:6]
+                candidate_slug = f"{slug}-{suffix}"[:50]
+                continue
+            # Two collisions in a row shouldn't happen — bubble the next one.
+            raise
+    return None
+
+
 async def route_create_project(request: Request) -> Response:
     user = _require_user(request)
     if not user:
@@ -1036,15 +1112,14 @@ async def route_create_token(request: Request) -> Response:
         return _json({"error": "Invalid JSON"}, 400)
 
     token_name = (body.get("name") or "").strip()
-    project_id = body.get("project_id")
-    scope = body.get("scope", "project")
+    # Project-scoped issuance retired in v0.2.68 — projects are auto-classified
+    # from cwd by ingest, so a single user-scoped token covers every workspace.
+    # Existing project-scoped tokens stay valid until revoked.
+    project_id = None
+    scope = "user"
 
     if not token_name:
         return _json({"error": "name is required"}, 400)
-    if scope not in ("project", "user"):
-        return _json({"error": "scope must be 'project' or 'user'"}, 422)
-    if scope == "project" and not project_id:
-        return _json({"error": "project_id required for project scope"}, 422)
 
     settings = get_settings()
     project_slug = None
@@ -2499,43 +2574,21 @@ async def route_sessions_ingest(request: Request) -> Response:
 
     project_id: str | None = user.get("project_id")
 
-    # User-scoped token: resolve project from cwd. Match by exact cwd first so
-    # two folders with the same basename don't merge; fall back to slug for
-    # legacy projects whose cwd hasn't been backfilled.
+    # User-scoped token: resolve project from cwd, auto-creating a project on
+    # first sight so the user never has to run init manually. Match by exact
+    # cwd → cwd-less legacy slug → auto-create with disambiguated slug.
     if not project_id:
         cwd = (body.get("cwd") or "").strip()
         if not cwd:
             return _json({"error": "project-scoped token or cwd required"}, 400)
-        from piloci.tools.memory_tools import cwd_to_slug
-
-        slug = cwd_to_slug(cwd)
-        from sqlalchemy import select as _slug_sel
-
-        from piloci.db.models import Project
-
-        async with async_session() as db:
-            row = (
-                await db.execute(
-                    _slug_sel(Project.id)
-                    .where(Project.user_id == user_id, Project.cwd == cwd)
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
-            if row is None:
-                row = (
-                    await db.execute(
-                        _slug_sel(Project.id)
-                        .where(
-                            Project.user_id == user_id,
-                            Project.slug == slug,
-                            Project.cwd.is_(None),
-                        )
-                        .limit(1)
-                    )
-                ).scalar_one_or_none()
-        if row is None:
-            return _json({"error": f"no project found for cwd '{cwd}' — run init first"}, 404)
-        project_id = row
+        project_id = await _resolve_or_create_project(user_id, cwd)
+        if project_id is None:
+            return _json(
+                {
+                    "error": f"refused to auto-create project for '{cwd}' — looks like a home or root dir"
+                },
+                422,
+            )
 
     sessions = body.get("sessions")
     if not isinstance(sessions, list) or not sessions:
@@ -2942,8 +2995,7 @@ async def route_analyze_session(request: Request) -> Response:
     if not isinstance(transcript, str) or not transcript.strip():
         return _json({"error": "transcript required"}, 400)
 
-    # User-scoped token: resolve project from cwd. Match by exact cwd first;
-    # legacy projects without cwd fall back to slug.
+    # User-scoped token: same auto-create flow as ingest.
     if not isinstance(project_id, str) or not project_id:
         cwd = (body.get("cwd") or "").strip()
         if not cwd:
@@ -2951,34 +3003,14 @@ async def route_analyze_session(request: Request) -> Response:
                 {"error": "project scope required — use a project-scoped token or include cwd"},
                 400,
             )
-        from piloci.tools.memory_tools import cwd_to_slug
-
-        slug = cwd_to_slug(cwd)
-        from sqlalchemy import select as _sel
-
-        from piloci.db.models import Project
-
-        async with async_session() as db:
-            row = (
-                await db.execute(
-                    _sel(Project.id).where(Project.user_id == user_id, Project.cwd == cwd).limit(1)
-                )
-            ).scalar_one_or_none()
-            if row is None:
-                row = (
-                    await db.execute(
-                        _sel(Project.id)
-                        .where(
-                            Project.user_id == user_id,
-                            Project.slug == slug,
-                            Project.cwd.is_(None),
-                        )
-                        .limit(1)
-                    )
-                ).scalar_one_or_none()
-        if row is None:
-            return _json({"error": f"no project found for cwd '{cwd}' — run init first"}, 404)
-        project_id = row
+        project_id = await _resolve_or_create_project(user_id, cwd)
+        if project_id is None:
+            return _json(
+                {
+                    "error": f"refused to auto-create project for '{cwd}' — looks like a home or root dir"
+                },
+                422,
+            )
 
     settings = get_settings()
 
