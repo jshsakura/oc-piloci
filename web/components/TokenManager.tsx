@@ -107,24 +107,54 @@ function SetupDialog({ data, onClose }: { data: CreatedToken; onClose: () => voi
           <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-6 pt-2">
           {hasHook && (
             <TabsContent value="install" className="space-y-4 pt-1">
-              <div className="space-y-2">
+              <div className="space-y-1">
                 <p className="text-sm font-semibold text-foreground">
                   {t.tokenManager.quickInstallTitle}
                 </p>
                 <p className="text-xs text-muted-foreground">
                   {t.tokenManager.quickInstallDesc}
                 </p>
-                {installCommand ? (
-                  <CopyBlock value={installCommand} label="macOS / Linux (bash)" />
-                ) : (
-                  <p className="text-xs text-destructive">
-                    {t.tokenManager.quickInstallNoCode}
-                  </p>
-                )}
-                {installCommandWindows && (
-                  <CopyBlock value={installCommandWindows} label={t.tokenManager.crossPlatformLabel} />
-                )}
               </div>
+
+              {installCommand ? (
+                <ol className="space-y-3">
+                  <li className="space-y-1.5">
+                    <p className="text-xs font-semibold text-foreground">
+                      {t.tokenManager.quickStep1}
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {t.tokenManager.quickStep1Desc}
+                    </p>
+                    <CopyBlock value={installCommand} label="macOS / Linux (bash)" />
+                    {installCommandWindows && (
+                      <CopyBlock
+                        value={installCommandWindows}
+                        label={t.tokenManager.crossPlatformLabel}
+                      />
+                    )}
+                  </li>
+                  <li className="space-y-1">
+                    <p className="text-xs font-semibold text-foreground">
+                      {t.tokenManager.quickStep2}
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {t.tokenManager.quickStep2Desc}
+                    </p>
+                  </li>
+                  <li className="space-y-1">
+                    <p className="text-xs font-semibold text-foreground">
+                      {t.tokenManager.quickStep3}
+                    </p>
+                    <p className="text-[11px] leading-relaxed text-muted-foreground">
+                      {t.tokenManager.quickStep3Desc}
+                    </p>
+                  </li>
+                </ol>
+              ) : (
+                <p className="text-xs text-destructive">
+                  {t.tokenManager.quickInstallNoCode}
+                </p>
+              )}
 
               <div className="border-t pt-3">
                 <button

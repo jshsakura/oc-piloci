@@ -100,6 +100,24 @@ def main() -> None:
         help="Skip the confirmation prompt.",
     )
 
+    backfill_p = sub.add_parser(
+        "backfill-cwd",
+        help=(
+            "Recover from the legacy slug-collision bug: parse raw_session "
+            "transcripts, stamp Project.cwd, split misattributed sessions."
+        ),
+    )
+    backfill_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would change without writing.",
+    )
+    backfill_p.add_argument(
+        "--user-id",
+        default=None,
+        help="Restrict to a single user id.",
+    )
+
     setup_p = sub.add_parser(
         "setup",
         help="``login`` followed by ``install`` — the recommended one-shot flow.",
@@ -149,6 +167,8 @@ def main() -> None:
         _run_uninstall(args)
     elif args.command == "setup":
         _run_setup(args)
+    elif args.command == "backfill-cwd":
+        _run_backfill_cwd(args)
     elif args.command == "serve":
         if args.host or args.port or args.reload:
             import os
@@ -425,6 +445,27 @@ def _run_setup(args: argparse.Namespace) -> None:
         print("  ✓ OpenCode MCP 등록")
     for note in report.notes:
         print(f"    · {note}")
+
+
+def _run_backfill_cwd(args: argparse.Namespace) -> None:
+    """Walk legacy projects and split misattributed sessions by transcript cwd."""
+    import asyncio
+
+    from piloci.ops.backfill import backfill_cwd
+
+    report = asyncio.run(backfill_cwd(dry_run=args.dry_run, user_id=args.user_id))
+    print(orjson.dumps(report, option=orjson.OPT_INDENT_2).decode())
+
+    summary = (
+        f"\n  examined={report['projects_examined']}  "
+        f"stamped={report['projects_stamped']}  "
+        f"split={report['projects_split']}  "
+        f"new_projects={report['new_projects']}  "
+        f"sessions_moved={report['sessions_moved']}"
+    )
+    if args.dry_run:
+        summary += "  (dry-run — no changes written)"
+    print(summary)
 
 
 if __name__ == "__main__":
