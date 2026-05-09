@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oc-piloci"
-version = "0.2.70"
+version = "0.2.71"
 description = "Self-hosted multi-user LLM memory service for Raspberry Pi 5. MCP-compatible."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -65,6 +65,7 @@ dev = [
 [project.scripts]
 piloci = "piloci.cli:main"
 piloci-ingest = "piloci.cli_ingest:main"
+oc-piloci = "piloci.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/piloci"]
