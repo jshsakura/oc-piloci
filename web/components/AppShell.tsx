@@ -43,9 +43,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-background landing-pattern">
       <header className="shrink-0 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between px-4">
+        <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-4">
           <BrandMark />
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1.5">
             <nav className="flex items-center gap-1">
               {navItems.map(({ href, label, icon: Icon }) => {
                 const active = pathname.startsWith(href);
@@ -59,6 +59,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 );
               })}
             </nav>
+            <span className="mx-1 hidden h-5 w-px bg-border sm:inline-block" />
             <LocaleToggle />
             <ThemeToggle />
             <DropdownMenu>
@@ -111,14 +112,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-6xl px-4 py-6">{children}</div>
       </main>
-      <footer className="shrink-0 border-t bg-background py-2.5">
-        <div className="mx-auto flex flex-col items-center gap-2 sm:flex-row sm:justify-between max-w-6xl px-4">
-          <p className="text-xs text-muted-foreground">© piLoci 2026</p>
+      <footer className="shrink-0 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <div className="mx-auto flex h-10 w-full max-w-6xl items-center justify-between px-4 text-xs text-muted-foreground">
+          <p>© piLoci 2026</p>
           <div className="flex items-center gap-4">
-            <Link href="/privacy" className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors">
+            <Link href="/privacy" className="hover:text-foreground transition-colors">
               {t.appShell.footer.privacy}
             </Link>
-            <Link href="/terms" className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors">
+            <Link href="/terms" className="hover:text-foreground transition-colors">
               {t.appShell.footer.terms}
             </Link>
           </div>
