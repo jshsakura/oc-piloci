@@ -275,19 +275,19 @@ export default function LandingPage() {
           {/* Install */}
           <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-4">
             {/* Step 1 — uv 선행 설치 */}
-            <div className="rounded-2xl border bg-card p-5 dark:border-white/[0.08]">
+            <div className="pi-panel p-5">
               <div className="flex items-start gap-4">
-                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary ring-1 ring-primary/25 dark:bg-primary/25 dark:ring-primary/40">1</span>
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-sm font-bold text-primary ring-1 ring-primary/10">1</span>
                 <div className="min-w-0 flex-1 space-y-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                     {t.landing.sections.install.uvEyebrow}
                   </p>
                   <button
                     onClick={() => { navigator.clipboard.writeText("curl -LsSf https://astral.sh/uv/install.sh | sh"); }}
-                    className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/60 px-4 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer dark:bg-black/40 dark:border-white/10 dark:hover:bg-black/60"
+                    className="group flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 font-mono text-sm transition-opacity hover:opacity-75 cursor-pointer [background:var(--pi-shell)] [border-color:var(--pi-line)]"
                   >
                     <span className="flex items-center gap-2 min-w-0">
-                      <span className="select-none text-muted-foreground">$</span>
+                      <span className="select-none text-primary/50">$</span>
                       <span className="truncate">curl -LsSf https://astral.sh/uv/install.sh | sh</span>
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{t.common.copy}</span>
@@ -297,19 +297,19 @@ export default function LandingPage() {
             </div>
 
             {/* Step 2 — 설치 및 업데이트 */}
-            <div className="rounded-2xl border bg-card p-5 dark:border-white/[0.08]">
+            <div className="pi-panel p-5">
               <div className="flex items-start gap-4">
-                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary ring-1 ring-primary/25 dark:bg-primary/25 dark:ring-primary/40">2</span>
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-sm font-bold text-primary ring-1 ring-primary/10">2</span>
                 <div className="min-w-0 flex-1 space-y-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                     {t.landing.sections.install.eyebrow}
                   </p>
                   <button
                     onClick={copySetup}
-                    className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/60 px-4 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer dark:bg-black/40 dark:border-white/10 dark:hover:bg-black/60"
+                    className="group flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 font-mono text-sm transition-opacity hover:opacity-75 cursor-pointer [background:var(--pi-shell)] [border-color:var(--pi-line)]"
                   >
                     <span className="flex items-center gap-2 min-w-0">
-                      <span className="select-none text-muted-foreground">$</span>
+                      <span className="select-none text-primary/50">$</span>
                       <span className="truncate">uvx oc-piloci@latest setup</span>
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
