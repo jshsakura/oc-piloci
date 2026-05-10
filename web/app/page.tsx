@@ -32,7 +32,6 @@ export default function LandingPage() {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [copiedSetup, setCopiedSetup] = useState(false);
-  const [copiedUpdate, setCopiedUpdate] = useState(false);
   const [termIdx, setTermIdx] = useState(0);
   const [typed, setTyped] = useState(0);
   const termTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -74,15 +73,9 @@ export default function LandingPage() {
   }, [typed, totalChars, terminal.examples.length, ex]);
 
   const copySetup = () => {
-    navigator.clipboard.writeText("uvx oc-piloci setup");
+    navigator.clipboard.writeText("uvx oc-piloci@latest setup");
     setCopiedSetup(true);
     setTimeout(() => setCopiedSetup(false), 2000);
-  };
-
-  const copyUpdate = () => {
-    navigator.clipboard.writeText("uvx oc-piloci@latest setup");
-    setCopiedUpdate(true);
-    setTimeout(() => setCopiedUpdate(false), 2000);
   };
 
   if (!mounted || !hasHydrated) {
@@ -303,45 +296,24 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* 설치 + 업데이트 — 한 카드 */}
+            {/* 설치 및 업데이트 */}
             <div className="rounded-xl border bg-card p-4 space-y-3">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {/* 설치 */}
-                <div className="space-y-1.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
-                    {t.landing.sections.install.eyebrow}
-                  </p>
-                  <button
-                    onClick={copySetup}
-                    className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted px-3 py-2 font-mono text-sm transition-colors hover:bg-muted/70 cursor-pointer"
-                  >
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span className="text-muted-foreground">$</span>
-                      <span className="truncate">uvx oc-piloci setup</span>
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                      {copiedSetup ? t.common.copied : t.common.copy}
-                    </span>
-                  </button>
-                </div>
-                {/* 업데이트 */}
-                <div className="space-y-1.5">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
-                    {t.landing.sections.install.updateEyebrow}
-                  </p>
-                  <button
-                    onClick={copyUpdate}
-                    className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted px-3 py-2 font-mono text-sm transition-colors hover:bg-muted/70 cursor-pointer"
-                  >
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span className="text-muted-foreground">$</span>
-                      <span className="truncate">uvx oc-piloci@latest setup</span>
-                    </span>
-                    <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                      {copiedUpdate ? t.common.copied : t.common.copy}
-                    </span>
-                  </button>
-                </div>
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
+                  {t.landing.sections.install.eyebrow}
+                </p>
+                <button
+                  onClick={copySetup}
+                  className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted px-3 py-2 font-mono text-sm transition-colors hover:bg-muted/70 cursor-pointer"
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="text-muted-foreground">$</span>
+                    <span className="truncate">uvx oc-piloci@latest setup</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                    {copiedSetup ? t.common.copied : t.common.copy}
+                  </span>
+                </button>
               </div>
               <div className="flex flex-wrap gap-1 pt-1">
                 {t.landing.sections.install.platforms.map((p) => (

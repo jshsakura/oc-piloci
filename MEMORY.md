@@ -1,5 +1,9 @@
 # MEMORY
 
+## 2026-05-10
+
+- Simplified the landing page install CTA: the separate install/update buttons are now one “설치 및 업데이트” / “Install and Update” command, copying `uvx oc-piloci@latest setup` so fresh installs and refreshes use the same path.
+
 ## 2026-05-03
 
 - Closed Phase 10 (data portability): `src/piloci/api/data_portability.py` already provided per-user zip export (manifest + projects.json + memories.parquet w/ vectors + profiles.json) and import-with-merge that renames colliding project slugs and re-embeds when the archive's embed model differs; routes `GET /api/data/export` and `POST /api/data/import` are wired in `src/piloci/api/routes.py` and unit-tested via `tests/test_data_portability.py` (13 passed, 1 intentionally skipped).
