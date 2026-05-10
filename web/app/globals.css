@@ -226,7 +226,7 @@ button {
   }
 
   .pi-metric-card {
-    @apply rounded-[1.35rem] border bg-card/90 p-4 backdrop-blur transition-transform duration-200 hover:-translate-y-0.5;
+    @apply rounded-[1.35rem] border bg-card/90 p-4 backdrop-blur;
     border-color: var(--pi-line);
     box-shadow: var(--pi-shadow-sm);
   }

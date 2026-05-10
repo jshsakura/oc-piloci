@@ -807,6 +807,15 @@ const ko = {
         viewProject: '프로젝트로 이동',
         sessionMemories: '메모리 {count}',
         sessionPending: '분석 중',
+        funStats: {
+          today: '오늘 채팅',
+          week: '이번 주',
+          streak: '연속 기록',
+          streakUnit: '일',
+          anger: '화난 순간',
+          angerNone: '없음',
+          angerUnit: '번',
+        },
         cols: {
           memory: '메모리',
           project: '프로젝트',
@@ -1818,6 +1827,15 @@ const en: CopyShape = {
         viewProject: 'Open project',
         sessionMemories: '{count} memories',
         sessionPending: 'Analyzing',
+        funStats: {
+          today: 'Today',
+          week: 'This week',
+          streak: 'Streak',
+          streakUnit: 'd',
+          anger: 'Angry moments',
+          angerNone: 'none',
+          angerUnit: 'x',
+        },
         cols: {
           memory: 'Memory',
           project: 'Project',

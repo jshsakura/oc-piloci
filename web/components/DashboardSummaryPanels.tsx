@@ -9,9 +9,12 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Flame,
   Hash,
   Lightbulb,
+  MessageSquare,
   Sparkles,
+  Zap,
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip } from "recharts";
 import { api } from "@/lib/api";
@@ -193,6 +196,23 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
   const tags = data?.top_tags ?? [];
   const sessions = data?.recent_sessions ?? [];
 
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayCount = data?.activity?.find((b) => b.date === todayStr)?.count ?? 0;
+  const weekCount = data?.activity?.slice(-7).reduce((s, b) => s + b.count, 0) ?? 0;
+  const streak = (() => {
+    if (!data?.activity) return 0;
+    let s = 0;
+    for (let i = data.activity.length - 1; i >= 0; i--) {
+      if (data.activity[i].count > 0) s++;
+      else break;
+    }
+    return s;
+  })();
+  const ANGER_KW = ['화', '화남', '분노', '짜증', '불만', '답답', '열받', '멘붕', '빡침', 'angry', 'frustrated', 'annoyed', 'upset'];
+  const angryCount = data?.top_tags
+    ?.filter((t) => ANGER_KW.some((k) => t.tag.toLowerCase().includes(k)))
+    .reduce((s, t) => s + t.count, 0) ?? 0;
+
   const memPager = usePager(memories, 4);
   const instPager = usePager(instincts, 4);
   const tagPager = usePager(tags, 14);
@@ -223,6 +243,26 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* Fun stats */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { icon: MessageSquare, label: summary.funStats.today, value: isLoading ? "…" : String(todayCount), color: "text-blue-500", bg: "bg-blue-500/10" },
+          { icon: Zap, label: summary.funStats.week, value: isLoading ? "…" : String(weekCount), color: "text-violet-500", bg: "bg-violet-500/10" },
+          { icon: Flame, label: summary.funStats.streak, value: isLoading ? "…" : streak > 0 ? `${streak}${summary.funStats.streakUnit}` : "–", color: "text-orange-500", bg: "bg-orange-500/10" },
+          { icon: Activity, label: summary.funStats.anger, value: isLoading ? "…" : angryCount > 0 ? `${angryCount}${summary.funStats.angerUnit}` : summary.funStats.angerNone, color: "text-rose-500", bg: "bg-rose-500/10" },
+        ].map(({ icon: Icon, label, value, color, bg }) => (
+          <div key={label} className="flex items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
+            <span className={`flex size-8 shrink-0 items-center justify-center rounded-full ${bg}`}>
+              <Icon className={`size-4 ${color}`} />
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+              <p className="text-xl font-semibold tabular-nums leading-tight">{value}</p>
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
