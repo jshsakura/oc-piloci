@@ -25,7 +25,11 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from piloci.config import Settings
-from piloci.curator.scheduler import read_cpu_temp_celsius, read_load_average_1min
+from piloci.curator.scheduler import (
+    parse_idle_window,
+    read_cpu_temp_celsius,
+    read_load_average_1min,
+)
 from piloci.db.models import RawSession
 from piloci.db.session import async_session
 from piloci.notify.telegram import send_admin_notification
@@ -366,16 +370,29 @@ async def _build_heartbeat_message(settings: Settings, now: datetime) -> str:
 
 
 async def _maybe_send_heartbeat(settings: Settings, now: datetime) -> None:
-    """Send a periodic report if the configured interval has elapsed.
+    """Send a periodic report if the configured interval has elapsed and the
+    current local time falls inside ``health_periodic_report_active_window``.
 
-    First call after startup always sends — that's the "I'm alive" ping
-    the user expects on container restart.
+    Active window is the user's "awake hours" — typically something like
+    07:00-21:00 — so the bot doesn't ping while they're asleep. When the
+    window is unset the heartbeat fires around the clock.
+
+    Quiet-hours suppression deliberately does *not* update ``last_sent_at``,
+    so the first eligible poll after the window opens fires immediately
+    rather than waiting another full interval.
     """
     if not settings.health_periodic_report_enabled:
         return
     interval_min = settings.health_periodic_report_interval_min
     if interval_min <= 0:
         return
+
+    window_spec = settings.health_periodic_report_active_window
+    if window_spec:
+        window = parse_idle_window(window_spec)
+        if window is not None and not window.contains(datetime.now().time()):
+            return
+
     if _heartbeat.last_sent_at is not None:
         if (now - _heartbeat.last_sent_at) < timedelta(minutes=interval_min):
             return

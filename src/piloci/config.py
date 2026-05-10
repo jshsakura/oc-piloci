@@ -144,6 +144,10 @@ class Settings(BaseSettings):
     # stabilization window after a deploy.
     health_periodic_report_enabled: bool = False
     health_periodic_report_interval_min: int = 60
+    # Local-clock window during which heartbeats fire. Outside this window the
+    # heartbeat suppresses (preserves the user's sleep). Format "HH:MM-HH:MM",
+    # wraparound supported. None = always-on.
+    health_periodic_report_active_window: str | None = "07:00-21:00"
 
     # Redis (M2+)
     redis_url: str = "redis://localhost:6379/0"
