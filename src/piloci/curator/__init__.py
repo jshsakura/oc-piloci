@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-"""Gemma-based curator: raw transcripts → wiki-grade memories.
+"""Lazy distillation pipeline: raw transcripts → memories + instincts.
 
 Key components:
-- queue.py: asyncio.Queue shared between /api/ingest and the worker
-- gemma.py: HTTP client for local Gemma (OpenAI-compatible)
-- worker.py: Background task that drains the queue
+- gemma.py: HTTP client for local Gemma + OpenAI-compatible providers
+- extraction.py: Single-call unified extraction (memories + instincts)
+- prefilter.py: Heuristic gate at ingest time (no LLM)
+- backlog.py: FIFO drop policy when pending exceeds ceiling
+- scheduler.py: Idle window / temp / load / overflow gating
+- budget.py: Monthly USD cap for external LLM
+- distillation_worker.py: The single lazy worker
 - profile.py: Periodic user-profile summarizer
 """
-
-from piloci.curator.queue import get_ingest_queue
-
-__all__ = ["get_ingest_queue"]

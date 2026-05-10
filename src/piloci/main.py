@@ -306,25 +306,23 @@ async def _startup(app, store, stop_event, bg_tasks, instincts_store=None) -> No
     bg_tasks.append(asyncio.create_task(run_maintenance_worker(settings, stop_event)))
     logger.info("Maintenance worker started")
 
-    if settings.curator_enabled:
-        from piloci.curator.analyze_worker import process_unfinished_analyses, run_analyze_worker
+    if settings.curator_enabled and settings.distillation_enabled:
+        from piloci.curator.distillation_worker import run_distillation_worker
         from piloci.curator.profile import run_profile_worker
-        from piloci.curator.worker import process_unfinished, run_worker
 
-        requeued = await process_unfinished(settings, store)
-        logger.info("Re-queued %d unprocessed sessions", requeued)
-
-        bg_tasks.append(asyncio.create_task(run_worker(settings, store, stop_event)))
-        bg_tasks.append(asyncio.create_task(run_profile_worker(settings, store, stop_event)))
-        logger.info("Curator + profile workers started")
-
+        # Single lazy worker replaces the eager curator + analyzer pair. It
+        # polls the scheduler instead of draining an asyncio.Queue, so there's
+        # no startup re-queue step — pending RawSession rows are picked up
+        # naturally on the worker's next eligible tick.
         if instincts_store is not None:
-            requeued_analyses = await process_unfinished_analyses(settings)
-            logger.info("Re-queued %d unprocessed analyses", requeued_analyses)
             bg_tasks.append(
-                asyncio.create_task(run_analyze_worker(settings, instincts_store, stop_event))
+                asyncio.create_task(
+                    run_distillation_worker(settings, store, instincts_store, stop_event)
+                )
             )
-            logger.info("Analyze worker started")
+            logger.info("Lazy distillation worker started")
+        bg_tasks.append(asyncio.create_task(run_profile_worker(settings, store, stop_event)))
+        logger.info("Profile worker started")
 
 
 async def _shutdown(store, stop_event, bg_tasks) -> None:

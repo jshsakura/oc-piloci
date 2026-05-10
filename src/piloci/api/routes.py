@@ -34,7 +34,6 @@ from piloci.auth.local import (
 )
 from piloci.auth.session import get_session_store
 from piloci.config import get_settings
-from piloci.curator.queue import IngestJob, get_ingest_queue, try_enqueue_job
 
 
 def _resolve_base_url(request: Request, settings: Any) -> str:
@@ -498,7 +497,7 @@ async def route_list_projects(request: Request) -> Response:
 
     from sqlalchemy import func, select
 
-    from piloci.db.models import Project, RawAnalysis, RawSession
+    from piloci.db.models import Project, RawSession
 
     user_id = _uid(user)
 
@@ -521,14 +520,18 @@ async def route_list_projects(request: Request) -> Response:
                 .group_by(RawSession.project_id)
             )
         ).all()
+        # last_analyzed = last successful distillation. Pulls from RawSession
+        # filtered to state='distilled' since the unified pipeline lands all
+        # analyses there now.
         analyze_rows = (
             await db.execute(
                 select(
-                    RawAnalysis.project_id,
-                    func.max(RawAnalysis.processed_at).label("last_analyzed"),
+                    RawSession.project_id,
+                    func.max(RawSession.processed_at).label("last_analyzed"),
                 )
-                .where(RawAnalysis.user_id == user_id)
-                .group_by(RawAnalysis.project_id)
+                .where(RawSession.user_id == user_id)
+                .where(RawSession.distillation_state == "distilled")
+                .group_by(RawSession.project_id)
             )
         ).all()
 
@@ -764,7 +767,7 @@ async def route_delete_project(request: Request) -> Response:
     if not body.get("confirm"):
         return _json({"error": "confirm:true required"}, 422)
 
-    from sqlalchemy import delete, select
+    from sqlalchemy import select
 
     from piloci.db.models import Project
 
@@ -1484,7 +1487,7 @@ async def route_delete_llm_provider(request: Request) -> Response:
     if not isinstance(provider_id, str) or not provider_id:
         return _json({"error": "provider id required"}, 400)
 
-    from sqlalchemy import delete, select
+    from sqlalchemy import select
 
     from piloci.db.models import LLMProvider
 
@@ -2179,7 +2182,9 @@ async def route_ingest(request: Request) -> Response:
     """Receive a raw session transcript from a client Stop hook.
 
     Body: {client, session_id?, transcript: [...], project_id?}
-    Stores into raw_sessions and pushes job onto the curator queue.
+    Stores into raw_sessions with distillation_state set by the prefilter,
+    then enforces the backlog ceiling. The lazy distillation worker picks
+    rows up on its own schedule — no synchronous LLM call here.
     """
     settings = get_settings()
     user = request.state.user
@@ -2207,9 +2212,16 @@ async def route_ingest(request: Request) -> Response:
     if not user_id or not project_id:
         return _json({"error": "user_id and project_id required"}, 400)
 
-    ingest_id = str(uuid.uuid4())
+    from piloci.curator.backlog import enforce_ceiling_after_ingest
+    from piloci.curator.prefilter import evaluate as prefilter_evaluate
     from piloci.db.models import RawSession
 
+    decision = prefilter_evaluate(transcript)
+    initial_state = "pending" if decision.passes else "filtered"
+
+    ingest_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc)
+    archived = 0
     async with async_session() as db:
         db.add(
             RawSession(
@@ -2219,36 +2231,27 @@ async def route_ingest(request: Request) -> Response:
                 client=client[:50],
                 session_id=(session_id or "")[:200] or None,
                 transcript_json=orjson.dumps(transcript).decode(),
-                created_at=datetime.now(timezone.utc),
+                created_at=now,
+                distillation_state=initial_state,
+                filter_reason=decision.reason,
             )
         )
+        await db.flush()
+        if decision.passes:
+            archived = await enforce_ceiling_after_ingest(
+                db,
+                max_pending=settings.distillation_max_pending_backlog,
+                user_id=user_id,
+            )
         await db.commit()
-
-    queue = get_ingest_queue(settings.ingest_queue_maxsize)
-    job = IngestJob(ingest_id=ingest_id, user_id=user_id, project_id=project_id)
-    if not try_enqueue_job(job, maxsize=settings.ingest_queue_maxsize):
-        async with async_session() as db:
-            await db.execute(delete(RawSession).where(RawSession.ingest_id == ingest_id))
-            await db.commit()
-        response = _json(
-            {
-                "error": "ingest queue is full",
-                "queued": False,
-                "queue_depth": queue.qsize(),
-                "queue_capacity": queue.maxsize,
-                "retry_after_sec": settings.ingest_retry_after_sec,
-            },
-            429,
-        )
-        response.headers["Retry-After"] = str(settings.ingest_retry_after_sec)
-        return response
 
     return _json(
         {
-            "queued": True,
+            "queued": decision.passes,
             "ingest_id": ingest_id,
-            "queue_depth": queue.qsize(),
-            "queue_capacity": queue.maxsize,
+            "state": initial_state,
+            "filter_reason": decision.reason,
+            "archived_overflow": archived,
         },
         202,
     )
@@ -2652,6 +2655,15 @@ async def route_sessions_ingest(request: Request) -> Response:
             skipped += 1
             continue
 
+        from piloci.curator.backlog import enforce_ceiling_after_ingest
+        from piloci.curator.prefilter import evaluate as prefilter_evaluate
+
+        decision = prefilter_evaluate(messages)
+        initial_state = "pending" if decision.passes else "filtered"
+        if not decision.passes:
+            skipped += 1
+            continue
+
         ingest_id = str(uuid.uuid4())
         async with async_session() as db:
             db.add(
@@ -2663,18 +2675,18 @@ async def route_sessions_ingest(request: Request) -> Response:
                     session_id=session_id[:200],
                     transcript_json=orjson.dumps(messages).decode(),
                     created_at=datetime.now(timezone.utc),
+                    distillation_state=initial_state,
+                    filter_reason=decision.reason,
                 )
             )
+            await db.flush()
+            await enforce_ceiling_after_ingest(
+                db,
+                max_pending=settings.distillation_max_pending_backlog,
+                user_id=user_id,
+            )
             await db.commit()
-
-        job = IngestJob(ingest_id=ingest_id, user_id=user_id, project_id=project_id)
-        if try_enqueue_job(job, maxsize=settings.ingest_queue_maxsize):
-            queued += 1
-        else:
-            async with async_session() as db:
-                await db.execute(delete(RawSession).where(RawSession.ingest_id == ingest_id))
-                await db.commit()
-            skipped += 1
+        queued += 1
 
     return _json({"queued": queued, "skipped": skipped})
 
@@ -3031,41 +3043,53 @@ async def route_analyze_session(request: Request) -> Response:
 
     settings = get_settings()
 
-    # Persist the transcript first, then enqueue. This way restarts and crashes
-    # don't lose work — the worker's startup recovery re-queues unprocessed
-    # rows. Returning 202 immediately escapes Cloudflare's 100s origin timeout
-    # for the synchronous Gemma extraction path.
-    from piloci.curator.analyze_queue import AnalyzeJob, try_enqueue_analyze
-    from piloci.db.models import RawAnalysis
+    # Unified path: write to raw_sessions (the single distillation source) so
+    # both ingest and analyze share one lazy worker downstream. Prefilter runs
+    # synchronously here so trivial transcripts never enter the pending pool.
+    # 202 keeps the response inside Cloudflare's 100s origin timeout.
+    from piloci.curator.backlog import enforce_ceiling_after_ingest
+    from piloci.curator.prefilter import evaluate as prefilter_evaluate
+    from piloci.db.models import RawSession
+
+    decision = prefilter_evaluate(transcript)
+    initial_state = "pending" if decision.passes else "filtered"
 
     analyze_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
+    archived = 0
     async with async_session() as db:
         db.add(
-            RawAnalysis(
-                analyze_id=analyze_id,
+            RawSession(
+                ingest_id=analyze_id,
                 user_id=user_id,
                 project_id=project_id,
-                transcript=transcript,
+                client="analyze",
+                session_id=None,
+                transcript_json=orjson.dumps(transcript).decode(),
                 created_at=now,
+                distillation_state=initial_state,
+                filter_reason=decision.reason,
             )
         )
         await db.flush()
+        if decision.passes:
+            archived = await enforce_ceiling_after_ingest(
+                db,
+                max_pending=settings.distillation_max_pending_backlog,
+                user_id=user_id,
+            )
+        await db.commit()
 
-    job = AnalyzeJob(analyze_id=analyze_id, user_id=user_id, project_id=project_id)
-    if not try_enqueue_analyze(job, maxsize=settings.analyze_queue_maxsize):
-        # Queue saturated — row stays unprocessed in DB and the next startup or
-        # the maintenance sweep will requeue. Tell the client to back off.
-        return _json(
-            {
-                "error": "analyze queue full — try again shortly",
-                "analyze_id": analyze_id,
-                "retry_after_sec": settings.analyze_retry_after_sec,
-            },
-            503,
-        )
-
-    return _json({"queued": True, "analyze_id": analyze_id}, 202)
+    return _json(
+        {
+            "queued": decision.passes,
+            "analyze_id": analyze_id,
+            "state": initial_state,
+            "filter_reason": decision.reason,
+            "archived_overflow": archived,
+        },
+        202,
+    )
 
 
 async def route_healthz(request: Request) -> Response:
@@ -3109,18 +3133,27 @@ async def route_readyz(request: Request) -> Response:
         checks["redis"] = {"status": "error", "detail": "unavailable"}
         causes.append("redis_unavailable")
 
-    queue = get_ingest_queue(settings.ingest_queue_maxsize)
-    queue_depth = queue.qsize()
-    queue_capacity = queue.maxsize
-    pressure = _queue_pressure(queue_depth, queue_capacity)
-    checks["ingest_queue"] = {
-        "status": "ok" if pressure != "full" else "error",
-        "depth": queue_depth,
-        "capacity": queue_capacity,
-        "pressure": pressure,
-    }
-    if pressure == "full":
-        causes.append("ingest_queue_full")
+    # Distillation backlog health: pending count vs configured ceiling.
+    # Replaces the legacy asyncio-queue depth report — pending lives in DB now.
+    try:
+        from piloci.curator.backlog import count_pending
+
+        async with async_session() as db:
+            pending = await count_pending(db)
+        capacity = settings.distillation_max_pending_backlog
+        pressure = _queue_pressure(pending, capacity)
+        checks["distillation_backlog"] = {
+            "status": "ok" if pressure != "full" else "error",
+            "depth": pending,
+            "capacity": capacity,
+            "pressure": pressure,
+        }
+        if pressure == "full":
+            causes.append("distillation_backlog_full")
+    except Exception:
+        logger.exception("readyz: distillation backlog check failed")
+        checks["distillation_backlog"] = {"status": "error", "detail": "unavailable"}
+        causes.append("distillation_backlog_unavailable")
 
     ok = not causes
     return _json(
