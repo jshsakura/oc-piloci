@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oc-piloci"
-version = "0.3.12"
+version = "0.3.13"
 description = "Self-hosted multi-user LLM memory service for Raspberry Pi 5. MCP-compatible."
 readme = "README.md"
 requires-python = ">=3.11"

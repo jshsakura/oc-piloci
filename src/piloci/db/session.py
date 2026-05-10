@@ -98,6 +98,44 @@ _SQLITE_BACKFILL: list[str] = [
     # was added. processed_at IS NOT NULL → 'distilled', else 'pending'.
     "UPDATE raw_sessions SET distillation_state = 'distilled' "
     "WHERE distillation_state = 'pending' AND processed_at IS NOT NULL",
+    # Migrate legacy RawAnalysis rows into raw_sessions so the unified lazy
+    # worker treats them as distilled history. Uses INSERT OR IGNORE keyed
+    # on ingest_id (= analyze_id) so re-running is a no-op. analyze_id is
+    # carried over verbatim and the transcript is wrapped in JSON to match
+    # the raw_sessions storage convention. The synthetic client label
+    # 'legacy-analyze' lets the user identify migrated rows in audit views.
+    """
+    INSERT OR IGNORE INTO raw_sessions (
+        ingest_id, user_id, project_id, client, session_id, transcript_json,
+        created_at, processed_at, error, memories_extracted, instincts_extracted,
+        distillation_state, archived_at, processing_path, priority,
+        filter_reason, last_attempted_at, attempt_count
+    )
+    SELECT
+        analyze_id,
+        user_id,
+        project_id,
+        'legacy-analyze',
+        NULL,
+        json_quote(transcript),
+        created_at,
+        processed_at,
+        error,
+        0,
+        instincts_extracted,
+        CASE
+            WHEN processed_at IS NOT NULL THEN 'distilled'
+            WHEN error IS NOT NULL THEN 'failed'
+            ELSE 'pending'
+        END,
+        NULL,
+        'local',
+        0,
+        NULL,
+        NULL,
+        0
+    FROM raw_analyses
+    """,
 ]
 
 
@@ -116,7 +154,18 @@ def _apply_pending_migrations(sync_conn) -> None:  # type: ignore[no-untyped-def
                 sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {spec}"))
 
     for sql in _SQLITE_BACKFILL:
-        sync_conn.execute(text(sql))
+        # Backfills are best-effort — a missing legacy table on a fresh
+        # install (or a half-migrated dev DB) shouldn't crash startup.
+        try:
+            sync_conn.execute(text(sql))
+        except Exception as exc:  # noqa: BLE001
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "backfill skipped (%s): %s",
+                sql.splitlines()[0][:60],
+                exc,
+            )
 
 
 async def init_db(engine: AsyncEngine | None = None) -> None:

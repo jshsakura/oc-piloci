@@ -69,3 +69,28 @@
 - 임베딩 LRU 캐시 활용 (`storage/cache.py`)
 - 배치 처리 가능한 경우 단건 반복 금지
 - `orjson` 사용 (표준 json 금지)
+
+## Lazy Distillation Pipeline
+
+세션 트랜스크립트 → memories + instincts 추출은 **lazy 단일 워커** 구조.
+즉시 LLM을 호출하지 않고 RawSession에 `state='pending'`으로 저장하고,
+스케줄러가 허락할 때 워커가 모은 배치를 한 번의 Gemma 호출로 증류한다.
+
+**5요소** (전부 갖춰져야 의미가 있음):
+1. **수집/증류 분리** — `/api/ingest`, `/api/sessions/analyze`는 LLM 호출 안 함.
+   raw 저장 + prefilter + 백로그 ceiling만.
+2. **백로그 방어** — `curator.prefilter`(trivial 거름) + `curator.backlog`(FIFO drop)
+3. **스마트 스케줄** — `curator.scheduler`: idle window / 온도 / 부하 / 오버플로
+4. **관측성** — `/api/distillation/status`, `/api/projects/{id}/freshness`,
+   `/api/budget/usage` (5차원: 카운트·지연·분류·신선도·처리경로)
+5. **사용자 컨트롤** — `/api/distillation/run-now`, `/api/preferences` PATCH,
+   세션별 `priority` 옵트인
+
+**금기:**
+- `state='pending'` 작업이 있을 때 즉시 LLM을 호출하는 코드 추가 금지
+  (eager 회귀). 워커가 알아서 처리한다.
+- `RawSession.distillation_state` 우회 금지 — 모든 상태 전이는 워커 또는
+  ingest 핸들러에서만.
+- 새 LLM 호출 경로를 만들 때는 반드시 `chat_json` + `record_target` 사용
+  (외부/로컬 경로 추적 위해).
+- `--mlock`이나 KV cache 8192+ 같은 "Pi에 안 맞는" llama-server 인자 금지.
