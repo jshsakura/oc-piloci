@@ -204,6 +204,7 @@ const ko = {
           setupDesc: '환경 변수를 통해 SQLite 경로 및 인덱싱 엔진을 자유롭게 설정하세요.',
         },
         install: {
+          uvEyebrow: '선행 설치 — uv',
           eyebrow: '설치',
           uninstallEyebrow: '삭제',
           recommendedLabel: '추천',
@@ -1214,6 +1215,7 @@ const en: CopyShape = {
           setupDesc: 'Freely configure SQLite paths and indexing engines via environment variables.',
         },
         install: {
+          uvEyebrow: 'Prerequisite — uv',
           eyebrow: 'Install',
           uninstallEyebrow: 'Remove',
           recommendedLabel: 'Recommended',

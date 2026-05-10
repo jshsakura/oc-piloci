@@ -259,7 +259,29 @@ export default function LandingPage() {
           </div>
 
           {/* Install / Remove */}
-          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl">
+          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-3">
+            {/* uv 선행 설치 */}
+            <div className="rounded-xl border border-dashed bg-muted/30 p-4">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">1</span>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    {t.landing.sections.install.uvEyebrow}
+                  </p>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText("curl -LsSf https://astral.sh/uv/install.sh | sh"); }}
+                    className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted/50 px-4 py-2 font-mono text-xs transition-colors hover:bg-muted cursor-pointer"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="text-muted-foreground">$</span>
+                      <span className="truncate">curl -LsSf https://astral.sh/uv/install.sh | sh</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{t.common.copy}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
             <div className="grid gap-4 sm:grid-cols-2">
               {/* 설치 */}
               <div className="space-y-3 rounded-xl border bg-card p-4">
@@ -318,8 +340,8 @@ export default function LandingPage() {
 
           <div className="mt-8 sm:mt-10">
             <Button size="lg" asChild>
-              <Link href="/signup">
-                {t.common.signup}
+              <Link href={user ? "/dashboard" : "/signup"}>
+                {user ? t.appShell.nav.dashboard : t.common.signup}
                 <ArrowRight className="ms-2 size-4" />
               </Link>
             </Button>

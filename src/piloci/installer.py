@@ -315,14 +315,12 @@ def _merge_claude_settings(settings_path: Path) -> None:
 
 
 def install_opencode_plugin(base_url: str, token: str, *, home: Path | None = None) -> Path:
-    """Drop the piloci OpenCode plugin at ``~/.config/opencode/plugins/piloci.ts``.
+    """Drop the piloci OpenCode plugin and register the MCP server in opencode.json.
 
-    OpenCode auto-discovers ``{plugin,plugins}/*.{ts,js}`` files in its config
-    directory. The plugin runs inside OpenCode's bun runtime: it subscribes to
-    the local ``/event`` SSE feed in-process (no daemon, no system service) and
-    pushes finished sessions to piloci. Token + URLs are read from
-    ``~/.config/piloci/config.json`` at runtime so this file is identical for
-    every user and survives token rotation.
+    Writes the TypeScript plugin for auto-capture to
+    ``~/.config/opencode/plugins/piloci.ts`` AND merges the remote MCP entry
+    into ``~/.config/opencode/opencode.json`` so that recall/memory tools are
+    accessible from within OpenCode sessions.
     """
     h = home or Path.home()
     plugins_dir = h / OPENCODE_PLUGIN_DIR_NAME
@@ -335,6 +333,39 @@ def install_opencode_plugin(base_url: str, token: str, *, home: Path | None = No
         plugin_path.chmod(0o644)
     except PermissionError:
         pass
+
+    # Also register the MCP server so recall/memory tools work inside OpenCode.
+    cfg_path = h / OPENCODE_DIR_NAME / "opencode.json"
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    existing: dict = {}
+    if cfg_path.exists():
+        raw = cfg_path.read_text()
+        try:
+            loaded = json.loads(raw)
+            if isinstance(loaded, dict):
+                existing = loaded
+        except json.JSONDecodeError:
+            cfg_path.with_suffix(".json.piloci-corrupt-bak").write_text(raw)
+    backup = cfg_path.with_suffix(".json.piloci-bak")
+    if not backup.exists() and cfg_path.exists():
+        backup.write_text(cfg_path.read_text())
+    existing.setdefault("$schema", "https://opencode.ai/config.json")
+    mcp = existing.setdefault("mcp", {})
+    if not isinstance(mcp, dict):
+        mcp = {}
+        existing["mcp"] = mcp
+    mcp["piloci"] = {
+        "type": "remote",
+        "url": base + "/mcp/http",
+        "enabled": True,
+        "headers": {"Authorization": "Bearer " + token},
+    }
+    cfg_path.write_text(json.dumps(existing, indent=2))
+    try:
+        cfg_path.chmod(0o600)
+    except PermissionError:
+        pass
+
     return plugin_path
 
 

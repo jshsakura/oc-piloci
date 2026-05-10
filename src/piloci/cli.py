@@ -309,9 +309,13 @@ def _device_login(server: str, *, open_browser: bool) -> tuple[str, list[str] | 
         try:
             import webbrowser
 
-            webbrowser.open(verification_uri_complete)
+            opened = webbrowser.open(verification_uri_complete)
         except Exception:
-            pass  # silent — user has the URL
+            opened = False
+        if opened:
+            # Browser may cover the terminal — re-print so users don't miss the code.
+            print(f"  브라우저: {verification_uri}")
+            print(f"  인증 코드: {user_code}\n")
 
     deadline = time.time() + expires_in
     poll_body = _json.dumps({"device_code": device_code}).encode()
