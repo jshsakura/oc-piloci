@@ -274,10 +274,10 @@ export default function LandingPage() {
 
           {/* Install */}
           <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-3">
-            {/* uv 선행 설치 */}
-            <div className="rounded-xl border border-dashed bg-card p-4">
+            {/* Step 1 — uv 선행 설치 */}
+            <div className="rounded-xl border bg-card p-4">
               <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold text-muted-foreground">1</span>
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary ring-1 ring-primary/20">1</span>
                 <div className="min-w-0 flex-1 space-y-2">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                     {t.landing.sections.install.uvEyebrow}
@@ -296,39 +296,42 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* 설치 및 업데이트 */}
-            <div className="rounded-xl border bg-card p-4 space-y-3">
-              <div className="space-y-1.5">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
-                  {t.landing.sections.install.eyebrow}
-                </p>
-                <button
-                  onClick={copySetup}
-                  className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted px-3 py-2 font-mono text-sm transition-colors hover:bg-muted/70 cursor-pointer"
-                >
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className="text-muted-foreground">$</span>
-                    <span className="truncate">uvx oc-piloci@latest setup</span>
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                    {copiedSetup ? t.common.copied : t.common.copy}
-                  </span>
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1 pt-1">
-                {t.landing.sections.install.platforms.map((p) => (
-                  <span
-                    key={p.name}
-                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                      p.status === "auto"
-                        ? "border-primary/20 bg-primary/5 text-foreground/70"
-                        : "border-border text-muted-foreground/50"
-                    }`}
+            {/* Step 2 — 설치 및 업데이트 */}
+            <div className="rounded-xl border bg-card p-4">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary ring-1 ring-primary/20">2</span>
+                <div className="min-w-0 flex-1 space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                    {t.landing.sections.install.eyebrow}
+                  </p>
+                  <button
+                    onClick={copySetup}
+                    className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted px-4 py-2 font-mono text-xs transition-colors hover:bg-muted/70 cursor-pointer"
                   >
-                    <span className={`size-1.5 rounded-full ${p.status === "auto" ? "bg-primary/60" : "bg-muted-foreground/30"}`} />
-                    {p.name}
-                  </span>
-                ))}
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="text-muted-foreground">$</span>
+                      <span className="truncate">uvx oc-piloci@latest setup</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                      {copiedSetup ? t.common.copied : t.common.copy}
+                    </span>
+                  </button>
+                  <div className="flex flex-wrap gap-1 pt-0.5">
+                    {t.landing.sections.install.platforms.map((p) => (
+                      <span
+                        key={p.name}
+                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                          p.status === "auto"
+                            ? "border-primary/20 bg-primary/5 text-foreground/70"
+                            : "border-border text-muted-foreground/50"
+                        }`}
+                      >
+                        <span className={`size-1.5 rounded-full ${p.status === "auto" ? "bg-primary/60" : "bg-muted-foreground/30"}`} />
+                        {p.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
             </div>
 
