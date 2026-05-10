@@ -206,16 +206,11 @@ const ko = {
         install: {
           eyebrow: '원클릭 설치',
           recommendedLabel: '추천',
-          setup: {
-            title: 'uvx oc-piloci setup',
-            desc: '브라우저로 한 번 로그인하면, 선택한 클라이언트에 토큰과 MCP 설정까지 한 번에 깔립니다.',
-          },
-          install: {
-            title: 'uvx oc-piloci install',
-            desc: '설정 → 토큰 화면에서 발급한 일회성 install code로 직접 설치할 때 사용합니다.',
-          },
+          setup: { title: 'uvx oc-piloci setup', desc: '' },
+          install: { title: 'uvx oc-piloci install', desc: '' },
+          uninstall: { label: '제거', cmd: 'uvx oc-piloci uninstall --yes' },
           platformsLabel: '지원 클라이언트',
-          platformsHint: 'setup 한 번이면 감지된 클라이언트의 글로벌 설정에 piloci MCP가 머지됩니다.',
+          platformsHint: '',
           platforms: [
             { name: 'Claude Code', status: 'auto' },
             { name: 'OpenCode', status: 'auto' },
@@ -1220,16 +1215,11 @@ const en: CopyShape = {
         install: {
           eyebrow: 'One-click install',
           recommendedLabel: 'Recommended',
-          setup: {
-            title: 'uvx oc-piloci setup',
-            desc: 'Sign in once in the browser — your token and MCP config land on every selected client.',
-          },
-          install: {
-            title: 'uvx oc-piloci install',
-            desc: 'Use a one-time install code from Settings → Tokens to install directly.',
-          },
+          setup: { title: 'uvx oc-piloci setup', desc: '' },
+          install: { title: 'uvx oc-piloci install', desc: '' },
+          uninstall: { label: 'Remove', cmd: 'uvx oc-piloci uninstall --yes' },
           platformsLabel: 'Supported clients',
-          platformsHint: 'A single setup merges the piloci MCP entry into the global config of every detected client.',
+          platformsHint: '',
           platforms: [
             { name: 'Claude Code', status: 'auto' },
             { name: 'OpenCode', status: 'auto' },

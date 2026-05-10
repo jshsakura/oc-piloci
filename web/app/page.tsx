@@ -64,16 +64,16 @@ export default function LandingPage() {
     return () => { if (termTimer.current) clearTimeout(termTimer.current); };
   }, [typed, totalChars, terminal.examples.length, ex]);
 
-  const copyInstall = () => {
-    navigator.clipboard.writeText("uvx oc-piloci install");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const copySetup = () => {
     navigator.clipboard.writeText("uvx oc-piloci setup");
     setCopiedSetup(true);
     setTimeout(() => setCopiedSetup(false), 2000);
+  };
+
+  const copyUninstall = () => {
+    navigator.clipboard.writeText("uvx oc-piloci uninstall --yes");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   if (!mounted || !hasHydrated) {
@@ -261,42 +261,24 @@ export default function LandingPage() {
               {t.landing.sections.install.eyebrow}
             </p>
 
-            {/* setup — single main command */}
-            <div className="space-y-3">
-              <p className="text-xs sm:text-sm text-muted-foreground">
-                {t.landing.sections.install.setup.desc}
-              </p>
-              <button
-                onClick={copySetup}
-                className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
-              >
-                <span className="flex items-center gap-3">
-                  <span className="text-muted-foreground">$</span>
-                  <span>uvx oc-piloci setup</span>
-                </span>
-                <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                  {copiedSetup ? t.common.copied : t.common.copy}
-                </span>
-              </button>
-              <p className="text-[11px] text-muted-foreground/60">
-                {t.landing.sections.install.install.desc}
-                <button
-                  onClick={copyInstall}
-                  className="ml-1.5 font-mono text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 cursor-pointer"
-                >
-                  {copied ? t.common.copied : "uvx oc-piloci install"}
-                </button>
-              </p>
-            </div>
+            {/* setup */}
+            <button
+              onClick={copySetup}
+              className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
+            >
+              <span className="flex items-center gap-3">
+                <span className="text-muted-foreground">$</span>
+                <span>uvx oc-piloci setup</span>
+              </span>
+              <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                {copiedSetup ? t.common.copied : t.common.copy}
+              </span>
+            </button>
 
+            {/* platforms */}
             <div className="rounded-xl border bg-muted/40 p-4 sm:p-5">
-              <div className="mb-2 flex items-baseline justify-between gap-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {t.landing.sections.install.platformsLabel}
-                </p>
-              </div>
-              <p className="mb-3 text-xs text-muted-foreground">
-                {t.landing.sections.install.platformsHint}
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {t.landing.sections.install.platformsLabel}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {t.landing.sections.install.platforms.map((p) => (
@@ -327,6 +309,20 @@ export default function LandingPage() {
                 ))}
               </div>
             </div>
+
+            {/* uninstall */}
+            <button
+              onClick={copyUninstall}
+              className="group flex w-full items-center justify-between gap-3 rounded-lg border border-dashed px-5 py-2.5 font-mono text-xs text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
+            >
+              <span className="flex items-center gap-3">
+                <span>$</span>
+                <span>uvx oc-piloci uninstall --yes</span>
+              </span>
+              <span className="opacity-0 transition-opacity group-hover:opacity-100">
+                {copied ? t.common.copied : t.landing.sections.install.uninstall.label}
+              </span>
+            </button>
           </div>
 
           <div className="mt-8 sm:mt-10">
