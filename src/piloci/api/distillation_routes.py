@@ -17,6 +17,7 @@ plus the local/external split when overflow has been routed.
 from datetime import datetime, timezone
 from typing import Any
 
+import orjson
 from sqlalchemy import func, select
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -29,7 +30,7 @@ from piloci.curator.scheduler import (
     read_cpu_temp_celsius,
     read_load_average_1min,
 )
-from piloci.db.models import ExternalLLMUsage, RawSession
+from piloci.db.models import ExternalLLMUsage, RawSession, UserPreferences
 from piloci.db.session import async_session
 
 
@@ -339,3 +340,114 @@ async def route_budget_usage(request: Request) -> Response:
             ],
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# GET / PATCH /api/preferences — distillation-related user preferences
+# ---------------------------------------------------------------------------
+
+
+_ALLOWED_PREF_FIELDS: dict[str, type] = {
+    "distillation_idle_window": str,
+    "distillation_temp_ceiling_c": float,
+    "distillation_load_ceiling_1m": float,
+    "distillation_overflow_threshold": int,
+    "external_budget_monthly_usd": float,
+}
+
+
+def _serialize_prefs(prefs: UserPreferences | None) -> dict[str, Any]:
+    if prefs is None:
+        return {k: None for k in _ALLOWED_PREF_FIELDS}
+    return {k: getattr(prefs, k) for k in _ALLOWED_PREF_FIELDS}
+
+
+async def route_get_preferences(request: Request) -> Response:
+    """Read the authenticated user's distillation preferences.
+
+    Returns NULL for any field the user hasn't set — those inherit the
+    server-wide default from Settings at scheduler-poll time.
+    """
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "unauthorized"}, 401)
+    user_id = _uid(user)
+
+    async with async_session() as db:
+        prefs = (
+            await db.execute(select(UserPreferences).where(UserPreferences.user_id == user_id))
+        ).scalar_one_or_none()
+
+    return _json(_serialize_prefs(prefs))
+
+
+async def route_patch_preferences(request: Request) -> Response:
+    """Partial update of distillation prefs. NULL clears a field.
+
+    Whitelisted fields only — anything else in the body is rejected so a
+    typo can't accidentally write to an unrelated column. Type coercion is
+    intentionally strict: invalid values 400 instead of being silently dropped.
+    """
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "unauthorized"}, 401)
+    user_id = _uid(user)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "invalid JSON"}, 400)
+    if not isinstance(body, dict):
+        return _json({"error": "body must be an object"}, 400)
+
+    coerced: dict[str, Any] = {}
+    for key, value in body.items():
+        if key not in _ALLOWED_PREF_FIELDS:
+            return _json({"error": f"unknown field: {key}"}, 400)
+        if value is None:
+            coerced[key] = None
+            continue
+        expected = _ALLOWED_PREF_FIELDS[key]
+        try:
+            coerced[key] = expected(value)
+        except (TypeError, ValueError):
+            return _json({"error": f"field {key} must be {expected.__name__}"}, 400)
+
+    # Light sanity bounds. Out-of-range values would silently break the
+    # scheduler later (e.g. negative thresholds), so reject early.
+    if "distillation_temp_ceiling_c" in coerced:
+        v = coerced["distillation_temp_ceiling_c"]
+        if v is not None and not (0 < v < 100):
+            return _json({"error": "temp_ceiling_c must be between 0 and 100"}, 400)
+    if "distillation_load_ceiling_1m" in coerced:
+        v = coerced["distillation_load_ceiling_1m"]
+        if v is not None and not (0 < v < 64):
+            return _json({"error": "load_ceiling_1m must be between 0 and 64"}, 400)
+    if "distillation_overflow_threshold" in coerced:
+        v = coerced["distillation_overflow_threshold"]
+        if v is not None and v < 0:
+            return _json({"error": "overflow_threshold must be ≥ 0"}, 400)
+    if "external_budget_monthly_usd" in coerced:
+        v = coerced["external_budget_monthly_usd"]
+        if v is not None and v < 0:
+            return _json({"error": "monthly budget must be ≥ 0"}, 400)
+    if "distillation_idle_window" in coerced:
+        v = coerced["distillation_idle_window"]
+        if v is not None and parse_idle_window(v) is None:
+            return _json({"error": "idle_window must be HH:MM-HH:MM"}, 400)
+
+    now = datetime.now(timezone.utc)
+    async with async_session() as db:
+        prefs = (
+            await db.execute(select(UserPreferences).where(UserPreferences.user_id == user_id))
+        ).scalar_one_or_none()
+        if prefs is None:
+            prefs = UserPreferences(user_id=user_id, updated_at=now)
+            db.add(prefs)
+        for key, value in coerced.items():
+            setattr(prefs, key, value)
+        prefs.updated_at = now
+        await db.commit()
+        await db.refresh(prefs)
+
+    return _json(_serialize_prefs(prefs))

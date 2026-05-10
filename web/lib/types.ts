@@ -245,3 +245,65 @@ export interface ProjectWorkspace {
     note_limit?: number;
   };
 }
+
+// ----- Lazy distillation pipeline -----
+
+export interface DistillationStatus {
+  counts: {
+    pending: number;
+    distilled: number;
+    filtered: number;
+    failed: number;
+    archived: number;
+  };
+  lag: {
+    oldest_pending_at: string | null;
+    seconds_behind: number | null;
+  };
+  last_distilled_at: string | null;
+  processing_path_30d: Record<string, number>;
+  thresholds: {
+    max_pending_backlog: number;
+    overflow_threshold: number;
+    temp_ceiling_c: number;
+    load_ceiling_1m: number;
+  };
+  current: {
+    cpu_temp_c: number | null;
+    load_avg_1m: number | null;
+  };
+  schedule: {
+    idle_window: string | null;
+    next_idle_at: string | null;
+  };
+  enabled: boolean;
+}
+
+export interface ProjectFreshness {
+  project_id: string;
+  pending_count: number;
+  last_distilled_at: string | null;
+  oldest_pending_age_seconds: number | null;
+}
+
+export interface DistillationPreferences {
+  distillation_idle_window: string | null;
+  distillation_temp_ceiling_c: number | null;
+  distillation_load_ceiling_1m: number | null;
+  distillation_overflow_threshold: number | null;
+  external_budget_monthly_usd: number | null;
+}
+
+export interface BudgetUsage {
+  month_start_utc: string;
+  spent_usd: number;
+  remaining_usd: number | null;
+  cap_usd: number | null;
+  by_provider: Array<{
+    provider: string;
+    calls: number;
+    tokens_in: number;
+    tokens_out: number;
+    cost_usd: number;
+  }>;
+}

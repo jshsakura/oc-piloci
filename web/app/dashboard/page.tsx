@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
 import { DashboardSummaryPanels } from "@/components/DashboardSummaryPanels";
+import { DistillationStatusPanel } from "@/components/DistillationStatusPanel";
 import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
@@ -60,6 +61,10 @@ export default function DashboardPage() {
         totalKnacks={totalKnacks}
         projectCount={projectCount}
       />
+
+      <div className="mt-6">
+        <DistillationStatusPanel />
+      </div>
     </AppShell>
   );
 }

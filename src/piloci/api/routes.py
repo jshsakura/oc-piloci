@@ -3502,4 +3502,14 @@ def get_routes() -> list[Route]:
             methods=["POST"],
         ),
         Route("/api/budget/usage", distillation_routes.route_budget_usage, methods=["GET"]),
+        Route(
+            "/api/preferences",
+            distillation_routes.route_get_preferences,
+            methods=["GET"],
+        ),
+        Route(
+            "/api/preferences",
+            distillation_routes.route_patch_preferences,
+            methods=["PATCH"],
+        ),
     ]

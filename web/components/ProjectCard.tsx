@@ -9,6 +9,7 @@ import type { Project } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { ProjectFreshnessBadge } from "@/components/ProjectFreshnessBadge";
 import {
   Dialog,
   DialogContent,
@@ -104,6 +105,7 @@ export function ProjectCard({ project, onOpen }: ProjectCardProps) {
           <Badge variant="outline" className="inline-flex items-center gap-1">
             <Lightbulb className="size-3" /> {project.instinct_count ?? 0} {t.projects.cardKnacks}
           </Badge>
+          <ProjectFreshnessBadge projectId={project.id} />
         </div>
 
         <div className="flex items-center justify-between border-t pt-3">

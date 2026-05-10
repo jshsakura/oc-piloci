@@ -290,4 +290,27 @@ export const api = {
     request(`/api/admin/users/${userId}/toggle-active`, { method: "POST" }),
   adminDeleteUser: (userId: string) =>
     request(`/api/admin/users/${userId}`, { method: "DELETE" }),
+
+  // Lazy distillation observability + control
+  distillationStatus: () =>
+    request<import("./types").DistillationStatus>("/api/distillation/status"),
+  projectFreshness: (projectId: string) =>
+    request<import("./types").ProjectFreshness>(
+      `/api/projects/${projectId}/freshness`,
+    ),
+  runDistillationNow: () =>
+    request<{ woken: boolean; note: string }>("/api/distillation/run-now", {
+      method: "POST",
+    }),
+  budgetUsage: () =>
+    request<import("./types").BudgetUsage>("/api/budget/usage"),
+  getDistillationPreferences: () =>
+    request<import("./types").DistillationPreferences>("/api/preferences"),
+  updateDistillationPreferences: (
+    body: Partial<import("./types").DistillationPreferences>,
+  ) =>
+    request<import("./types").DistillationPreferences>("/api/preferences", {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
 };
