@@ -62,6 +62,61 @@ DEFAULT_BATCH_SIZE = 4
 DEDUP_THRESHOLD = 0.95
 
 
+# Module-level wake event so the /api/distillation/run-now endpoint can
+# short-circuit the worker's sleep and trigger an immediate scheduler poll.
+# Lazily constructed because the loop must own it (created inside
+# run_distillation_worker on first call).
+_wake_event: asyncio.Event | None = None
+
+
+def _get_wake_event() -> asyncio.Event:
+    global _wake_event
+    if _wake_event is None:
+        _wake_event = asyncio.Event()
+    return _wake_event
+
+
+def request_wake() -> bool:
+    """Signal the worker to skip its remaining sleep and re-poll now.
+
+    Returns True when the event was set (worker is alive and listening),
+    False when no worker has registered yet (e.g., distillation disabled).
+    The endpoint surfaces this so the user knows whether the wake actually
+    landed.
+    """
+    if _wake_event is None:
+        return False
+    _wake_event.set()
+    return True
+
+
+async def _sleep_until(
+    stop_event: asyncio.Event, wake_event: asyncio.Event, seconds: float
+) -> None:
+    """Sleep up to ``seconds`` but return early on stop or wake.
+
+    Wake events are auto-cleared so the next sleep blocks again. Stop events
+    aren't cleared — they're terminal.
+    """
+    if seconds <= 0:
+        return
+    try:
+        await asyncio.wait_for(
+            asyncio.wait(
+                [
+                    asyncio.create_task(stop_event.wait()),
+                    asyncio.create_task(wake_event.wait()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
+            ),
+            timeout=seconds,
+        )
+    except asyncio.TimeoutError:
+        pass
+    if wake_event.is_set():
+        wake_event.clear()
+
+
 def _build_scheduler_config(
     settings: Settings, user_prefs: UserPreferences | None
 ) -> SchedulerConfig:
@@ -384,6 +439,7 @@ async def run_distillation_worker(
         logger.info("distillation: disabled via settings.distillation_enabled=False")
         return
 
+    wake = _get_wake_event()
     logger.info("distillation: lazy worker started")
     while not stop_event.is_set():
         try:
@@ -401,13 +457,7 @@ async def run_distillation_worker(
                 decision.cpu_temp_c,
                 decision.load_avg_1m,
             )
-            try:
-                await asyncio.wait_for(
-                    stop_event.wait(),
-                    timeout=decision.next_poll_seconds,
-                )
-            except asyncio.TimeoutError:
-                pass
+            await _sleep_until(stop_event, wake, decision.next_poll_seconds)
             continue
 
         # Pull a small batch and process sequentially. The scheduler is asked

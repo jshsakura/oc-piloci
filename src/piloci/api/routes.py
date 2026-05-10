@@ -57,7 +57,7 @@ def _resolve_base_url(request: Request, settings: Any) -> str:
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from piloci.api import v1
+from piloci.api import distillation_routes, v1
 from piloci.curator.vault import (
     build_project_vault_preview,
     ensure_project_vault,
@@ -3485,4 +3485,21 @@ def get_routes() -> list[Route]:
         Route("/api/v1/init", v1.route_v1_init, methods=["POST"]),
         Route("/api/v1/recommend", v1.route_v1_recommend, methods=["POST"]),
         Route("/api/v1/contradict", v1.route_v1_contradict, methods=["POST"]),
+        # Lazy distillation observability + control surface
+        Route(
+            "/api/distillation/status",
+            distillation_routes.route_distillation_status,
+            methods=["GET"],
+        ),
+        Route(
+            "/api/projects/{id}/freshness",
+            distillation_routes.route_project_freshness,
+            methods=["GET"],
+        ),
+        Route(
+            "/api/distillation/run-now",
+            distillation_routes.route_run_now,
+            methods=["POST"],
+        ),
+        Route("/api/budget/usage", distillation_routes.route_budget_usage, methods=["GET"]),
     ]
