@@ -114,6 +114,8 @@ async def chat_json(
     timeout: float = 120.0,
     retries: int = 3,
     fallbacks: list[ProviderTarget] | None = None,
+    targets: list[ProviderTarget] | None = None,
+    record_target: list[str] | None = None,
 ) -> dict[str, Any]:
     """Call the primary LLM and parse its response as JSON; cascade to fallbacks.
 
@@ -121,16 +123,23 @@ async def chat_json(
     given when the primary exhausts its retries (or any fallback fails). The
     first successful call wins. Each target gets its own retry budget.
 
+    ``targets`` overrides the (primary + fallbacks) construction entirely —
+    pass an explicit ordered chain when overflow scheduling needs to put an
+    external provider first or skip the local endpoint.
+
     Raises ValueError when every target has been exhausted.
     """
-    targets = [ProviderTarget(endpoint=endpoint, model=model, label="primary")]
-    if fallbacks:
-        targets.extend(fallbacks)
+    if targets is None:
+        targets = [ProviderTarget(endpoint=endpoint, model=model, label="primary")]
+        if fallbacks:
+            targets.extend(fallbacks)
+    if not targets:
+        raise ValueError("chat_json: no providers to call")
 
     last_err: Exception | None = None
     for target in targets:
         try:
-            return await _call_one(
+            result = await _call_one(
                 target,
                 messages,
                 temperature=temperature,
@@ -138,6 +147,9 @@ async def chat_json(
                 timeout=timeout,
                 retries=retries,
             )
+            if record_target is not None:
+                record_target.append(target.label)
+            return result
         except Exception as exc:
             last_err = exc
             logger.warning("LLM target %s exhausted: %s", target.label, exc)

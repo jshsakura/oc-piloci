@@ -2,7 +2,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -160,7 +170,16 @@ class ApiToken(Base):
 
 
 class RawSession(Base):
-    """Raw transcript dump from Stop hooks, awaiting Gemma curation."""
+    """Raw transcript dump. Single source of truth for all session captures
+    awaiting (or having undergone) lazy distillation.
+
+    distillation_state state machine:
+      pending   → not yet processed, eligible for worker pickup
+      distilled → LLM extraction completed, memories+instincts saved
+      filtered  → prefilter heuristic rejected (trivial session); no LLM call
+      failed    → LLM call failed after all retries; error column populated
+      archived  → slid out of distillation window; raw kept but won't be processed
+    """
 
     __tablename__ = "raw_sessions"
 
@@ -178,6 +197,15 @@ class RawSession(Base):
     processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     memories_extracted: Mapped[int] = mapped_column(Integer, default=0)
+    instincts_extracted: Mapped[int] = mapped_column(Integer, default=0)
+
+    distillation_state: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    processing_path: Mapped[str | None] = mapped_column(Text, nullable=True)  # local|external
+    priority: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    filter_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_attempted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     __table_args__ = (
         Index(
@@ -186,6 +214,14 @@ class RawSession(Base):
             sqlite_where=text("processed_at IS NULL"),
         ),
         Index("idx_raw_user_project", "user_id", "project_id"),
+        Index(
+            "idx_raw_pending",
+            "distillation_state",
+            "priority",
+            "created_at",
+            sqlite_where=text("distillation_state = 'pending'"),
+        ),
+        Index("idx_raw_user_state", "user_id", "distillation_state"),
     )
 
 
@@ -262,3 +298,58 @@ class UserProfile(Base):
     )
     profile_json: Mapped[str] = mapped_column(Text, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class UserPreferences(Base):
+    """Per-user runtime preferences for the lazy distillation pipeline.
+
+    Stored typed (vs. JSON blob) so the scheduler and worker can read columns
+    directly without parsing on every poll. NULL on any field means 'use the
+    server-wide default from Settings' — a fresh user has no row at all and
+    inherits all defaults.
+    """
+
+    __tablename__ = "user_preferences"
+
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    # "HH:MM-HH:MM" — local clock; wraparound supported (e.g. 22:00-06:00).
+    distillation_idle_window: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # SoC °C ceiling for normal-hours local distillation. Idle window ignores it.
+    distillation_temp_ceiling_c: Mapped[float | None] = mapped_column(Float, nullable=True)
+    distillation_load_ceiling_1m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Pending-row count above which normal-hours work routes to external LLM.
+    distillation_overflow_threshold: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # USD spent on external LLM per calendar month before the overflow path
+    # locks itself out. NULL = no cap.
+    external_budget_monthly_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class ExternalLLMUsage(Base):
+    """One row per external LLM call made by the distillation pipeline.
+
+    Used by :mod:`piloci.curator.budget` to enforce monthly caps and to power
+    the /api/budget/usage observability endpoint. Token counts are best-effort
+    (some providers don't return usage stats) — callers store 0 in that case
+    and rely on ``estimated_cost_usd`` set from per-provider pricing.
+    """
+
+    __tablename__ = "external_llm_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    provider_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("llm_providers.id", ondelete="SET NULL"), nullable=True
+    )
+    provider_label: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=False)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    estimated_cost_usd: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (Index("idx_external_llm_usage_user_time", "user_id", "created_at"),)

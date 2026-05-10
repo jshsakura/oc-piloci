@@ -78,12 +78,33 @@ _SQLITE_ADD_COLUMNS: dict[str, dict[str, str]] = {
         "instinct_count": "INTEGER NOT NULL DEFAULT 0",
         "cwd": "TEXT",
     },
+    "raw_sessions": {
+        "instincts_extracted": "INTEGER NOT NULL DEFAULT 0",
+        "distillation_state": "TEXT NOT NULL DEFAULT 'pending'",
+        "archived_at": "DATETIME",
+        "processing_path": "TEXT",
+        "priority": "INTEGER NOT NULL DEFAULT 0",
+        "filter_reason": "TEXT",
+        "last_attempted_at": "DATETIME",
+        "attempt_count": "INTEGER NOT NULL DEFAULT 0",
+    },
 }
 
 
+_SQLITE_BACKFILL: list[str] = [
+    # One-shot SQL run after column add. Idempotent — must be safe on every
+    # startup. Use to seed legacy rows after a column gains a non-null state.
+    # Backfill distillation_state for rows that existed before the column
+    # was added. processed_at IS NOT NULL → 'distilled', else 'pending'.
+    "UPDATE raw_sessions SET distillation_state = 'distilled' "
+    "WHERE distillation_state = 'pending' AND processed_at IS NOT NULL",
+]
+
+
 def _apply_pending_migrations(sync_conn) -> None:  # type: ignore[no-untyped-def]
-    """Add columns introduced after a table was first created. SQLite-only —
-    each ALTER TABLE ADD COLUMN is independent and skipped when present."""
+    """Add columns introduced after a table was first created and run any
+    one-shot backfills. SQLite-only — each step is idempotent so this is safe
+    to run on every startup."""
     from sqlalchemy import text
 
     for table, columns in _SQLITE_ADD_COLUMNS.items():
@@ -93,6 +114,9 @@ def _apply_pending_migrations(sync_conn) -> None:  # type: ignore[no-untyped-def
         for col, spec in columns.items():
             if col not in existing:
                 sync_conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {spec}"))
+
+    for sql in _SQLITE_BACKFILL:
+        sync_conn.execute(text(sql))
 
 
 async def init_db(engine: AsyncEngine | None = None) -> None:

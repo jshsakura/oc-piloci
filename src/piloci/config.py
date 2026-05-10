@@ -75,6 +75,33 @@ class Settings(BaseSettings):
     external_llm_api_key: str | None = None
     external_llm_label: str = "system-fallback"
 
+    # Lazy distillation pipeline — replaces the eager curator + analyzer.
+    # The defaults here are server-wide; per-user UserPreferences rows
+    # override individual fields when set.
+    distillation_enabled: bool = True
+    # Default idle window in local time, "HH:MM-HH:MM". Distillation runs
+    # aggressively in this window regardless of temperature. None disables.
+    distillation_idle_window: str | None = "02:00-07:00"
+    # Outside the idle window, the worker holds when SoC ≥ this temp or
+    # 1-min loadavg ≥ this load. Tuned for Pi 5 — drop both for headroom.
+    distillation_temp_ceiling_c: float = 70.0
+    distillation_load_ceiling_1m: float = 3.0
+    # Pending-row count above which normal-hours work routes to external LLM
+    # if the user has providers + budget. Backlog beyond max_pending_backlog
+    # gets the oldest rows archived (FIFO drop) at ingest time.
+    distillation_overflow_threshold: int = 50
+    distillation_max_pending_backlog: int = 200
+    # Poll cadence in seconds for the lazy worker — how often it asks the
+    # scheduler "should I run now?". Idle window polls fast; held polls slow.
+    distillation_poll_interval_normal_sec: float = 60.0
+    distillation_poll_interval_idle_sec: float = 5.0
+    distillation_poll_interval_held_sec: float = 120.0
+    # Attempts per RawSession row before it's stamped 'failed'.
+    distillation_max_attempts: int = 3
+    # Server-wide default monthly budget for external LLM (USD). Per-user
+    # UserPreferences override. None = no cap.
+    distillation_default_budget_monthly_usd: float | None = None
+
     # Database (SQLite, M2+)
     database_url: str = "sqlite+aiosqlite:////data/piloci.db"
     sqlite_busy_timeout_ms: int = 5000
@@ -154,6 +181,11 @@ class Settings(BaseSettings):
         # the dashboard look-back window) — don't clamp it from low_spec_mode.
         self.audit_log_retention_days = min(self.audit_log_retention_days, 30)
         self.maintenance_interval_sec = max(self.maintenance_interval_sec, 900)
+        # Lazy distillation: lower ceilings + tighter backlog on small devices.
+        self.distillation_temp_ceiling_c = min(self.distillation_temp_ceiling_c, 65.0)
+        self.distillation_load_ceiling_1m = min(self.distillation_load_ceiling_1m, 2.0)
+        self.distillation_max_pending_backlog = min(self.distillation_max_pending_backlog, 100)
+        self.distillation_overflow_threshold = min(self.distillation_overflow_threshold, 25)
 
 
 _settings: Settings | None = None
