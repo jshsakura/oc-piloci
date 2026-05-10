@@ -138,6 +138,13 @@ class Settings(BaseSettings):
     # device too hot to ever pass the scheduler gate.
     health_backlog_stuck_min: int = 60
 
+    # Periodic heartbeat — independent of threshold alerts. Sends a single
+    # short status snapshot every N minutes so the user can confirm progress
+    # without opening the dashboard. Off by default; flip on during the
+    # stabilization window after a deploy.
+    health_periodic_report_enabled: bool = False
+    health_periodic_report_interval_min: int = 60
+
     # Redis (M2+)
     redis_url: str = "redis://localhost:6379/0"
 

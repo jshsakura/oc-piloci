@@ -275,6 +275,121 @@ async def _eval_backlog_stuck(settings: Settings, now: datetime) -> list[FiredAl
 
 
 # ---------------------------------------------------------------------------
+# Periodic heartbeat — orthogonal to threshold alerts
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _HeartbeatState:
+    """Module-level memory for the periodic-report cadence.
+
+    ``last_sent_at`` gates the next send; ``last_distilled_count`` lets us
+    report a delta ("+5 since last report") rather than a noisy total.
+    """
+
+    last_sent_at: datetime | None = None
+    last_distilled_count: int | None = None
+
+
+_heartbeat = _HeartbeatState()
+
+
+def reset_heartbeat() -> None:
+    """Test hook — clears heartbeat memory so the next call sends immediately."""
+    _heartbeat.last_sent_at = None
+    _heartbeat.last_distilled_count = None
+
+
+async def _build_heartbeat_message(settings: Settings, now: datetime) -> str:
+    """Compose a one-shot status snapshot.
+
+    Pulls counts from the DB and live readings from /proc, /sys. Format is
+    intentionally short (≤ ~6 lines) so a Telegram thread doesn't drown in
+    pretty-printed JSON. Delta from the previous heartbeat is the headline
+    number — that's what tells the user "the device is making progress".
+    """
+    cpu_temp = read_cpu_temp_celsius()
+    load_1m = read_load_average_1min()
+    swap_ratio = _read_swap_used_ratio()
+
+    async with async_session() as db:
+        rows = (
+            await db.execute(
+                select(RawSession.distillation_state, func.count().label("n")).group_by(
+                    RawSession.distillation_state
+                )
+            )
+        ).all()
+        last_processed_at = (
+            await db.execute(
+                select(func.max(RawSession.processed_at)).where(
+                    RawSession.distillation_state == "distilled"
+                )
+            )
+        ).scalar()
+
+    counts = {row.distillation_state: int(row.n) for row in rows}
+    distilled = counts.get("distilled", 0)
+    pending = counts.get("pending", 0)
+    failed = counts.get("failed", 0)
+
+    if _heartbeat.last_distilled_count is None:
+        delta_str = f"+{distilled} (since startup)"
+    else:
+        delta = distilled - _heartbeat.last_distilled_count
+        delta_str = f"+{delta}" if delta >= 0 else str(delta)
+    _heartbeat.last_distilled_count = distilled
+
+    if last_processed_at is not None:
+        anchor = (
+            last_processed_at
+            if last_processed_at.tzinfo
+            else last_processed_at.replace(tzinfo=timezone.utc)
+        )
+        age_min = (now - anchor).total_seconds() / 60.0
+        last_str = f"{age_min:.0f}분 전"
+    else:
+        last_str = "없음"
+
+    temp_str = f"{cpu_temp:.1f}°C" if cpu_temp is not None else "—"
+    load_str = f"{load_1m:.2f}" if load_1m is not None else "—"
+    swap_str = f"{swap_ratio*100:.0f}%" if swap_ratio is not None else "—"
+
+    return (
+        f"📊 piLoci 상태 ({settings.health_periodic_report_interval_min}분 주기)\n"
+        f"🌡 SoC {temp_str}  ⚙️ load {load_str}  💾 swap {swap_str}\n"
+        f"📦 증류: {delta_str} (총 {distilled})\n"
+        f"⏳ 대기 {pending}건"
+        + (f"  ⚠️ 실패 {failed}" if failed > 0 else "")
+        + f"\n🕒 마지막 처리: {last_str}"
+    )
+
+
+async def _maybe_send_heartbeat(settings: Settings, now: datetime) -> None:
+    """Send a periodic report if the configured interval has elapsed.
+
+    First call after startup always sends — that's the "I'm alive" ping
+    the user expects on container restart.
+    """
+    if not settings.health_periodic_report_enabled:
+        return
+    interval_min = settings.health_periodic_report_interval_min
+    if interval_min <= 0:
+        return
+    if _heartbeat.last_sent_at is not None:
+        if (now - _heartbeat.last_sent_at) < timedelta(minutes=interval_min):
+            return
+
+    try:
+        text = await _build_heartbeat_message(settings, now)
+        sent = await send_admin_notification(text, settings)
+        if sent:
+            _heartbeat.last_sent_at = now
+    except Exception:
+        logger.exception("heartbeat: build/send failed")
+
+
+# ---------------------------------------------------------------------------
 # Worker entry point
 # ---------------------------------------------------------------------------
 
@@ -309,6 +424,10 @@ async def run_health_monitor(settings: Settings, stop_event: object) -> None:
                         await send_admin_notification(text, settings)
                     except Exception:
                         logger.exception("health monitor: telegram send failed (%s)", alert.kind)
+                # Heartbeat is independent of breach detection — fires on its
+                # own cadence so the user gets steady progress reports during
+                # the stabilization window even when nothing is wrong.
+                await _maybe_send_heartbeat(settings, now)
             except Exception:
                 logger.exception("health monitor: poll iteration failed")
 
