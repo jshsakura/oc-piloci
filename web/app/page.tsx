@@ -8,13 +8,17 @@ import {
   Fingerprint, Code2, Zap, ShieldCheck, BrainCircuit, Network,
   Lock, Plug, ArrowRight, Activity, TrendingDown, Gauge,
   Database, Search, Brain, Heart, Cpu, HardDrive, Microchip,
-  MemoryStick, FileJson, Globe, LayoutDashboard,
+  MemoryStick, FileJson, Globe, LayoutDashboard, LogOut, UserCircle,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import BrandMark from "@/components/BrandMark";
 import RoutePending from "@/components/RoutePending";
 import ThemeToggle from "@/components/ThemeToggle";
@@ -115,39 +119,42 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-2">
             {user ? (
-              <>
-                <Button
-                  size="sm"
-                  asChild
-                  className="bg-primary text-primary-foreground hover:bg-primary/90"
-                >
-                  <Link href="/dashboard">
-                    <LayoutDashboard className="mr-1.5 size-3.5" />
-                    {t.appShell.nav.dashboard}
-                  </Link>
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={async () => {
-                    await api.logout().catch(() => {});
-                    logout();
-                    router.push("/login");
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  {t.appShell.dropdown.logout}
-                </Button>
-              </>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="flex size-8 cursor-pointer items-center justify-center rounded-full border bg-background/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <UserCircle className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <div className="px-2 py-1.5 text-xs text-muted-foreground select-none">{user.email}</div>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/dashboard">
+                      <LayoutDashboard className="me-2 size-4" />
+                      {t.appShell.nav.dashboard}
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={async () => { await api.logout().catch(() => {}); logout(); router.push("/login"); }}
+                    className="text-destructive"
+                  >
+                    <LogOut className="me-2 size-4" />
+                    {t.appShell.dropdown.logout}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                asChild
-                className="border-primary/30 text-primary hover:bg-primary hover:text-primary-foreground active:bg-primary/80"
+              <button
+                type="button"
+                onClick={() => router.push("/login")}
+                className="flex size-8 cursor-pointer items-center justify-center rounded-full border bg-background/60 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <Link href="/login">{t.common.login}</Link>
-              </Button>
+                <UserCircle className="size-4" />
+              </button>
             )}
             <button
               onClick={() => setLocale(locale === "ko" ? "en" : "ko")}
