@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Globe, Check } from "lucide-react";
+import { Languages, Check } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
 import { locales, localeLabels } from "@/lib/copy";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ export default function LocaleToggle() {
           className="size-8"
           aria-label={copy.trigger}
         >
-          <Globe className="size-4" />
+          <Languages className="size-4" />
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-sm">

@@ -8,7 +8,7 @@ import {
   Fingerprint, Code2, Zap, ShieldCheck, BrainCircuit, Network,
   Lock, Plug, ArrowRight, Activity, TrendingDown, Gauge,
   Database, Search, Brain, Heart, Cpu, HardDrive, Microchip,
-  MemoryStick, FileJson, Globe, LayoutDashboard, LogOut, UserCircle,
+  MemoryStick, FileJson, LayoutDashboard, LogOut, UserCircle,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuthStore } from "@/lib/auth";
@@ -23,11 +23,12 @@ import {
 import BrandMark from "@/components/BrandMark";
 import RoutePending from "@/components/RoutePending";
 import ThemeToggle from "@/components/ThemeToggle";
+import LocaleToggle from "@/components/LocaleToggle";
 import TypingQuotes from "@/components/TypingQuotes";
 
 export default function LandingPage() {
   const { user, hasHydrated, logout } = useAuthStore();
-  const { locale, setLocale, t } = useTranslation();
+  const { t } = useTranslation();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [copiedSetup, setCopiedSetup] = useState(false);
@@ -101,7 +102,7 @@ export default function LandingPage() {
 
   const featureIcons = [Fingerprint, Code2, Zap, ShieldCheck, BrainCircuit, Network, Lock, Plug];
   const toolIcons = [Database, Search, Brain];
-  const engIcons = [Database, HardDrive, Microchip, MemoryStick, FileJson, Globe];
+  const engIcons = [Database, HardDrive, Microchip, MemoryStick, FileJson, Network];
 
   return (
     <div className="bg-background landing-pattern">
@@ -119,6 +120,8 @@ export default function LandingPage() {
             </span>
           </div>
           <div className="flex items-center gap-2">
+            <LocaleToggle />
+            <ThemeToggle />
             {user ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -159,15 +162,6 @@ export default function LandingPage() {
                 <UserCircle className="size-5 text-muted-foreground" />
               </button>
             )}
-            <button
-              onClick={() => setLocale(locale === "ko" ? "en" : "ko")}
-              className="flex h-8 cursor-pointer items-center gap-1 rounded-md border border-border px-2 text-xs font-medium text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <span className={locale === "ko" ? "text-foreground" : ""}>KO</span>
-              <span className="text-border">/</span>
-              <span className={locale === "en" ? "text-foreground" : ""}>EN</span>
-            </button>
-            <ThemeToggle />
           </div>
         </div>
       </header>
