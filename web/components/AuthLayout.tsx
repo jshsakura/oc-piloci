@@ -26,7 +26,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   const { t } = useTranslation();
   return (
     <div className="pi-app-bg flex min-h-screen">
-      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between border-r p-12">
+      <div className="hidden lg:flex lg:w-1/2 flex-col justify-between border-r bg-muted/50 p-12 section-pattern">
         <BrandMark />
         <div className="pi-page-hero max-w-xl space-y-4">
           <h1 className="text-3xl font-semibold tracking-[-0.04em]">
@@ -49,7 +49,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           </Link>
         </p>
       </div>
-      <div className="flex w-full items-center justify-center p-6 lg:w-1/2">
+      <div className="flex w-full items-center justify-center p-6 lg:w-1/2 landing-pattern">
         {children}
       </div>
     </div>
