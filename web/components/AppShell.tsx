@@ -41,7 +41,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <div className="pi-app-bg flex h-screen flex-col overflow-hidden">
+    <div className="bg-background landing-pattern flex h-screen flex-col overflow-hidden">
       <header className="pi-glass-nav shrink-0 border-b backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
           <BrandMark />
