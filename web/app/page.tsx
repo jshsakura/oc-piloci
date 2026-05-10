@@ -261,14 +261,8 @@ export default function LandingPage() {
               {t.landing.sections.install.eyebrow}
             </p>
 
-            {/* setup — recommended */}
-            <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 sm:p-5 space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold">{t.landing.sections.install.setup.title}</h3>
-                <span className="rounded-full bg-primary px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary-foreground">
-                  {t.landing.sections.install.recommendedLabel}
-                </span>
-              </div>
+            {/* setup — single main command */}
+            <div className="space-y-3">
               <p className="text-xs sm:text-sm text-muted-foreground">
                 {t.landing.sections.install.setup.desc}
               </p>
@@ -284,26 +278,15 @@ export default function LandingPage() {
                   {copiedSetup ? t.common.copied : t.common.copy}
                 </span>
               </button>
-            </div>
-
-            {/* install — alternative */}
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-muted-foreground">{t.landing.sections.install.install.title}</h3>
-              <p className="text-xs sm:text-sm text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground/60">
                 {t.landing.sections.install.install.desc}
+                <button
+                  onClick={copyInstall}
+                  className="ml-1.5 font-mono text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 cursor-pointer"
+                >
+                  {copied ? t.common.copied : "uvx oc-piloci install"}
+                </button>
               </p>
-              <button
-                onClick={copyInstall}
-                className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
-              >
-                <span className="flex items-center gap-3">
-                  <span className="text-muted-foreground">$</span>
-                  <span>uvx oc-piloci install</span>
-                </span>
-                <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                  {copied ? t.common.copied : t.common.copy}
-                </span>
-              </button>
             </div>
 
             <div className="rounded-xl border bg-muted/40 p-4 sm:p-5">
