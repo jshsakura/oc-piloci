@@ -253,7 +253,7 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
           { icon: Flame, label: summary.funStats.streak, value: isLoading ? "…" : streak > 0 ? `${streak}${summary.funStats.streakUnit}` : "–", color: "text-orange-500", bg: "bg-orange-500/10" },
           { icon: Activity, label: summary.funStats.anger, value: isLoading ? "…" : angryCount > 0 ? `${angryCount}${summary.funStats.angerUnit}` : summary.funStats.angerNone, color: "text-rose-500", bg: "bg-rose-500/10" },
         ].map(({ icon: Icon, label, value, color, bg }) => (
-          <div key={label} className="flex items-center gap-3 rounded-xl border bg-card/60 px-4 py-3">
+          <div key={label} className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3">
             <span className={`flex size-8 shrink-0 items-center justify-center rounded-full ${bg}`}>
               <Icon className={`size-4 ${color}`} />
             </span>
@@ -291,7 +291,7 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
                 <li key={m.memory_id}>
                   <Link
                     href={`/projects/?slug=${m.project_slug}`}
-                    className="block rounded-lg border border-border/60 bg-card/50 px-3 py-2.5 transition-all hover:border-primary/40 hover:bg-accent/40 hover:shadow-sm"
+                    className="block rounded-lg border border-border/60 bg-card px-3 py-2.5 transition-all hover:border-primary/40 hover:bg-accent/40 hover:shadow-sm"
                   >
                     <p className="line-clamp-2 break-words text-sm leading-snug">{m.content}</p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -336,7 +336,7 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
               {instPager.slice.map((i) => (
                 <li
                   key={i.instinct_id}
-                  className="rounded-lg border border-border/60 bg-card/50 px-3 py-2.5"
+                  className="rounded-lg border border-border/60 bg-card px-3 py-2.5"
                 >
                   <p className="line-clamp-1 break-words text-xs text-muted-foreground">
                     <span className="font-medium text-foreground">when</span> {i.trigger}

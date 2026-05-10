@@ -203,7 +203,8 @@ button {
     border-color: var(--pi-line);
     background:
       linear-gradient(135deg, color-mix(in oklch, var(--card) 94%, transparent), color-mix(in oklch, var(--muted) 62%, transparent)),
-      radial-gradient(circle at 100% 0%, var(--pi-glow), transparent 18rem);
+      radial-gradient(circle at 100% 0%, var(--pi-glow), transparent 18rem),
+      var(--card);
     box-shadow: var(--pi-shadow-sm);
   }
 
@@ -220,7 +221,7 @@ button {
   }
 
   .pi-panel {
-    @apply rounded-[1.35rem] border bg-card/90 shadow-none backdrop-blur;
+    @apply rounded-[1.35rem] border bg-card shadow-none backdrop-blur;
     border-color: var(--pi-line);
     box-shadow: var(--pi-shadow-sm);
   }

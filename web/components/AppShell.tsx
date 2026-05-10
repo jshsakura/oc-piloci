@@ -112,7 +112,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       <main className="flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">{children}</div>
       </main>
-      <footer className="pi-glass-nav shrink-0 border-t backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+      <footer className="pi-glass-nav shrink-0 border-t [box-shadow:none] backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-11 w-full max-w-7xl items-center justify-between px-4 text-xs text-muted-foreground sm:px-6">
           <p>© piLoci 2026</p>
           <div className="flex items-center gap-4">
