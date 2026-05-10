@@ -306,6 +306,12 @@ async def _startup(app, store, stop_event, bg_tasks, instincts_store=None) -> No
     bg_tasks.append(asyncio.create_task(run_maintenance_worker(settings, stop_event)))
     logger.info("Maintenance worker started")
 
+    if settings.health_monitor_enabled:
+        from piloci.notify.health import run_health_monitor
+
+        bg_tasks.append(asyncio.create_task(run_health_monitor(settings, stop_event)))
+        logger.info("Health monitor started")
+
     if settings.curator_enabled and settings.distillation_enabled:
         from piloci.curator.distillation_worker import run_distillation_worker
         from piloci.curator.profile import run_profile_worker

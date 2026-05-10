@@ -119,6 +119,25 @@ class Settings(BaseSettings):
     telegram_min_memory_ops: int = 3
     telegram_timeout_sec: float = 5.0
 
+    # Device health monitor — opt-in. Polls Pi 5 vitals + distillation backlog
+    # and sends a Telegram alert when sustained breaches occur. Recovery
+    # message follows on the back edge so the user knows when to relax.
+    health_monitor_enabled: bool = False
+    health_check_interval_sec: int = 60
+    # A breach must persist across this many consecutive polls before firing.
+    # With the default 60s interval, 3 means alerts only after 3 minutes.
+    health_alert_consecutive: int = 3
+    # Per-alert-kind cooldown — prevents re-firing the same alert too often
+    # if state oscillates around the threshold.
+    health_alert_cooldown_min: int = 30
+    health_temp_alert_c: float = 75.0
+    health_load_alert_1m: float = 4.0
+    health_swap_alert_pct: float = 0.85
+    # Backlog is "stuck" when pending rows exist and nothing has been
+    # distilled in this many minutes — flags both worker hangs and a
+    # device too hot to ever pass the scheduler gate.
+    health_backlog_stuck_min: int = 60
+
     # Redis (M2+)
     redis_url: str = "redis://localhost:6379/0"
 
