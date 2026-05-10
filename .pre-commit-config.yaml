@@ -25,19 +25,24 @@ repos:
   - repo: local
     hooks:
       # ── pre-commit (fast, every commit) ─────────────────────────────
+      #
+      # ``uv run --frozen`` skips the lockfile re-resolution step that
+      # would otherwise touch uv.lock during the hook. That mutation
+      # collides with pre-commit's stash/restore of unstaged changes and
+      # silently rolls the commit back, so keep --frozen on every entry.
       - id: black
         name: black
-        entry: uv run black
+        entry: uv run --frozen black
         language: system
         types: [python]
       - id: isort
         name: isort
-        entry: uv run isort
+        entry: uv run --frozen isort
         language: system
         types: [python]
       - id: ruff
         name: ruff
-        entry: uv run ruff check --fix
+        entry: uv run --frozen ruff check --fix
         language: system
         types: [python]
       - id: next-lint
@@ -50,7 +55,7 @@ repos:
       # ── pre-push (heavier, runs before sending to remote) ───────────
       - id: pytest
         name: pytest
-        entry: uv run pytest tests/ -q --no-cov --tb=short
+        entry: uv run --frozen pytest tests/ -q --no-cov --tb=short
         language: system
         pass_filenames: false
         stages: [pre-push]
