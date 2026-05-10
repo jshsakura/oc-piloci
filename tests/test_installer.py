@@ -192,8 +192,13 @@ def test_run_install_opencode_only_drops_plugin_file(tmp_path: Path) -> None:
     assert report.opencode_configured is True
     plugin_path = tmp_path / installer.OPENCODE_PLUGIN_DIR_NAME / "piloci.ts"
     assert plugin_path.read_bytes() == plugin_src
-    # opencode.json must remain untouched — auto-discovery does the rest.
-    assert not (tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json").exists()
+    # opencode.json must also be written with the MCP remote entry.
+    cfg_path = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    assert cfg_path.exists()
+    import json as _json
+
+    cfg = _json.loads(cfg_path.read_text())
+    assert cfg.get("mcp", {}).get("piloci", {}).get("type") == "remote"
 
 
 def test_get_default_server_from_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
