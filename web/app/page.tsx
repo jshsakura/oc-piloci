@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import {
   Fingerprint, Code2, Zap, ShieldCheck, BrainCircuit, Network,
@@ -10,6 +11,7 @@ import {
   MemoryStick, FileJson, Globe, LayoutDashboard,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth";
+import { api } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,8 +21,9 @@ import ThemeToggle from "@/components/ThemeToggle";
 import TypingQuotes from "@/components/TypingQuotes";
 
 export default function LandingPage() {
-  const { user, hasHydrated } = useAuthStore();
+  const { user, hasHydrated, logout } = useAuthStore();
   const { locale, setLocale, t } = useTranslation();
+  const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedSetup, setCopiedSetup] = useState(false);
@@ -112,16 +115,30 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-2">
             {user ? (
-              <Button
-                size="sm"
-                asChild
-                className="bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                <Link href="/dashboard">
-                  <LayoutDashboard className="mr-1.5 size-3.5" />
-                  {t.appShell.nav.dashboard}
-                </Link>
-              </Button>
+              <>
+                <Button
+                  size="sm"
+                  asChild
+                  className="bg-primary text-primary-foreground hover:bg-primary/90"
+                >
+                  <Link href="/dashboard">
+                    <LayoutDashboard className="mr-1.5 size-3.5" />
+                    {t.appShell.nav.dashboard}
+                  </Link>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    await api.logout().catch(() => {});
+                    logout();
+                    router.push("/login");
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {t.appShell.dropdown.logout}
+                </Button>
+              </>
             ) : (
               <Button
                 variant="outline"
