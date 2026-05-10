@@ -3,6 +3,7 @@
 ## 2026-05-10
 
 - Simplified the landing page install CTA: the separate install/update buttons are now one “설치 및 업데이트” / “Install and Update” command, copying `uvx oc-piloci@latest setup` so fresh installs and refreshes use the same path.
+- Prepared patch release `0.3.11` for the unified install/update CTA so the package version and release tag can stay aligned.
 
 ## 2026-05-03
 
