@@ -65,7 +65,7 @@ export default function ForgotPasswordPage() {
 
   return (
     <AuthLayout>
-      <div className="pi-panel w-full max-w-sm p-8">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
         <div className="mb-8 text-center">
           <h2 className="text-2xl font-bold">{t.forgotPassword.title}</h2>
           <p className="mt-2 text-sm text-muted-foreground">

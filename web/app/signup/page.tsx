@@ -161,7 +161,7 @@ export default function SignupPage() {
 
   return (
     <AuthLayout>
-      <div className="pi-panel w-full max-w-sm p-8">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
         {signupComplete ? (
           <div className="text-center">
             <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">

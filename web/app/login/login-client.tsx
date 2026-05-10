@@ -183,7 +183,7 @@ export default function LoginClient({ authProviders: initialProviders }: { authP
 
   return (
     <AuthLayout>
-      <div className="pi-panel w-full max-w-sm p-8">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-card p-8 shadow-sm">
         <div className="mb-8 text-center">
           <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
             <UserRound className="h-7 w-7 text-primary" />
