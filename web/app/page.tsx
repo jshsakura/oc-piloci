@@ -25,8 +25,8 @@ export default function LandingPage() {
   const { locale, setLocale, t } = useTranslation();
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [copiedSetup, setCopiedSetup] = useState(false);
+  const [copiedUpdate, setCopiedUpdate] = useState(false);
   const [termIdx, setTermIdx] = useState(0);
   const [typed, setTyped] = useState(0);
   const termTimer = useRef<ReturnType<typeof setTimeout>>(null);
@@ -73,10 +73,10 @@ export default function LandingPage() {
     setTimeout(() => setCopiedSetup(false), 2000);
   };
 
-  const copyUninstall = () => {
-    navigator.clipboard.writeText("uvx oc-piloci uninstall --yes");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const copyUpdate = () => {
+    navigator.clipboard.writeText("uvx oc-piloci@latest setup");
+    setCopiedUpdate(true);
+    setTimeout(() => setCopiedUpdate(false), 2000);
   };
 
   if (!mounted || !hasHydrated) {
@@ -275,7 +275,7 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Install / Remove */}
+          {/* Install */}
           <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-3">
             {/* uv 선행 설치 */}
             <div className="rounded-xl border border-dashed bg-muted/30 p-4">
@@ -299,6 +299,7 @@ export default function LandingPage() {
               </div>
             </div>
 
+            {/* 설치 + 업데이트 */}
             <div className="grid gap-4 sm:grid-cols-2">
               {/* 설치 */}
               <div className="space-y-3 rounded-xl border bg-card p-4">
@@ -334,25 +335,30 @@ export default function LandingPage() {
                 </div>
               </div>
 
-              {/* 삭제 */}
-              <div className="space-y-3 rounded-xl border border-dashed bg-card p-4">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                  {t.landing.sections.install.uninstallEyebrow}
+              {/* 업데이트 */}
+              <div className="space-y-3 rounded-xl border bg-card p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
+                  {t.landing.sections.install.updateEyebrow}
                 </p>
                 <button
-                  onClick={copyUninstall}
+                  onClick={copyUpdate}
                   className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted/50 px-4 py-2.5 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
                 >
                   <span className="flex items-center gap-2 min-w-0">
                     <span className="text-muted-foreground">$</span>
-                    <span className="truncate">uvx oc-piloci uninstall --yes</span>
+                    <span className="truncate">uvx oc-piloci@latest setup</span>
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                    {copied ? t.common.copied : t.common.copy}
+                    {copiedUpdate ? t.common.copied : t.common.copy}
                   </span>
                 </button>
               </div>
             </div>
+
+            {/* 삭제 안내 */}
+            <p className="text-center text-xs text-muted-foreground/60">
+              {t.landing.sections.install.uninstallNote}
+            </p>
           </div>
 
           <div className="mt-8 sm:mt-10">

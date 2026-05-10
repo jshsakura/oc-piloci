@@ -206,7 +206,8 @@ const ko = {
         install: {
           uvEyebrow: '선행 설치 — uv',
           eyebrow: '설치',
-          uninstallEyebrow: '삭제',
+          updateEyebrow: '업데이트',
+          uninstallNote: '삭제: uvx oc-piloci uninstall --yes',
           recommendedLabel: '추천',
           setup: { title: 'uvx oc-piloci setup', desc: '' },
           install: { title: 'uvx oc-piloci install', desc: '' },
@@ -1217,7 +1218,8 @@ const en: CopyShape = {
         install: {
           uvEyebrow: 'Prerequisite — uv',
           eyebrow: 'Install',
-          uninstallEyebrow: 'Remove',
+          updateEyebrow: 'Update',
+          uninstallNote: 'Remove: uvx oc-piloci uninstall --yes',
           recommendedLabel: 'Recommended',
           setup: { title: 'uvx oc-piloci setup', desc: '' },
           install: { title: 'uvx oc-piloci install', desc: '' },
