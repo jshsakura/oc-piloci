@@ -247,12 +247,22 @@ def _resolve_server(arg_server: str | None) -> str:
     candidate = arg_server or get_default_server()
     if candidate:
         return candidate.rstrip("/")
-    sys.stderr.write(
-        "[piloci] piLoci 서버 URL이 필요합니다.\n"
-        "         예: --server https://piloci.example.com\n"
-        "         또는 환경변수 PILOCI_SERVER 로 지정하세요.\n"
-    )
-    sys.exit(2)
+
+    # Interactive fallback — ask the user instead of exiting
+    try:
+        url = input("[piloci] 서버 URL을 입력하세요 (예: https://piloci.example.com): ").strip()
+    except (EOFError, KeyboardInterrupt):
+        sys.stderr.write("\n[piloci] 취소됨\n")
+        sys.exit(2)
+
+    if not url:
+        sys.stderr.write("[piloci] URL이 입력되지 않았습니다.\n")
+        sys.exit(2)
+
+    if not url.startswith(("http://", "https://")):
+        url = "https://" + url
+
+    return url.rstrip("/")
 
 
 def _device_login(server: str, *, open_browser: bool) -> tuple[str, list[str] | None]:
@@ -400,11 +410,14 @@ def _run_install(args: argparse.Namespace) -> None:
                 token = None
 
     if not token or not base_url:
-        sys.stderr.write(
-            "[piloci] 토큰이 없습니다. ``piloci login --server <URL>`` 먼저 실행하거나\n"
-            "         install URL/코드를 직접 전달해 주세요.\n"
-        )
-        sys.exit(2)
+        # No token saved — run the device login flow inline
+        print("[piloci] 저장된 토큰이 없습니다. 브라우저 로그인 플로우를 시작합니다...\n")
+        server = _resolve_server(args.server)
+        token, targets = _device_login(server, open_browser=True)
+        from piloci.installer import write_config_json
+
+        write_config_json(token, server)
+        base_url = server
 
     try:
         report: InstallReport = run_install(token, base_url, force=args.force)
