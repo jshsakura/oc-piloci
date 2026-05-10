@@ -258,56 +258,62 @@ export default function LandingPage() {
             </div>
           </div>
 
-          {/* Install command */}
-          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-5 text-left">
-            <p className="text-center text-[11px] font-semibold uppercase tracking-[0.28em] text-primary">
-              {t.landing.sections.install.eyebrow}
-            </p>
-
-            {/* setup */}
-            <button
-              onClick={copySetup}
-              className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-card px-5 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
-            >
-              <span className="flex items-center gap-3">
-                <span className="text-muted-foreground">$</span>
-                <span>uvx oc-piloci setup</span>
-              </span>
-              <span className="text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                {copiedSetup ? t.common.copied : t.common.copy}
-              </span>
-            </button>
-
-            {/* platforms — compact inline */}
-            <div className="flex flex-wrap gap-1.5">
-              {t.landing.sections.install.platforms.map((p) => (
-                <span
-                  key={p.name}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
-                    p.status === "auto"
-                      ? "border-primary/20 bg-primary/5 text-foreground/70"
-                      : "border-border text-muted-foreground/60"
-                  }`}
+          {/* Install / Remove */}
+          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl">
+            <div className="grid gap-4 sm:grid-cols-2">
+              {/* 설치 */}
+              <div className="space-y-3 rounded-xl border bg-card p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
+                  {t.landing.sections.install.eyebrow}
+                </p>
+                <button
+                  onClick={copySetup}
+                  className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted/50 px-4 py-2.5 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
                 >
-                  <span className={`size-1.5 rounded-full ${p.status === "auto" ? "bg-primary/60" : "bg-muted-foreground/30"}`} />
-                  {p.name}
-                </span>
-              ))}
-            </div>
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="text-muted-foreground">$</span>
+                    <span className="truncate">uvx oc-piloci setup</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                    {copiedSetup ? t.common.copied : t.common.copy}
+                  </span>
+                </button>
+                <div className="flex flex-wrap gap-1">
+                  {t.landing.sections.install.platforms.map((p) => (
+                    <span
+                      key={p.name}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                        p.status === "auto"
+                          ? "border-primary/20 bg-primary/5 text-foreground/70"
+                          : "border-border text-muted-foreground/50"
+                      }`}
+                    >
+                      <span className={`size-1.5 rounded-full ${p.status === "auto" ? "bg-primary/60" : "bg-muted-foreground/30"}`} />
+                      {p.name}
+                    </span>
+                  ))}
+                </div>
+              </div>
 
-            {/* uninstall */}
-            <button
-              onClick={copyUninstall}
-              className="group flex w-full items-center justify-between gap-3 rounded-lg border border-dashed px-5 py-2.5 font-mono text-xs text-muted-foreground transition-colors hover:bg-muted cursor-pointer"
-            >
-              <span className="flex items-center gap-3">
-                <span>$</span>
-                <span>uvx oc-piloci uninstall --yes</span>
-              </span>
-              <span className="opacity-0 transition-opacity group-hover:opacity-100">
-                {copied ? t.common.copied : t.landing.sections.install.uninstall.label}
-              </span>
-            </button>
+              {/* 삭제 */}
+              <div className="space-y-3 rounded-xl border border-dashed bg-card p-4">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                  {t.landing.sections.install.uninstallEyebrow}
+                </p>
+                <button
+                  onClick={copyUninstall}
+                  className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted/50 px-4 py-2.5 font-mono text-sm transition-colors hover:bg-muted cursor-pointer"
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className="text-muted-foreground">$</span>
+                    <span className="truncate">uvx oc-piloci uninstall --yes</span>
+                  </span>
+                  <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                    {copied ? t.common.copied : t.common.copy}
+                  </span>
+                </button>
+              </div>
+            </div>
           </div>
 
           <div className="mt-8 sm:mt-10">

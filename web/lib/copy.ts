@@ -204,11 +204,12 @@ const ko = {
           setupDesc: '환경 변수를 통해 SQLite 경로 및 인덱싱 엔진을 자유롭게 설정하세요.',
         },
         install: {
-          eyebrow: '원클릭 설치',
+          eyebrow: '설치',
+          uninstallEyebrow: '삭제',
           recommendedLabel: '추천',
           setup: { title: 'uvx oc-piloci setup', desc: '' },
           install: { title: 'uvx oc-piloci install', desc: '' },
-          uninstall: { label: '제거', cmd: 'uvx oc-piloci uninstall --yes' },
+          uninstall: { label: '복사', cmd: 'uvx oc-piloci uninstall --yes' },
           platformsLabel: '지원 클라이언트',
           platformsHint: '',
           platforms: [
@@ -1213,11 +1214,12 @@ const en: CopyShape = {
           setupDesc: 'Freely configure SQLite paths and indexing engines via environment variables.',
         },
         install: {
-          eyebrow: 'One-click install',
+          eyebrow: 'Install',
+          uninstallEyebrow: 'Remove',
           recommendedLabel: 'Recommended',
           setup: { title: 'uvx oc-piloci setup', desc: '' },
           install: { title: 'uvx oc-piloci install', desc: '' },
-          uninstall: { label: 'Remove', cmd: 'uvx oc-piloci uninstall --yes' },
+          uninstall: { label: 'Copy', cmd: 'uvx oc-piloci uninstall --yes' },
           platformsLabel: 'Supported clients',
           platformsHint: '',
           platforms: [
