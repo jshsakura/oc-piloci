@@ -103,7 +103,7 @@ export default function LandingPage() {
   const engIcons = [Database, HardDrive, Microchip, MemoryStick, FileJson, Globe];
 
   return (
-    <div className="pi-app-bg bg-background">
+    <div className="bg-background landing-pattern">
       {/* Nav */}
       <header className="pi-glass-nav sticky top-0 z-50 border-b backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
