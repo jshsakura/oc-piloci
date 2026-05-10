@@ -7,7 +7,7 @@ import {
   Fingerprint, Code2, Zap, ShieldCheck, BrainCircuit, Network,
   Lock, Plug, ArrowRight, Activity, TrendingDown, Gauge,
   Database, Search, Brain, Heart, Cpu, HardDrive, Microchip,
-  MemoryStick, FileJson, Globe,
+  MemoryStick, FileJson, Globe, LayoutDashboard,
 } from "lucide-react";
 import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
@@ -117,7 +117,10 @@ export default function LandingPage() {
                 asChild
                 className="bg-primary text-primary-foreground hover:bg-primary/90"
               >
-                <Link href="/dashboard">{t.appShell.nav.dashboard}</Link>
+                <Link href="/dashboard">
+                  <LayoutDashboard className="mr-1.5 size-3.5" />
+                  {t.appShell.nav.dashboard}
+                </Link>
               </Button>
             ) : (
               <Button
@@ -275,39 +278,21 @@ export default function LandingPage() {
               </span>
             </button>
 
-            {/* platforms */}
-            <div className="rounded-xl border bg-muted/40 p-4 sm:p-5">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                {t.landing.sections.install.platformsLabel}
-              </p>
-              <div className="flex flex-wrap gap-1.5">
-                {t.landing.sections.install.platforms.map((p) => (
-                  <span
-                    key={p.name}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
-                      p.status === "auto"
-                        ? "border-primary/30 bg-primary/5 text-foreground"
-                        : "border-border bg-background text-muted-foreground"
-                    }`}
-                  >
-                    <span
-                      className={`size-1.5 rounded-full ${
-                        p.status === "auto" ? "bg-primary" : "bg-muted-foreground/40"
-                      }`}
-                    />
-                    {p.name}
-                    <span
-                      className={`text-[9px] uppercase tracking-wider ${
-                        p.status === "auto" ? "text-primary/70" : "text-muted-foreground/60"
-                      }`}
-                    >
-                      {p.status === "auto"
-                        ? t.landing.sections.install.statusLabels.auto
-                        : t.landing.sections.install.statusLabels.manual}
-                    </span>
-                  </span>
-                ))}
-              </div>
+            {/* platforms — compact inline */}
+            <div className="flex flex-wrap gap-1.5">
+              {t.landing.sections.install.platforms.map((p) => (
+                <span
+                  key={p.name}
+                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                    p.status === "auto"
+                      ? "border-primary/20 bg-primary/5 text-foreground/70"
+                      : "border-border text-muted-foreground/60"
+                  }`}
+                >
+                  <span className={`size-1.5 rounded-full ${p.status === "auto" ? "bg-primary/60" : "bg-muted-foreground/30"}`} />
+                  {p.name}
+                </span>
+              ))}
             </div>
 
             {/* uninstall */}
