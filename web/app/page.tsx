@@ -273,21 +273,21 @@ export default function LandingPage() {
           </div>
 
           {/* Install */}
-          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-3">
+          <div className="mx-auto mt-10 sm:mt-12 max-w-2xl space-y-4">
             {/* Step 1 — uv 선행 설치 */}
-            <div className="rounded-xl border bg-card p-4">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary ring-1 ring-primary/20">1</span>
-                <div className="min-w-0 flex-1 space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            <div className="rounded-2xl border bg-card p-5 dark:border-white/[0.08]">
+              <div className="flex items-start gap-4">
+                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary ring-1 ring-primary/25 dark:bg-primary/25 dark:ring-primary/40">1</span>
+                <div className="min-w-0 flex-1 space-y-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                     {t.landing.sections.install.uvEyebrow}
                   </p>
                   <button
                     onClick={() => { navigator.clipboard.writeText("curl -LsSf https://astral.sh/uv/install.sh | sh"); }}
-                    className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted px-4 py-2 font-mono text-xs transition-colors hover:bg-muted/70 cursor-pointer"
+                    className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/60 px-4 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer dark:bg-black/40 dark:border-white/10 dark:hover:bg-black/60"
                   >
                     <span className="flex items-center gap-2 min-w-0">
-                      <span className="text-muted-foreground">$</span>
+                      <span className="select-none text-muted-foreground">$</span>
                       <span className="truncate">curl -LsSf https://astral.sh/uv/install.sh | sh</span>
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">{t.common.copy}</span>
@@ -297,36 +297,36 @@ export default function LandingPage() {
             </div>
 
             {/* Step 2 — 설치 및 업데이트 */}
-            <div className="rounded-xl border bg-card p-4">
-              <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-bold text-primary ring-1 ring-primary/20">2</span>
-                <div className="min-w-0 flex-1 space-y-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            <div className="rounded-2xl border bg-card p-5 dark:border-white/[0.08]">
+              <div className="flex items-start gap-4">
+                <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-bold text-primary ring-1 ring-primary/25 dark:bg-primary/25 dark:ring-primary/40">2</span>
+                <div className="min-w-0 flex-1 space-y-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                     {t.landing.sections.install.eyebrow}
                   </p>
                   <button
                     onClick={copySetup}
-                    className="group flex w-full items-center justify-between gap-2 rounded-lg border bg-muted px-4 py-2 font-mono text-xs transition-colors hover:bg-muted/70 cursor-pointer"
+                    className="group flex w-full items-center justify-between gap-3 rounded-lg border bg-muted/60 px-4 py-3 font-mono text-sm transition-colors hover:bg-muted cursor-pointer dark:bg-black/40 dark:border-white/10 dark:hover:bg-black/60"
                   >
                     <span className="flex items-center gap-2 min-w-0">
-                      <span className="text-muted-foreground">$</span>
+                      <span className="select-none text-muted-foreground">$</span>
                       <span className="truncate">uvx oc-piloci@latest setup</span>
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
                       {copiedSetup ? t.common.copied : t.common.copy}
                     </span>
                   </button>
-                  <div className="flex flex-wrap gap-1 pt-0.5">
+                  <div className="flex flex-wrap gap-1.5">
                     {t.landing.sections.install.platforms.map((p) => (
                       <span
                         key={p.name}
-                        className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium ${
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium ${
                           p.status === "auto"
-                            ? "border-primary/20 bg-primary/5 text-foreground/70"
+                            ? "border-primary/20 bg-primary/5 text-foreground/70 dark:border-primary/30 dark:bg-primary/10"
                             : "border-border text-muted-foreground/50"
                         }`}
                       >
-                        <span className={`size-1.5 rounded-full ${p.status === "auto" ? "bg-primary/60" : "bg-muted-foreground/30"}`} />
+                        <span className={`size-1.5 rounded-full ${p.status === "auto" ? "bg-primary/60 dark:bg-primary/80" : "bg-muted-foreground/30"}`} />
                         {p.name}
                       </span>
                     ))}
