@@ -15,6 +15,12 @@ polls before firing, and a fired alert won't re-fire until either it
 recovers (NORMAL → ALERTED → NORMAL transition) or the cooldown window
 elapses. Recovery messages are sent on the back edge so the user sees
 both "system in trouble" and "system back to normal" without ambiguity.
+
+``health_periodic_report_active_window`` doubles as quiet hours for *every*
+notification, not just the heartbeat. Alerts that fire outside the window
+are queued in memory and flushed as a single consolidated message on the
+first poll after the window opens — so the user wakes up to one summary
+instead of N individual pings.
 """
 
 import logging
@@ -67,6 +73,60 @@ def _tracker(kind: str) -> AlertTracker:
 def reset_trackers() -> None:
     """Test hook — drop all in-memory alert state."""
     _trackers.clear()
+
+
+# ---------------------------------------------------------------------------
+# Quiet-hours queue — buffer alerts that fire outside the active window
+# ---------------------------------------------------------------------------
+
+
+_pending_queue: list["FiredAlert"] = []
+
+
+def reset_pending_queue() -> None:
+    """Test hook — drop the quiet-hours alert queue."""
+    _pending_queue.clear()
+
+
+def _is_in_active_window(settings: Settings) -> bool:
+    """True when notifications should be sent immediately.
+
+    Outside this window, alerts are queued and flushed on the first eligible
+    poll. An unset/invalid ``health_periodic_report_active_window`` means
+    always-on.
+    """
+    spec = settings.health_periodic_report_active_window
+    if not spec:
+        return True
+    window = parse_idle_window(spec)
+    if window is None:
+        return True
+    return window.contains(datetime.now().time())
+
+
+def _format_consolidated(queue: list["FiredAlert"]) -> str:
+    """Turn N queued alerts into a single Telegram message.
+
+    Same kind firing repeatedly (e.g. temp warning + recovery + warning)
+    collapses into one line with a count, so the consolidated message stays
+    short even after a long quiet window.
+    """
+    by_kind: dict[str, list[FiredAlert]] = {}
+    order: list[str] = []
+    for alert in queue:
+        if alert.kind not in by_kind:
+            order.append(alert.kind)
+        by_kind.setdefault(alert.kind, []).append(alert)
+
+    lines = [f"🌙 야간 누적 알림 {len(queue)}건"]
+    for kind in order:
+        items = by_kind[kind]
+        latest = items[-1].message
+        if len(items) > 1:
+            lines.append(f"• [{kind} ×{len(items)}] {latest}")
+        else:
+            lines.append(f"• {latest}")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -434,7 +494,20 @@ async def run_health_monitor(settings: Settings, stop_event: object) -> None:
                         fired.extend(await evaluator(settings, now))
                     except Exception:
                         logger.exception("health monitor: %s failed", evaluator.__name__)
+                in_window = _is_in_active_window(settings)
+                if in_window and _pending_queue:
+                    # Flush queued quiet-hours alerts as a single consolidated message.
+                    consolidated = _format_consolidated(list(_pending_queue))
+                    _pending_queue.clear()
+                    try:
+                        await send_admin_notification(consolidated, settings)
+                    except Exception:
+                        logger.exception("health monitor: consolidated flush failed")
+
                 for alert in fired:
+                    if not in_window:
+                        _pending_queue.append(alert)
+                        continue
                     icon = "⚠️" if alert.severity == "warning" else "ℹ️"
                     text = f"{icon} piLoci\n{alert.message}"
                     try:
