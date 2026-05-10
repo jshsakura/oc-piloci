@@ -67,6 +67,8 @@ def _settings(**overrides: Any) -> SimpleNamespace:
         "session_secret": "test-secret-32-characters-minimum!",
         "cors_origins": ["http://localhost:3000"],
         "curator_enabled": True,
+        "distillation_enabled": True,
+        "health_monitor_enabled": False,
         "debug": False,
         "reload": False,
         "workers": 3,
@@ -288,18 +290,27 @@ def test_create_app_registers_routes_and_middleware(monkeypatch, with_static: bo
 
 @pytest.mark.asyncio
 async def test_startup_initializes_db_and_background_workers(monkeypatch) -> None:
-    settings = _settings(curator_enabled=True)
+    """Startup wires maintenance + lazy distillation + profile workers.
+
+    The eager curator and analyze workers were retired in favor of a single
+    lazy distillation_worker that drains pending RawSession rows. Health
+    monitor stays opt-in (defaults to False) so a fresh test settings
+    instance only spins up three tasks.
+    """
+    settings = _settings(curator_enabled=True, distillation_enabled=True)
     init_db_mock = AsyncMock()
     store = AsyncMock()
     instincts_store = AsyncMock()
-    process_unfinished_mock = AsyncMock(return_value=4)
     created_task_count = 0
 
     async def maintenance_worker(received_settings: object, stop_event: asyncio.Event):
         await stop_event.wait()
 
-    async def curator_worker(
-        received_settings: object, received_store: object, stop_event: asyncio.Event
+    async def distillation_worker(
+        received_settings: object,
+        received_store: object,
+        received_instincts: object,
+        stop_event: asyncio.Event,
     ):
         await stop_event.wait()
 
@@ -314,25 +325,12 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
         coro.close()
         return f"task-{created_task_count}"
 
-    process_unfinished_analyses_mock = AsyncMock(return_value=2)
-
-    async def analyze_worker(
-        received_settings: object,
-        received_store: object,
-        stop_event: asyncio.Event,
-    ):
-        await stop_event.wait()
-
     maintenance_module = types.ModuleType("piloci.ops.maintenance")
     maintenance_module.run_maintenance_worker = maintenance_worker
     profile_module = types.ModuleType("piloci.curator.profile")
     profile_module.run_profile_worker = profile_worker
-    worker_module = types.ModuleType("piloci.curator.worker")
-    worker_module.process_unfinished = process_unfinished_mock
-    worker_module.run_worker = curator_worker
-    analyze_worker_module = types.ModuleType("piloci.curator.analyze_worker")
-    analyze_worker_module.process_unfinished_analyses = process_unfinished_analyses_mock
-    analyze_worker_module.run_analyze_worker = analyze_worker
+    distillation_module = types.ModuleType("piloci.curator.distillation_worker")
+    distillation_module.run_distillation_worker = distillation_worker
 
     monkeypatch.setattr("piloci.main.get_settings", lambda: settings)
     monkeypatch.setattr("piloci.main.init_db", init_db_mock)
@@ -341,8 +339,7 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     with pytest.MonkeyPatch.context() as patch_ctx:
         patch_ctx.setitem(sys.modules, "piloci.ops.maintenance", maintenance_module)
         patch_ctx.setitem(sys.modules, "piloci.curator.profile", profile_module)
-        patch_ctx.setitem(sys.modules, "piloci.curator.worker", worker_module)
-        patch_ctx.setitem(sys.modules, "piloci.curator.analyze_worker", analyze_worker_module)
+        patch_ctx.setitem(sys.modules, "piloci.curator.distillation_worker", distillation_module)
 
         stop_event = asyncio.Event()
         bg_tasks: list[object] = []
@@ -352,10 +349,9 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     init_db_mock.assert_awaited_once()
     store.ensure_collection.assert_awaited_once()
     instincts_store.ensure_collection.assert_awaited_once()
-    process_unfinished_mock.assert_awaited_once_with(settings, store)
-    process_unfinished_analyses_mock.assert_awaited_once_with(settings)
-    assert created_task_count == 4
-    assert bg_tasks == ["task-1", "task-2", "task-3", "task-4"]
+    # maintenance + distillation + profile = 3 tasks (health monitor off by default)
+    assert created_task_count == 3
+    assert bg_tasks == ["task-1", "task-2", "task-3"]
 
 
 @pytest.mark.asyncio

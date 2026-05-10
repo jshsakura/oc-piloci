@@ -1907,16 +1907,44 @@ async def test_route_oauth_disconnect_success_and_guards(monkeypatch: pytest.Mon
 # ---------------------------------------------------------------------------
 
 
-def _ingest_settings(maxsize: int = 128) -> SimpleNamespace:
+def _ingest_settings(maxsize: int = 200) -> SimpleNamespace:
     return SimpleNamespace(
         ingest_max_body_bytes=10 * 1024 * 1024,
-        ingest_queue_maxsize=maxsize,
+        distillation_max_pending_backlog=maxsize,
     )
 
 
 def _valid_transcript(n: int = 6) -> str:
-    """JSONL transcript with n messages (>= 5 required by ingest)."""
-    return "\n".join(orjson.dumps({"role": "user", "content": f"m{i}"}).decode() for i in range(n))
+    """JSONL transcript with n alternating user/assistant turns containing
+    enough vocabulary diversity and assistant content to clear the prefilter.
+
+    The lazy distillation pipeline rejects trivial sessions at ingest, so
+    test fixtures need to look like real coding-assistant exchanges rather
+    than placeholder strings.
+    """
+    user_lines = [
+        "I want to refactor the auth middleware so the verifier dispatcher "
+        "branches on the password hash prefix.",
+        "Show me where the bcrypt path lives today.",
+        "Walk me through the migration handling so existing users keep working.",
+    ]
+    assistant_lines = [
+        "Sure — the bcrypt path needs a hash version column and a verifier "
+        "dispatcher function so we can rotate without locking anyone out.",
+        "Argon2 hashes start with $argon2 while bcrypt uses $2 — branch on "
+        "that prefix and dispatch to the right verify call.",
+        "We can stage the migration in three steps: introduce, dual-verify, "
+        "rotate-on-success. That keeps existing logins working.",
+    ]
+    msgs = []
+    for i in range(n):
+        if i % 2 == 0:
+            msgs.append({"role": "user", "content": user_lines[i // 2 % len(user_lines)]})
+        else:
+            msgs.append(
+                {"role": "assistant", "content": assistant_lines[i // 2 % len(assistant_lines)]}
+            )
+    return "\n".join(orjson.dumps(m).decode() for m in msgs)
 
 
 @pytest.mark.asyncio
@@ -1956,7 +1984,7 @@ async def test_route_sessions_ingest_payload_too_large(
     monkeypatch.setattr(
         routes,
         "get_settings",
-        lambda: SimpleNamespace(ingest_max_body_bytes=10, ingest_queue_maxsize=128),
+        lambda: SimpleNamespace(ingest_max_body_bytes=10, distillation_max_pending_backlog=128),
     )
     response = await routes.route_sessions_ingest(
         _make_request({"sessions": [{}], "cwd": "/p" * 100}, user={"sub": "u1", "project_id": "p1"})
@@ -2013,18 +2041,21 @@ async def test_route_sessions_ingest_empty_sessions(
 async def test_route_sessions_ingest_queues_new_session(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Happy path: new session gets enqueued and recorded."""
+    """Happy path: new substantive session lands as state='pending' RawSession."""
     from piloci.api import routes
 
     db = _db_session()
-    # First execute (existence check) returns None (not seen)
+    db.flush = AsyncMock()
     not_seen = MagicMock()
     not_seen.scalar_one_or_none.return_value = None
     db.execute.return_value = not_seen
 
+    async def _no_archive(*args, **kwargs):
+        return 0
+
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
     monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings())
-    monkeypatch.setattr(routes, "try_enqueue_job", lambda job, maxsize: True)
+    monkeypatch.setattr("piloci.curator.backlog.enforce_ceiling_after_ingest", _no_archive)
 
     response = await routes.route_sessions_ingest(
         _make_request(
@@ -2095,20 +2126,26 @@ async def test_route_sessions_ingest_skips_short_transcripts(
 
 
 @pytest.mark.asyncio
-async def test_route_sessions_ingest_queue_full_rolls_back(
+async def test_route_sessions_ingest_archives_overflow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """If queue is full, the inserted RawSession is deleted to keep state consistent."""
+    """When backlog ceiling is exceeded, oldest pending rows get archived
+    (FIFO drop) instead of refusing the ingest. The new session itself still
+    lands and counts as queued."""
     from piloci.api import routes
 
     db = _db_session()
+    db.flush = AsyncMock()
     not_seen = MagicMock()
     not_seen.scalar_one_or_none.return_value = None
     db.execute.return_value = not_seen
 
+    async def _archive(_db, *, max_pending, user_id):
+        return 3  # pretend 3 oldest rows got archived
+
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
     monkeypatch.setattr(routes, "get_settings", lambda: _ingest_settings(maxsize=1))
-    monkeypatch.setattr(routes, "try_enqueue_job", lambda job, maxsize: False)
+    monkeypatch.setattr("piloci.curator.backlog.enforce_ceiling_after_ingest", _archive)
 
     response = await routes.route_sessions_ingest(
         _make_request(
@@ -2116,9 +2153,9 @@ async def test_route_sessions_ingest_queue_full_rolls_back(
             user={"sub": "u1", "project_id": "p1"},
         )
     )
-    assert orjson.loads(response.body) == {"queued": 0, "skipped": 1}
-    # Insert + delete both committed
-    assert db.commit.await_count >= 2
+    payload = orjson.loads(response.body)
+    assert payload == {"queued": 1, "skipped": 0}
+    db.add.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -2493,57 +2530,75 @@ async def test_route_analyze_session_guards() -> None:
 
 
 @pytest.mark.asyncio
-async def test_route_analyze_session_enqueues_and_returns_202(
+async def test_route_analyze_session_persists_to_raw_sessions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from piloci.api import routes
-    from piloci.curator import analyze_queue
+    """Substantive analyze transcripts persist as state='pending' on RawSession.
 
-    analyze_queue.reset_analyze_queue()
+    The legacy analyze_queue is gone — a single distillation worker drains
+    every pending RawSession regardless of which endpoint posted it.
+    """
+    from piloci.api import routes
+
+    transcript = (
+        "User wants to migrate authentication from bcrypt towards argon2id "
+        "without disrupting existing sessions or breaking established cookies.\n"
+        "Assistant proposed a verifier dispatcher keyed on the password hash "
+        "prefix string so legacy records keep validating during rollover.\n"
+        "User asked about migration timing, deployment safety, and database "
+        "rollback options when something behaves unexpectedly.\n"
+        "Assistant outlined three rotation stages: introduce the column, dual "
+        "verify both algorithms simultaneously, then rotate hashes lazily on "
+        "successful login attempts going forward.\n"
+        "User accepted the plan and requested the dispatcher implementation "
+        "first because that piece carries the highest risk.\n"
+        "Assistant warned about timing attacks, suggested constant-time "
+        "comparison, mentioned argon2 parameter tuning for raspberry pi.\n"
+    )
 
     db = _db_session()
+    db.flush = AsyncMock()
+
+    async def _no_archive(*args, **kwargs):
+        return 0
+
+    monkeypatch.setattr(
+        routes,
+        "get_settings",
+        lambda: SimpleNamespace(distillation_max_pending_backlog=200),
+    )
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
+    monkeypatch.setattr("piloci.curator.backlog.enforce_ceiling_after_ingest", _no_archive)
 
     response = await routes.route_analyze_session(
         _make_request(
-            {"transcript": "hello world"},
+            {"transcript": transcript},
             user={"sub": "u1", "project_id": "p1"},
         )
     )
     body = orjson.loads(response.body)
     assert response.status_code == 202
     assert body["queued"] is True
+    assert body["state"] == "pending"
     assert "analyze_id" in body
-    # Row was inserted before enqueue
     db.add.assert_called_once()
-    # Job actually landed in the queue
-    queue = analyze_queue.get_analyze_queue()
-    assert queue.qsize() == 1
-    job = queue.get_nowait()
-    assert job.user_id == "u1"
-    assert job.project_id == "p1"
-
-    analyze_queue.reset_analyze_queue()
 
 
 @pytest.mark.asyncio
-async def test_route_analyze_session_503_when_queue_full(
+async def test_route_analyze_session_filters_trivial_transcript(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Trivial analyze transcripts persist as state='filtered' so the user
+    can audit what got dropped, but they don't enter the distillation pool."""
     from piloci.api import routes
-    from piloci.curator import analyze_queue
 
-    analyze_queue.reset_analyze_queue()
-    # Saturate the queue with a tiny capacity.
-    full_queue = analyze_queue.get_analyze_queue(maxsize=1)
-    full_queue.put_nowait(analyze_queue.AnalyzeJob(analyze_id="pre", user_id="u", project_id="p"))
-
+    db = _db_session()
+    db.flush = AsyncMock()
     monkeypatch.setattr(
         routes,
         "get_settings",
-        lambda: SimpleNamespace(analyze_queue_maxsize=1, analyze_retry_after_sec=5),
+        lambda: SimpleNamespace(distillation_max_pending_backlog=200),
     )
-    db = _db_session()
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
 
     response = await routes.route_analyze_session(
@@ -2553,12 +2608,11 @@ async def test_route_analyze_session_503_when_queue_full(
         )
     )
     body = orjson.loads(response.body)
-    assert response.status_code == 503
-    assert body["retry_after_sec"] == 5
-    # Row was still persisted — startup recovery will pick it up.
+    assert response.status_code == 202
+    assert body["queued"] is False
+    assert body["state"] == "filtered"
+    assert body["filter_reason"] is not None
     db.add.assert_called_once()
-
-    analyze_queue.reset_analyze_queue()
 
 
 # ---------------------------------------------------------------------------

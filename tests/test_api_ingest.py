@@ -63,13 +63,15 @@ def _db_session() -> MagicMock:
     session.add = MagicMock()
     session.commit = AsyncMock()
     session.execute = AsyncMock()
+    session.flush = AsyncMock()
     return session
 
 
 @pytest.mark.asyncio
-async def test_route_ingest_returns_429_when_queue_is_full(monkeypatch):
+async def test_route_ingest_filters_trivial_transcript(monkeypatch):
     from piloci.api import routes
 
+    # Single short user message — prefilter rejects (too_short, no_assistant_content).
     request = _make_request(
         {
             "client": "claude-code",
@@ -80,69 +82,79 @@ async def test_route_ingest_returns_429_when_queue_is_full(monkeypatch):
     )
 
     settings = SimpleNamespace(
-        ingest_queue_maxsize=1, ingest_retry_after_sec=9, ingest_max_body_bytes=10 * 1024 * 1024
+        ingest_max_body_bytes=10 * 1024 * 1024,
+        distillation_max_pending_backlog=200,
     )
     write_session = _db_session()
-    cleanup_session = _db_session()
-
     monkeypatch.setattr(routes, "get_settings", lambda: settings)
-    monkeypatch.setattr(
-        routes,
-        "async_session",
-        MagicMock(side_effect=[_session_cm(write_session), _session_cm(cleanup_session)]),
-    )
-    monkeypatch.setattr(
-        routes, "get_ingest_queue", lambda maxsize=None: SimpleNamespace(qsize=lambda: 1, maxsize=1)
-    )
-    monkeypatch.setattr(routes, "try_enqueue_job", lambda job, maxsize=None: False)
+    monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(write_session)))
 
     response = await routes.route_ingest(request)
     payload = orjson.loads(response.body)
 
-    assert response.status_code == 429
-    assert payload["error"] == "ingest queue is full"
-    assert payload["queue_depth"] == 1
-    assert payload["queue_capacity"] == 1
-    assert payload["retry_after_sec"] == 9
-    assert response.headers["Retry-After"] == "9"
+    # Trivial transcripts persist with state='filtered' — still 202, but not queued.
+    assert response.status_code == 202
+    assert payload["queued"] is False
+    assert payload["state"] == "filtered"
+    assert payload["filter_reason"] is not None
     write_session.add.assert_called_once()
     write_session.commit.assert_awaited_once()
-    cleanup_session.execute.assert_awaited_once()
-    cleanup_session.commit.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_route_ingest_returns_202_when_enqueued(monkeypatch):
+async def test_route_ingest_returns_202_when_substantive(monkeypatch):
     from piloci.api import routes
 
+    transcript = [
+        {"role": "user", "content": "I want to refactor the auth middleware to argon2id."},
+        {
+            "role": "assistant",
+            "content": (
+                "Sure — the bcrypt path needs migration handling so existing users stay "
+                "working during the rollover. Let's introduce a hash version column and "
+                "a verifier dispatcher function that branches on the hash prefix."
+            ),
+        },
+        {"role": "user", "content": "Show me the dispatcher first."},
+        {
+            "role": "assistant",
+            "content": (
+                "Here is one approach using a strategy table keyed on hash prefix. "
+                "Argon2 hashes start with $argon2 while bcrypt uses $2 — branch on that "
+                "and dispatch to the right verify call."
+            ),
+        },
+    ]
     request = _make_request(
         {
             "client": "claude-code",
             "project_id": "project-1",
-            "transcript": [{"role": "user", "content": "hello"}],
+            "transcript": transcript,
         },
         user={"sub": "user-1"},
     )
 
     settings = SimpleNamespace(
-        ingest_queue_maxsize=4, ingest_retry_after_sec=5, ingest_max_body_bytes=10 * 1024 * 1024
+        ingest_max_body_bytes=10 * 1024 * 1024,
+        distillation_max_pending_backlog=200,
     )
     write_session = _db_session()
 
+    async def _no_archive(*args, **kwargs):
+        return 0
+
     monkeypatch.setattr(routes, "get_settings", lambda: settings)
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(write_session)))
-    monkeypatch.setattr(
-        routes, "get_ingest_queue", lambda maxsize=None: SimpleNamespace(qsize=lambda: 1, maxsize=4)
-    )
-    monkeypatch.setattr(routes, "try_enqueue_job", lambda job, maxsize=None: True)
+    monkeypatch.setattr("piloci.curator.backlog.enforce_ceiling_after_ingest", _no_archive)
 
     response = await routes.route_ingest(request)
     payload = orjson.loads(response.body)
 
     assert response.status_code == 202
     assert payload["queued"] is True
-    assert payload["queue_depth"] == 1
-    assert payload["queue_capacity"] == 4
+    assert payload["state"] == "pending"
+    assert payload["filter_reason"] is None
+    assert payload["archived_overflow"] == 0
     write_session.add.assert_called_once()
     write_session.commit.assert_awaited_once()
 
