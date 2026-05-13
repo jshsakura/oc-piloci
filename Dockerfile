@@ -16,7 +16,7 @@ COPY pyproject.toml README.md LICENSE ./
 
 RUN uv venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN uv pip install --no-cache -e .
+RUN uv pip install --no-cache -e ".[fastembed]"
 
 # ============================================
 # Stage 2: Runtime

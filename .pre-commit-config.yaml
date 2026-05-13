@@ -59,10 +59,21 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+      - id: uv-build
+        name: uv build
+        entry: uv build
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
       - id: vitest
         name: vitest
         entry: bash -c "cd web && pnpm run test"
         language: system
-        types_or: [javascript, jsx, ts, tsx]
+        pass_filenames: false
+        stages: [pre-push]
+      - id: pnpm-build
+        name: pnpm build
+        entry: bash -c "cd web && pnpm build"
+        language: system
         pass_filenames: false
         stages: [pre-push]
