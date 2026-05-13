@@ -30,6 +30,11 @@ RECALL_DESC = (
     "Use fetch_ids to get full content. Set to_file=true to save as file."
 )
 
+MEMO_DESC = (
+    "Save a raw document or markdown note directly — no distillation. "
+    "Use for reference docs, meeting notes, or any text to keep verbatim."
+)
+
 LIST_PROJECTS_DESC = (
     "List available projects for organizing memories. Cached 5min unless " "refresh=true."
 )
@@ -427,6 +432,7 @@ async def handle_memory(
         content=args.content,
         vector=vector,
         tags=args.tags,
+        metadata={"source": "manual"},
     )
     return {
         "success": True,
@@ -684,3 +690,76 @@ async def handle_init(
             f"3. Missing → CREATE with content."
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# memo tool
+# ---------------------------------------------------------------------------
+
+_MEMO_EMBED_LIMIT = 2_000  # chars used for embedding; full content stored verbatim
+_MEMO_TAG = "memo"
+
+
+class MemoInput(BaseModel):
+    title: Annotated[
+        str,
+        Field(description="Short title for the memo (shown in recall results).", max_length=200),
+    ]
+    content: Annotated[
+        str,
+        Field(
+            description="Full document or markdown content to store verbatim.", max_length=200_000
+        ),
+    ]
+    tags: Annotated[
+        list[str] | None,
+        Field(description="Optional extra tags. 'memo' is always added.", max_length=5),
+    ] = None
+    save_to_file: Annotated[
+        bool,
+        Field(description="Also write to disk as a .md file in the export dir."),
+    ] = False
+
+
+async def handle_memo(
+    args: MemoInput,
+    user_id: str,
+    project_id: str,
+    store,
+    embed_fn,
+    export_dir: Path | None = None,
+) -> dict[str, Any]:
+    import re
+
+    embed_text = f"{args.title}\n\n{args.content[:_MEMO_EMBED_LIMIT]}"
+    vector = await embed_fn(embed_text)
+
+    tags = [_MEMO_TAG] + [t for t in (args.tags or []) if t != _MEMO_TAG]
+    full_content = f"# {args.title}\n\n{args.content}"
+
+    memory_id = await store.save(
+        user_id=user_id,
+        project_id=project_id,
+        content=full_content,
+        vector=vector,
+        tags=tags,
+        metadata={"source": "manual", "memo_title": args.title},
+    )
+
+    result: dict[str, Any] = {
+        "success": True,
+        "memory_id": memory_id,
+        "project_id": project_id,
+        "title": args.title,
+        "bytes": len(full_content.encode()),
+    }
+
+    if args.save_to_file:
+        slug = re.sub(r"[^\w\-]", "_", args.title.lower())[:60]
+        out_dir = (export_dir or Path.home() / ".piloci" / "memos") / user_id / project_id
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / f"{slug}.md"
+        out_path.write_text(full_content, encoding="utf-8")
+        result["file"] = str(out_path)
+
+    return result

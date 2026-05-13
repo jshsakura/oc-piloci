@@ -226,7 +226,14 @@ async def _save_memories(
             existing = []
         if existing and existing[0].get("score", 0.0) >= DEDUP_THRESHOLD:
             continue
-        pending.append({"content": mem.content, "vector": vec, "tags": mem.tags[:5]})
+        pending.append(
+            {
+                "content": mem.content,
+                "vector": vec,
+                "tags": mem.tags[:5],
+                "metadata": {"source": "distilled"},
+            }
+        )
         accepted_vectors.append(vec)
 
     if not pending:

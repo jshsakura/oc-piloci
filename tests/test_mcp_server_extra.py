@@ -195,6 +195,7 @@ async def test_memory_tool_saves_and_invalidates_vault_cache(tmp_path: Path):
         content="Remember this",
         vector=[0.2, 0.4],
         tags=["decision", "python"],
+        metadata={"source": "manual"},
     )
     invalidate.assert_awaited_once_with(tmp_path / "vaults", "user-1", "project-1", "alpha")
     assert tracker.tool_calls == 1

@@ -31,16 +31,19 @@ from piloci.tools.instinct_tools import (
 from piloci.tools.memory_tools import (
     INIT_DESC,
     LIST_PROJECTS_DESC,
+    MEMO_DESC,
     MEMORY_DESC,
     RECALL_DESC,
     WHOAMI_DESC,
     InitInput,
     ListProjectsInput,
+    MemoInput,
     MemoryInput,
     RecallInput,
     WhoAmIInput,
     handle_init,
     handle_list_projects,
+    handle_memo,
     handle_memory,
     handle_recall,
     handle_whoami,
@@ -61,6 +64,7 @@ def _make_tool(name: str, description: str, model: type) -> types.Tool:
 TOOL_DEFINITIONS = [
     _make_tool("memory", MEMORY_DESC, MemoryInput),
     _make_tool("recall", RECALL_DESC, RecallInput),
+    _make_tool("memo", MEMO_DESC, MemoInput),
     _make_tool("listProjects", LIST_PROJECTS_DESC, ListProjectsInput),
     _make_tool("whoAmI", WHOAMI_DESC, WhoAmIInput),
     _make_tool("init", INIT_DESC, InitInput),
@@ -272,6 +276,26 @@ def create_mcp_server(
             else:
                 result = await handle_contradict(
                     args, user_id, required_project_id, instincts_store
+                )
+        elif name == "memo":
+            args = MemoInput.model_validate(arguments)
+            required_project_id = _require_project_id(project_id)
+            result = await handle_memo(
+                args,
+                user_id,
+                required_project_id,
+                store,
+                _embed,
+                export_dir=get_settings().export_dir,
+            )
+            if result.get("success"):
+                from piloci.curator.vault import invalidate_project_vault_cache
+
+                await invalidate_project_vault_cache(
+                    get_settings().vault_dir,
+                    user_id,
+                    required_project_id,
+                    auth_payload.get("project_slug"),
                 )
         else:
             raise ValueError(f"Unknown tool: {name}")
