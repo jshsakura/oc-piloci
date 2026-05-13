@@ -22,7 +22,12 @@ _embed_semaphore_limit: int | None = None
 def _get_embedder(model: str, cache_dir: str | None):
     global _embedder
     if _embedder is None:
-        from fastembed import TextEmbedding
+        try:
+            from fastembed import TextEmbedding
+        except ImportError as e:
+            raise ImportError(
+                "Local embeddings require fastembed: pip install 'oc-piloci[embed]'"
+            ) from e
 
         logger.info("Loading embedding model %s", model)
         if cache_dir:

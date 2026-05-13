@@ -20,6 +20,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
     "mcp[cli]>=1.8.0",
@@ -33,8 +34,6 @@ dependencies = [
     # Vector DB
     "lancedb>=0.6.0",
     "pyarrow>=14",
-    # Embeddings (ONNX, no torch)
-    "fastembed>=0.3.0",
     # Auth & Security (M2)
     "argon2-cffi>=23.1.0",
     "cryptography>=42.0.0",
@@ -51,6 +50,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+embed = [
+    "fastembed>=0.3.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.23.0",
