@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* && apt-get clean
 
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONPATH=/app/src
 
@@ -47,7 +48,8 @@ RUN mkdir -p /data && chown piloci:piloci /data
 # this baked-in cache; users can override EMBED_CACHE_DIR/EMBED_MODEL in
 # their compose env when swapping models (e.g. multilingual variants).
 ENV EMBED_CACHE_DIR=/opt/embed-cache
-RUN mkdir -p /opt/embed-cache \
+RUN uv pip install fastembed --python /opt/venv --no-cache \
+    && mkdir -p /opt/embed-cache \
     && python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='/opt/embed-cache')" \
     && chown -R piloci:piloci /opt/embed-cache
 
