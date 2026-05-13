@@ -1337,13 +1337,12 @@ wheels = [
 
 [[package]]
 name = "oc-piloci"
-version = "0.3.17"
+version = "0.3.18"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
     { name = "argon2-cffi" },
     { name = "cryptography" },
-    { name = "fastembed" },
     { name = "httpx" },
     { name = "lancedb" },
     { name = "mcp", extra = ["cli"] },
@@ -1373,6 +1372,9 @@ dev = [
     { name = "pytest-cov" },
     { name = "ruff" },
 ]
+embed = [
+    { name = "fastembed" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1380,7 +1382,7 @@ requires-dist = [
     { name = "argon2-cffi", specifier = ">=23.1.0" },
     { name = "black", marker = "extra == 'dev'", specifier = ">=25.1.0" },
     { name = "cryptography", specifier = ">=42.0.0" },
-    { name = "fastembed", specifier = ">=0.3.0" },
+    { name = "fastembed", marker = "extra == 'embed'", specifier = ">=0.3.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "isort", marker = "extra == 'dev'", specifier = "==5.13.2" },
     { name = "lancedb", specifier = ">=0.6.0" },
@@ -1405,7 +1407,7 @@ requires-dist = [
     { name = "starlette", specifier = ">=0.46.2" },
     { name = "uvicorn", specifier = ">=0.22.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["embed", "dev"]
 
 [[package]]
 name = "onnxruntime"

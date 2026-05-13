@@ -367,10 +367,12 @@ def test_run_uninstall_removes_everything(tmp_path: Path) -> None:
 
     assert not cfg_dir.exists()
     assert not plugin_dir.exists()
-    assert not bak.exists()
+    assert not bak.exists()  # backup consumed by restore
+    # settings restored from backup ({}) — hooks are gone
     assert "hooks" not in json.loads(settings.read_text())
     assert any(installer.PILOCI_DIR_NAME in r for r in removed)
-    assert any("piloci-bak" in r for r in removed)
+    # restore is reported (원본 복구)
+    assert any("복구" in r for r in removed)
 
 
 def test_run_uninstall_noop_when_clean(tmp_path: Path) -> None:

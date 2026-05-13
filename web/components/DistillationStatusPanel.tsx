@@ -12,6 +12,7 @@ import {
   Moon,
   Play,
   XCircle,
+  BrainCircuit,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,7 +53,10 @@ export function DistillationStatusPanel() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">증류 상태</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <BrainCircuit className="size-4 text-muted-foreground" />
+            기억 정리 현황
+          </CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">로딩 중…</CardContent>
       </Card>
@@ -63,7 +67,10 @@ export function DistillationStatusPanel() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">증류 상태</CardTitle>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <BrainCircuit className="size-4 text-muted-foreground" />
+            기억 정리 현황
+          </CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-destructive">상태 조회 실패</CardContent>
       </Card>
@@ -82,7 +89,10 @@ export function DistillationStatusPanel() {
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="text-base">증류 상태</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <BrainCircuit className="size-4 text-muted-foreground" />
+          기억 정리 현황
+        </CardTitle>
         <Button
           size="sm"
           variant="outline"

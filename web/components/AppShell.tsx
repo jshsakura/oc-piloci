@@ -51,7 +51,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 const active = pathname.startsWith(href);
                 return (
                   <Link key={href} href={href}>
-                    <Button variant={active ? "secondary" : "ghost"} size="sm" className="rounded-full gap-1.5 text-sm">
+                    <Button variant={active ? "secondary" : "ghost"} size="sm" className="gap-1.5 text-sm">
                       <Icon className="size-4" />
                       <span className="hidden sm:inline">{label}</span>
                     </Button>

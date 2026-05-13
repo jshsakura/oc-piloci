@@ -3,13 +3,14 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, FileText } from "lucide-react";
+import { ArrowLeft, FileText, BookOpen, Zap, History, Map } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { ProjectListView } from "@/components/ProjectListView";
 import { VaultNoteCard } from "@/components/VaultNoteCard";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
 import { ProjectKnacksPanel } from "@/components/ProjectKnacksPanel";
 import { ProjectSessionsPanel } from "@/components/ProjectSessionsPanel";
+import { MemoryGraphPanel } from "@/components/MemoryGraphPanel";
 import { api } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
@@ -85,14 +86,21 @@ function ProjectDetailContent() {
           memories / patterns / raw sessions inside the project view. */}
       <Tabs defaultValue="memories" className="mt-6">
         <TabsList className="w-full sm:w-auto">
-          <TabsTrigger value="memories" className="flex-1 sm:flex-none">
+          <TabsTrigger value="memories" className="flex-1 gap-1.5 sm:flex-none">
+            <BookOpen className="size-3.5" />
             {t.projects.tabMemories}
           </TabsTrigger>
-          <TabsTrigger value="patterns" className="flex-1 sm:flex-none">
+          <TabsTrigger value="patterns" className="flex-1 gap-1.5 sm:flex-none">
+            <Zap className="size-3.5" />
             {t.projects.tabKnacks}
           </TabsTrigger>
-          <TabsTrigger value="sessions" className="flex-1 sm:flex-none">
+          <TabsTrigger value="sessions" className="flex-1 gap-1.5 sm:flex-none">
+            <History className="size-3.5" />
             {t.projects.tabSessions}
+          </TabsTrigger>
+          <TabsTrigger value="graph" className="flex-1 gap-1.5 sm:flex-none">
+            <Map className="size-3.5" />
+            맥락 지도
           </TabsTrigger>
         </TabsList>
 
@@ -134,6 +142,19 @@ function ProjectDetailContent() {
 
         <TabsContent value="sessions" className="mt-4">
           <ProjectSessionsPanel slug={slug} />
+        </TabsContent>
+
+        <TabsContent value="graph" className="mt-4">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
+              맥락 지도 불러오는 중…
+            </div>
+          ) : (
+            <MemoryGraphPanel
+              nodes={data?.workspace.graph.nodes ?? []}
+              edges={data?.workspace.graph.edges ?? []}
+            />
+          )}
         </TabsContent>
       </Tabs>
     </AppShell>

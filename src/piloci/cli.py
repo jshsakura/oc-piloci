@@ -92,12 +92,32 @@ def main() -> None:
 
     uninstall_p = sub.add_parser(
         "uninstall",
-        help="Remove every piloci artifact (plugin folders, legacy hooks, config, backup).",
+        help="Remove every piloci artifact and restore pre-install config snapshots.",
     )
     uninstall_p.add_argument(
         "--yes",
         action="store_true",
         help="Skip the confirmation prompt.",
+    )
+    uninstall_p.add_argument(
+        "--no-restore",
+        action="store_true",
+        help="Remove piloci entries surgically instead of restoring from backup.",
+    )
+
+    restore_p = sub.add_parser(
+        "restore",
+        help="Restore client config files from .piloci-bak snapshots without full uninstall.",
+    )
+    restore_p.add_argument(
+        "--yes",
+        action="store_true",
+        help="Skip the confirmation prompt.",
+    )
+    restore_p.add_argument(
+        "--list",
+        action="store_true",
+        help="List available backups without restoring.",
     )
 
     backfill_p = sub.add_parser(
@@ -165,6 +185,8 @@ def main() -> None:
         _run_install(args)
     elif args.command == "uninstall":
         _run_uninstall(args)
+    elif args.command == "restore":
+        _run_restore(args)
     elif args.command == "setup":
         _run_setup(args)
     elif args.command == "backfill-cwd":
@@ -439,22 +461,55 @@ def _run_install(args: argparse.Namespace) -> None:
 
 
 def _run_uninstall(args: argparse.Namespace) -> None:
-    from piloci.installer import run_uninstall
+    from piloci.installer import list_backups, run_uninstall
+
+    restore = not getattr(args, "no_restore", False)
 
     if not args.yes:
+        baks = list_backups()
+        restore_note = (
+            f" ({len(baks)}개 설정 파일 백업에서 복구 포함)"
+            if restore and baks
+            else " (백업 없음, 수술적 제거만)"
+        )
         sys.stderr.write(
-            "[piloci] piloci 관련 파일을 모두 제거합니다 "
-            "(플러그인 폴더, 훅, ~/.config/piloci, settings 백업).\n"
+            f"[piloci] piloci 관련 파일을 모두 제거합니다{restore_note}.\n"
             "         계속하려면 --yes 를 붙여 다시 실행해 주세요.\n"
         )
         sys.exit(2)
 
-    removed = run_uninstall()
-    if not removed:
+    report = run_uninstall(restore=restore)
+    if not report:
         print("  (제거할 piloci 파일이 없습니다.)")
         return
-    for item in removed:
-        print(f"  ✓ 제거: {item}")
+    for item in report:
+        print(f"  ✓ {item}")
+
+
+def _run_restore(args: argparse.Namespace) -> None:
+    from piloci.installer import list_backups, restore_backups
+
+    backups = list_backups()
+    if not backups:
+        print("  (복구할 백업 파일이 없습니다.)")
+        return
+
+    if getattr(args, "list", False):
+        print("  복구 가능한 백업:")
+        for cfg, bak in backups:
+            print(f"    {bak}  →  {cfg}")
+        return
+
+    if not args.yes:
+        sys.stderr.write(f"[piloci] {len(backups)}개 설정 파일을 설치 이전 상태로 복구합니다:\n")
+        for cfg, bak in backups:
+            sys.stderr.write(f"    {bak}  →  {cfg}\n")
+        sys.stderr.write("         계속하려면 --yes 를 붙여 다시 실행해 주세요.\n")
+        sys.exit(2)
+
+    restored = restore_backups()
+    for path in restored:
+        print(f"  ✓ 복구: {path}")
 
 
 def _run_setup(args: argparse.Namespace) -> None:

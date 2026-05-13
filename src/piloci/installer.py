@@ -25,6 +25,34 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+# ---------------------------------------------------------------------------
+# JSONC (JSON with comments) parser — needed for Zed settings.json
+# ---------------------------------------------------------------------------
+
+_JSONC_TOKEN_RE = re.compile(
+    r'"(?:[^"\\]|\\.)*"'  # string literal — must match first to skip its content
+    r"|//[^\n]*"  # line comment
+    r"|/\*.*?\*/",  # block comment
+    re.DOTALL,
+)
+
+
+def _parse_jsonc(text: str) -> object:
+    """Parse JSONC: strip // / /* */ comments and trailing commas, then json.loads."""
+
+    def _replace(m: re.Match) -> str:
+        s = m.group(0)
+        if s.startswith('"'):
+            return s  # preserve string literals unchanged
+        return re.sub(r"[^\n]", " ", s)  # keep newlines for correct line numbers
+
+    stripped = _JSONC_TOKEN_RE.sub(_replace, text)
+    stripped = re.sub(r",(\s*[}\]])", r"\1", stripped)  # trailing commas
+    return json.loads(stripped)
+
+
+# ---------------------------------------------------------------------------
+
 PILOCI_DIR_NAME = ".config/piloci"
 CLAUDE_DIR_NAME = ".claude"
 OPENCODE_DIR_NAME = ".config/opencode"
@@ -270,10 +298,10 @@ def _merge_claude_settings(settings_path: Path) -> None:
     if settings_path.exists():
         raw = settings_path.read_text()
         try:
-            loaded = json.loads(raw)
+            loaded = _parse_jsonc(raw)
             if isinstance(loaded, dict):
                 existing = loaded
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             # Don't blow away a corrupt file — back it up and start fresh.
             settings_path.with_suffix(".json.piloci-corrupt-bak").write_text(raw)
             existing = {}
@@ -341,10 +369,10 @@ def install_opencode_plugin(base_url: str, token: str, *, home: Path | None = No
     if cfg_path.exists():
         raw = cfg_path.read_text()
         try:
-            loaded = json.loads(raw)
+            loaded = _parse_jsonc(raw)
             if isinstance(loaded, dict):
                 existing = loaded
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             cfg_path.with_suffix(".json.piloci-corrupt-bak").write_text(raw)
     backup = cfg_path.with_suffix(".json.piloci-bak")
     if not backup.exists() and cfg_path.exists():
@@ -381,10 +409,10 @@ def install_opencode_mcp(base_url: str, token: str, *, home: Path | None = None)
     if cfg_path.exists():
         raw = cfg_path.read_text()
         try:
-            loaded = json.loads(raw)
+            loaded = _parse_jsonc(raw)
             if isinstance(loaded, dict):
                 existing = loaded
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             cfg_path.with_suffix(".json.piloci-corrupt-bak").write_text(raw)
             existing = {}
 
@@ -439,10 +467,10 @@ def _merge_json_mcp(
     if cfg_path.exists():
         raw = cfg_path.read_text()
         try:
-            loaded = json.loads(raw)
+            loaded = _parse_jsonc(raw)
             if isinstance(loaded, dict):
                 existing = loaded
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             cfg_path.with_suffix(cfg_path.suffix + ".piloci-corrupt-bak").write_text(raw)
             existing = {}
 
@@ -469,8 +497,8 @@ def _remove_json_mcp_entry(cfg_path: Path, *, parent_key: str, server_name: str)
     if not cfg_path.exists():
         return False
     try:
-        loaded = json.loads(cfg_path.read_text())
-    except (OSError, json.JSONDecodeError):
+        loaded = _parse_jsonc(cfg_path.read_text())
+    except (OSError, json.JSONDecodeError, ValueError):
         return False
     if not isinstance(loaded, dict):
         return False
@@ -623,8 +651,8 @@ def cleanup_legacy_install(*, home: Path | None = None, remove_plugins: bool = F
     settings_path = h / CLAUDE_DIR_NAME / "settings.json"
     if settings_path.exists():
         try:
-            loaded = json.loads(settings_path.read_text())
-        except json.JSONDecodeError:
+            loaded = _parse_jsonc(settings_path.read_text())
+        except (json.JSONDecodeError, ValueError):
             loaded = None
         if isinstance(loaded, dict):
             hooks = loaded.get("hooks")
@@ -656,8 +684,8 @@ def cleanup_legacy_install(*, home: Path | None = None, remove_plugins: bool = F
     opencode_cfg = h / OPENCODE_DIR_NAME / "opencode.json"
     if opencode_cfg.exists():
         try:
-            loaded = json.loads(opencode_cfg.read_text())
-        except json.JSONDecodeError:
+            loaded = _parse_jsonc(opencode_cfg.read_text())
+        except (json.JSONDecodeError, ValueError):
             loaded = None
         if isinstance(loaded, dict):
             mcp = loaded.get("mcp")
@@ -681,28 +709,75 @@ def cleanup_legacy_install(*, home: Path | None = None, remove_plugins: bool = F
     return removed
 
 
-def run_uninstall(*, home: Path | None = None) -> list[str]:
-    """Remove every piloci artifact from the host: plugin folders, legacy hooks,
-    legacy hook scripts, the shared config dir (token + endpoints), the
-    pre-install ``settings.json.piloci-bak`` backup, and any piloci entry
-    merged into the secondary clients (Cursor / Gemini / Windsurf / AntiGravity
-    / Zed / Codex).
+# All config files that may have a .piloci-bak snapshot taken at install time.
 
-    Returns the list of removed paths/keys for the CLI to print.
+
+def _backup_targets(home: Path) -> list[Path]:
+    """Return every config path that may have a .piloci-bak beside it."""
+    h = home
+    return [
+        h / CLAUDE_DIR_NAME / "settings.json",
+        h / OPENCODE_DIR_NAME / "opencode.json",
+        h / CURSOR_DIR_NAME / "mcp.json",
+        h / GEMINI_DIR_NAME / "settings.json",
+        h / WINDSURF_DIR_NAME / "mcp_config.json",
+        h / ANTIGRAVITY_DIR_NAME / "mcp.json",
+        h / ZED_DIR_NAME / "settings.json",
+        h / CODEX_DIR_NAME / "config.toml",
+    ]
+
+
+def _bak_path(cfg: Path) -> Path:
+    """Return the .piloci-bak path for a given config file."""
+    return cfg.with_suffix(cfg.suffix + ".piloci-bak")
+
+
+def list_backups(*, home: Path | None = None) -> list[tuple[Path, Path]]:
+    """Return [(original_path, backup_path), ...] for every existing backup."""
+    h = home or Path.home()
+    return [(cfg, _bak_path(cfg)) for cfg in _backup_targets(h) if _bak_path(cfg).exists()]
+
+
+def restore_backups(*, home: Path | None = None) -> list[str]:
+    """Restore every .piloci-bak file to its original location.
+
+    Copies backup → original, then removes the backup. Returns the list of
+    restored file paths. Files without a backup are left untouched.
+    """
+    restored: list[str] = []
+    for cfg, bak in list_backups(home=home):
+        shutil.copy2(bak, cfg)
+        bak.unlink()
+        restored.append(str(cfg))
+    return restored
+
+
+def run_uninstall(*, home: Path | None = None, restore: bool = True) -> list[str]:
+    """Remove every piloci artifact from the host.
+
+    With ``restore=True`` (default): config files that have a ``.piloci-bak``
+    snapshot are restored to their pre-install state before piloci entries are
+    removed. Files without a backup get surgical removal of only the piloci
+    entry. With ``restore=False``, only surgical removal is performed (useful
+    when you want to keep post-install changes to other settings).
+
+    Returns the list of removed/restored paths for the CLI to print.
     """
     h = home or Path.home()
-    removed = cleanup_legacy_install(home=h, remove_plugins=True)
+    report: list[str] = []
 
-    cfg_dir = h / PILOCI_DIR_NAME
-    if cfg_dir.exists():
-        shutil.rmtree(cfg_dir)
-        removed.append(str(cfg_dir))
+    # Step 1: restore originals where we have a snapshot.
+    if restore:
+        for path in restore_backups(home=h):
+            report.append(f"{path} (원본 복구)")
 
-    bak = h / CLAUDE_DIR_NAME / "settings.json.piloci-bak"
-    if bak.exists():
-        bak.unlink()
-        removed.append(str(bak))
+    # Step 2: remove plugin folders, legacy hook scripts, and surgically clean
+    # any config files that were NOT covered by a backup (backup was already
+    # restored to the pre-piloci state, so surgical removal would be a no-op
+    # for those — cleanup_legacy_install handles both gracefully).
+    report.extend(cleanup_legacy_install(home=h, remove_plugins=True))
 
+    # Step 3: remove piloci MCP entries from secondary clients not yet cleaned.
     json_targets: list[tuple[Path, str]] = [
         (h / CURSOR_DIR_NAME / "mcp.json", "mcpServers"),
         (h / GEMINI_DIR_NAME / "settings.json", "mcpServers"),
@@ -712,7 +787,7 @@ def run_uninstall(*, home: Path | None = None) -> list[str]:
     ]
     for cfg_path, parent_key in json_targets:
         if _remove_json_mcp_entry(cfg_path, parent_key=parent_key, server_name="piloci"):
-            removed.append(f"{cfg_path} ({parent_key}.piloci)")
+            report.append(f"{cfg_path} ({parent_key}.piloci 제거)")
 
     codex_cfg = h / CODEX_DIR_NAME / "config.toml"
     if codex_cfg.exists():
@@ -720,9 +795,15 @@ def run_uninstall(*, home: Path | None = None) -> list[str]:
         stripped = _CODEX_BLOCK_RE.sub("\n", raw).rstrip()
         if stripped != raw.rstrip():
             codex_cfg.write_text(stripped + ("\n" if stripped else ""))
-            removed.append(f"{codex_cfg} (mcp_servers.piloci)")
+            report.append(f"{codex_cfg} (mcp_servers.piloci 제거)")
 
-    return removed
+    # Step 4: wipe the shared piloci config directory (token, endpoints, scripts).
+    cfg_dir = h / PILOCI_DIR_NAME
+    if cfg_dir.exists():
+        shutil.rmtree(cfg_dir)
+        report.append(str(cfg_dir))
+
+    return report
 
 
 def post_install_heartbeat(
