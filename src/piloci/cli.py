@@ -451,6 +451,11 @@ def _run_install(args: argparse.Namespace) -> None:
         sys.stderr.write(f"[piloci] {e}\n")
         sys.exit(1)
 
+    try:
+        from piloci.version import __version__ as _ver
+    except Exception:
+        _ver = "unknown"
+    print(f"\n  piLoci v{_ver} 설치 완료")
     print(f"  ✓ config.json: {report.config_path}")
     if report.claude_configured:
         print("  ✓ Claude Code 훅 적용")
@@ -523,7 +528,12 @@ def _run_setup(args: argparse.Namespace) -> None:
     except RuntimeError as e:
         sys.stderr.write(f"[piloci] {e}\n")
         sys.exit(1)
-    print(f"\n  ✓ config.json: {report.config_path}")
+    try:
+        from piloci.version import __version__ as _ver
+    except Exception:
+        _ver = "unknown"
+    print(f"\n  piLoci v{_ver} 설치 완료")
+    print(f"  ✓ config.json: {report.config_path}")
     if report.claude_configured:
         print("  ✓ Claude Code 훅 적용")
     if report.opencode_configured:

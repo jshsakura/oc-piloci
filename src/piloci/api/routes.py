@@ -2624,6 +2624,7 @@ async def route_sessions_ingest(request: Request) -> Response:
     for item in sessions[:50]:  # cap batch size
         session_id = (item.get("session_id") or "").strip()
         transcript_str = item.get("transcript") or ""
+        item_source = (item.get("source") or "").strip()[:50] or "session-start-hook"
         if not session_id or not transcript_str:
             skipped += 1
             continue
@@ -2671,7 +2672,7 @@ async def route_sessions_ingest(request: Request) -> Response:
                     ingest_id=ingest_id,
                     user_id=user_id,
                     project_id=project_id,
-                    client="session-start-hook",
+                    client=item_source,
                     session_id=session_id[:200],
                     transcript_json=orjson.dumps(messages).decode(),
                     created_at=datetime.now(timezone.utc),
