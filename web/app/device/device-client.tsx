@@ -37,15 +37,14 @@ export default function DeviceClient() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Default-on selection: every supported client is ticked. The user uncheck
-  // anything they don't want touched. The CLI installer falls back to local
-  // auto-detection if we somehow send nothing — but the form blocks empty
-  // submit before that happens.
   const allKinds = useMemo(
     () => t.device.targets.list.map((p) => p.kind),
     [t.device.targets.list]
   );
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(allKinds));
+  // Start empty — pre-fill with detected clients once the code is resolved.
+  const [selected, setSelected] = useState<Set<string>>(() => new Set<string>());
+  const [detectedFetched, setDetectedFetched] = useState(false);
+  const [detectedKinds, setDetectedKinds] = useState<string[]>([]);
 
   useEffect(() => {
     // When the locale flips the kind list might change shape; keep selection
@@ -67,6 +66,27 @@ export default function DeviceClient() {
     const initial = params.get("code");
     if (initial) setCode(normalizeCode(initial));
   }, [params]);
+
+  // Fetch detected clients when code becomes valid; auto-select them once.
+  useEffect(() => {
+    if (!CODE_REGEX.test(code) || detectedFetched) return;
+    let cancelled = false;
+    fetch(`/auth/device/info?code=${encodeURIComponent(code)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { detected?: string[] } | null) => {
+        if (cancelled || !data) return;
+        const kinds = (data.detected ?? []).filter((k) =>
+          allKinds.includes(k)
+        );
+        setDetectedKinds(kinds);
+        if (kinds.length > 0) setSelected(new Set(kinds));
+        setDetectedFetched(true);
+      })
+      .catch(() => {
+        if (!cancelled) setDetectedFetched(true);
+      });
+    return () => { cancelled = true; };
+  }, [code, detectedFetched, allKinds]);
 
   // Auth gate — push the user to /login but keep ?code=... so they come back here.
   useEffect(() => {
@@ -204,9 +224,16 @@ export default function DeviceClient() {
                         disabled={disabled}
                         onChange={() => toggleKind(p.kind)}
                       />
-                      <span className="flex flex-col leading-tight">
-                        <span className="font-medium text-foreground">{p.label}</span>
-                        <span className="font-mono text-[10px] text-muted-foreground">
+                      <span className="flex flex-col leading-tight min-w-0">
+                        <span className="flex items-center gap-1.5 font-medium text-foreground">
+                          {p.label}
+                          {detectedKinds.includes(p.kind) && (
+                            <span className="rounded bg-primary/10 px-1 py-0.5 text-[9px] font-normal text-primary">
+                              {t.device.targets.detectedBadge}
+                            </span>
+                          )}
+                        </span>
+                        <span className="font-mono text-[10px] text-muted-foreground break-all">
                           {p.path}
                         </span>
                       </span>

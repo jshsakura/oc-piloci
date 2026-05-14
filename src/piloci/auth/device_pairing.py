@@ -56,7 +56,7 @@ class DevicePairingStore:
     def __init__(self, redis: Redis) -> None:
         self._redis = redis
 
-    async def create(self) -> tuple[str, str]:
+    async def create(self, *, detected: list[str] | None = None) -> tuple[str, str]:
         """Allocate a new pairing. Returns (device_code, user_code)."""
         # On the astronomically rare chance of a user_code collision we retry
         # rather than overwrite an in-flight session.
@@ -70,8 +70,12 @@ class DevicePairingStore:
                 nx=True,
             )
             if existed:
-                payload = orjson.dumps({"status": "pending", "user_code": user_code})
-                await self._redis.set(f"{DEVICE_PREFIX}{device_code}", payload, ex=DEVICE_TTL_SEC)
+                record: dict[str, object] = {"status": "pending", "user_code": user_code}
+                if detected:
+                    record["detected"] = list(detected)
+                await self._redis.set(
+                    f"{DEVICE_PREFIX}{device_code}", orjson.dumps(record), ex=DEVICE_TTL_SEC
+                )
                 return device_code, user_code
         raise RuntimeError("could not allocate user_code after 8 attempts")
 

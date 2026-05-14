@@ -302,10 +302,19 @@ def _device_login(server: str, *, open_browser: bool) -> tuple[str, list[str] | 
     import urllib.request
 
     server = server.rstrip("/")
+
+    # Detect installed clients so the web approval page can pre-select them.
+    try:
+        from piloci.installer import detect_all_targets
+
+        _detected = [k for k, v in detect_all_targets().items() if v]
+    except Exception:
+        _detected = []
+
     code_req = urllib.request.Request(
         server + "/auth/device/code",
         method="POST",
-        data=b"{}",
+        data=_json.dumps({"detected": _detected}).encode(),
         headers={"Content-Type": "application/json", "User-Agent": "piloci-cli"},
     )
     try:

@@ -171,7 +171,7 @@ def test_run_install_claude_only_drops_plugin(tmp_path: Path) -> None:
     mcp = json.loads((pdir / ".mcp.json").read_text())
     assert mcp["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer tok"
     # MCP also registered in ~/.claude/claude.json for global discovery.
-    claude_json = json.loads((tmp_path / ".claude" / "claude.json").read_text())
+    claude_json = json.loads((tmp_path / ".claude.json").read_text())
     assert claude_json["mcpServers"]["piloci"]["url"].endswith("/mcp/http")
 
 

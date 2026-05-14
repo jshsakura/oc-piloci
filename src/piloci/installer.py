@@ -290,9 +290,9 @@ def install_claude_plugin(
     except PermissionError:
         pass
 
-    # 4. Register MCP server in ~/.claude.json so it shows up globally.
+    # 4. Register MCP server in ~/.claude.json (User MCPs) so it shows globally.
     _merge_json_mcp(
-        h / CLAUDE_DIR_NAME / "claude.json",
+        h / ".claude.json",
         parent_key="mcpServers",
         server_name="piloci",
         server_entry={
@@ -792,7 +792,7 @@ def run_uninstall(*, home: Path | None = None, restore: bool = True) -> list[str
 
     # Step 3: remove piloci MCP entries from secondary clients not yet cleaned.
     json_targets: list[tuple[Path, str]] = [
-        (h / CLAUDE_DIR_NAME / "claude.json", "mcpServers"),
+        (h / ".claude.json", "mcpServers"),
         (h / CURSOR_DIR_NAME / "mcp.json", "mcpServers"),
         (h / GEMINI_DIR_NAME / "settings.json", "mcpServers"),
         (h / WINDSURF_DIR_NAME / "mcp_config.json", "mcpServers"),
@@ -929,8 +929,7 @@ def run_install(
             if kind == "claude":
                 report.claude_configured = True
                 report.notes.append(
-                    f"Claude Code 플러그인 설치: {path} "
-                    "(hooks + ~/.claude/claude.json mcpServers 등록)"
+                    f"Claude Code 플러그인 설치: {path} " "(hooks + ~/.claude.json mcpServers 등록)"
                 )
             elif kind == "opencode":
                 report.opencode_configured = True

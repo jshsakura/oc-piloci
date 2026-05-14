@@ -2399,8 +2399,18 @@ async def route_device_code(request: Request) -> Response:
 
     settings = get_settings()
     store = get_device_pairing_store(settings)
+
+    detected: list[str] | None = None
     try:
-        device_code, user_code = await store.create()
+        body = orjson.loads(await request.body())
+        raw = body.get("detected")
+        if isinstance(raw, list):
+            detected = [str(k) for k in raw if isinstance(k, str)][:20] or None
+    except Exception:
+        pass
+
+    try:
+        device_code, user_code = await store.create(detected=detected)
     except Exception:
         logger.exception("device flow create failed")
         return _json({"error": "could not allocate device code"}, 500)
@@ -2417,6 +2427,28 @@ async def route_device_code(request: Request) -> Response:
         },
         200,
     )
+
+
+async def route_device_info(request: Request) -> Response:
+    """GET /auth/device/info?code=XXXX-XXXX — return detected clients for a pending code.
+
+    Used by the /device web page to pre-select clients the CLI auto-detected.
+    No auth required; the code itself is the secret.
+    """
+    from piloci.auth.device_pairing import get_device_pairing_store
+
+    code = (request.query_params.get("code") or "").strip().upper()
+    if not code:
+        return _json({"error": "code required"}, 400)
+
+    settings = get_settings()
+    store = get_device_pairing_store(settings)
+    record = await store.lookup_user_code(code)
+    if record is None:
+        return _json({"error": "unknown or expired code"}, 404)
+
+    detected = record.get("detected")
+    return _json({"detected": detected if isinstance(detected, list) else []})
 
 
 async def route_device_poll(request: Request) -> Response:
@@ -3463,6 +3495,7 @@ def get_routes() -> list[Route]:
         Route("/api/hook/opencode-plugin", route_opencode_plugin, methods=["GET"]),
         Route("/install/{code}", route_install, methods=["GET"]),
         Route("/auth/device/code", route_device_code, methods=["POST"]),
+        Route("/auth/device/info", route_device_info, methods=["GET"]),
         Route("/auth/device/poll", route_device_poll, methods=["POST"]),
         Route("/api/device/approve", route_device_approve, methods=["POST"]),
         Route("/api/chat", route_chat, methods=["POST"]),
