@@ -269,16 +269,17 @@ def install_claude_plugin(
     except PermissionError:
         pass
 
-    # 3. MCP server config — Claude Code plugin spec uses server-name keys at
-    # the top level of ``.mcp.json`` (NOT wrapped in ``mcpServers``).
+    # 3. MCP server config — same mcpServers wrapper as project .mcp.json.
     mcp_path = plugin_dir / ".mcp.json"
     mcp_path.write_text(
         json.dumps(
             {
-                "piloci": {
-                    "type": "http",
-                    "url": base + "/mcp/http",
-                    "headers": {"Authorization": "Bearer " + token},
+                "mcpServers": {
+                    "piloci": {
+                        "type": "http",
+                        "url": base + "/mcp/http",
+                        "headers": {"Authorization": "Bearer " + token},
+                    }
                 }
             },
             indent=2,
@@ -288,6 +289,18 @@ def install_claude_plugin(
         mcp_path.chmod(0o600)
     except PermissionError:
         pass
+
+    # 4. Register MCP server in ~/.claude.json so it shows up globally.
+    _merge_json_mcp(
+        h / CLAUDE_DIR_NAME / "claude.json",
+        parent_key="mcpServers",
+        server_name="piloci",
+        server_entry={
+            "type": "http",
+            "url": base + "/mcp/http",
+            "headers": {"Authorization": "Bearer " + token},
+        },
+    )
 
     return plugin_dir
 
@@ -779,6 +792,7 @@ def run_uninstall(*, home: Path | None = None, restore: bool = True) -> list[str
 
     # Step 3: remove piloci MCP entries from secondary clients not yet cleaned.
     json_targets: list[tuple[Path, str]] = [
+        (h / CLAUDE_DIR_NAME / "claude.json", "mcpServers"),
         (h / CURSOR_DIR_NAME / "mcp.json", "mcpServers"),
         (h / GEMINI_DIR_NAME / "settings.json", "mcpServers"),
         (h / WINDSURF_DIR_NAME / "mcp_config.json", "mcpServers"),
@@ -916,12 +930,12 @@ def run_install(
                 report.claude_configured = True
                 report.notes.append(
                     f"Claude Code 플러그인 설치: {path} "
-                    "(hooks + MCP 자동 발견; 설정 파일 안 건드림)"
+                    "(hooks + ~/.claude/claude.json mcpServers 등록)"
                 )
             elif kind == "opencode":
                 report.opencode_configured = True
                 report.notes.append(
-                    f"OpenCode 플러그인 설치: {path} " "(자동 캡처 + MCP; 설정 파일 안 건드림)"
+                    f"OpenCode 플러그인 설치: {path} " "(자동 캡처 + opencode.json MCP 등록)"
                 )
             else:
                 report.notes.append(f"{label} MCP 설정 머지: {path}")

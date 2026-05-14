@@ -105,8 +105,7 @@ def test_install_claude_plugin_layout(tmp_path: Path) -> None:
     hooks = json.loads((plugin_dir / "hooks" / "hooks.json").read_text())
     assert "${CLAUDE_PLUGIN_ROOT}" in hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
     mcp = json.loads((plugin_dir / ".mcp.json").read_text())
-    assert mcp["piloci"]["url"] == "https://x.example/mcp/http"
-    assert "mcpServers" not in mcp
+    assert mcp["mcpServers"]["piloci"]["url"] == "https://x.example/mcp/http"
 
 
 def test_install_opencode_plugin_writes_ts_file(tmp_path: Path) -> None:
@@ -170,12 +169,10 @@ def test_run_install_claude_only_drops_plugin(tmp_path: Path) -> None:
     assert (pdir / "hooks" / "hook.py").read_bytes() == fake_hook
     assert (pdir / "hooks" / "stop-hook.sh").read_bytes() == fake_stop
     mcp = json.loads((pdir / ".mcp.json").read_text())
-    # Plugin .mcp.json uses server-name keys at top level (no mcpServers wrap).
-    assert mcp["piloci"]["headers"]["Authorization"] == "Bearer tok"
-    assert "mcpServers" not in mcp
-    # Crucially: nothing under ~/.claude/ outside the plugin folder.
-    assert not (tmp_path / ".claude" / "settings.json").exists()
-    assert not (tmp_path / ".claude.json").exists()
+    assert mcp["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer tok"
+    # MCP also registered in ~/.claude/claude.json for global discovery.
+    claude_json = json.loads((tmp_path / ".claude" / "claude.json").read_text())
+    assert claude_json["mcpServers"]["piloci"]["url"].endswith("/mcp/http")
 
 
 def test_run_install_opencode_only_drops_plugin_file(tmp_path: Path) -> None:
@@ -199,6 +196,9 @@ def test_run_install_opencode_only_drops_plugin_file(tmp_path: Path) -> None:
 
     cfg = _json.loads(cfg_path.read_text())
     assert cfg.get("mcp", {}).get("piloci", {}).get("type") == "remote"
+    note = "\n".join(report.notes)
+    assert "opencode.json MCP 등록" in note
+    assert "설정 파일 안 건드림" not in note
 
 
 def test_get_default_server_from_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
