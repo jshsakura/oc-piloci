@@ -353,3 +353,105 @@ class ExternalLLMUsage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
     __table_args__ = (Index("idx_external_llm_usage_user_time", "user_id", "created_at"),)
+
+
+# ---------------------------------------------------------------------------
+# Team models
+# ---------------------------------------------------------------------------
+
+
+class Team(Base):
+    __tablename__ = "teams"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    owner_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    avatar: Mapped[str | None] = mapped_column(Text, nullable=True)
+    color: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    __table_args__ = (Index("idx_teams_owner", "owner_id"),)
+
+    members: Mapped[list[TeamMember]] = relationship(
+        "TeamMember", back_populates="team", cascade="all, delete-orphan"
+    )
+    invites: Mapped[list[TeamInvite]] = relationship(
+        "TeamInvite", back_populates="team", cascade="all, delete-orphan"
+    )
+    documents: Mapped[list[TeamDocument]] = relationship(
+        "TeamDocument", back_populates="team", cascade="all, delete-orphan"
+    )
+
+
+class TeamMember(Base):
+    __tablename__ = "team_members"
+
+    team_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("teams.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(Text, nullable=False, default="member")
+    joined_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (Index("idx_team_members_user", "user_id"),)
+
+    team: Mapped[Team] = relationship("Team", back_populates="members")
+
+
+class TeamInvite(Base):
+    __tablename__ = "team_invites"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    team_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False
+    )
+    inviter_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    invitee_email: Mapped[str] = mapped_column(Text, nullable=False)
+    token_hash: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (Index("idx_team_invites_team", "team_id"),)
+
+    team: Mapped[Team] = relationship("Team", back_populates="invites")
+
+
+class TeamDocument(Base):
+    __tablename__ = "team_documents"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    team_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False
+    )
+    author_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    parent_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_deleted: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    __table_args__ = (
+        Index("idx_team_docs_team", "team_id"),
+        Index(
+            "idx_team_docs_unique_path",
+            "team_id",
+            "path",
+            unique=True,
+            sqlite_where=text("is_deleted = 0"),
+        ),
+    )
+
+    team: Mapped[Team] = relationship("Team", back_populates="documents")

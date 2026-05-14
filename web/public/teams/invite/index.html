@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/_next/static/css/01a8168c9cb1c6fd.css">
+  <title>팀 초대 수락 — piLoci</title>
+  <style>
+    body { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+           background: var(--background); color: var(--foreground); font-family: system-ui, sans-serif; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: .75rem;
+            padding: 2rem; width: 100%; max-width: 400px; text-align: center; }
+    .icon { font-size: 2.5rem; margin-bottom: 1rem; }
+    h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 .5rem; }
+    p { font-size: .875rem; color: var(--muted-foreground); margin: 0 0 1.5rem; }
+    .btns { display: flex; gap: .75rem; justify-content: center; }
+    button { padding: .5rem 1.5rem; border-radius: .375rem; font-size: .875rem; font-weight: 500; cursor: pointer; border: none; }
+    .btn-primary { background: var(--primary); color: var(--primary-foreground); }
+    .btn-primary:hover { opacity: .9; }
+    .btn-ghost { background: transparent; border: 1px solid var(--border); color: var(--foreground); }
+    .btn-ghost:hover { background: var(--accent); }
+    .msg { padding: .5rem .75rem; border-radius: .375rem; font-size: .875rem; margin-top: 1rem; }
+    .msg.ok { background: #d1fae5; color: #065f46; }
+    .msg.err { background: #fee2e2; color: #991b1b; }
+  </style>
+</head>
+<body>
+<script>(function(){try{var t=localStorage.getItem("piloci-theme");var d=t==="dark"||t==="light"?t:matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",d==="dark");document.documentElement.style.colorScheme=d}catch(e){}})()</script>
+
+<div class="card">
+  <div class="icon" id="status-icon">📨</div>
+  <h1 id="title">팀 초대</h1>
+  <p id="desc">팀에 참여하시겠습니까?</p>
+  <div class="btns" id="btns">
+    <button class="btn-primary" onclick="respond('accept')">수락</button>
+    <button class="btn-ghost" onclick="respond('reject')">거절</button>
+  </div>
+  <div id="msg"></div>
+</div>
+
+<script>
+const token = new URLSearchParams(location.search).get('token') || '';
+
+if (!token) {
+  document.getElementById('title').textContent = '유효하지 않은 초대';
+  document.getElementById('desc').textContent = '초대 링크가 올바르지 않습니다.';
+  document.getElementById('btns').style.display = 'none';
+  document.getElementById('status-icon').textContent = '⚠️';
+}
+
+async function respond(action) {
+  if (!token) return;
+  document.getElementById('btns').style.display = 'none';
+  try {
+    const r = await fetch(`/api/invites/${token}/${action}`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const d = await r.json();
+    const msg = document.getElementById('msg');
+    if (r.ok) {
+      document.getElementById('status-icon').textContent = action === 'accept' ? '✅' : '❌';
+      document.getElementById('title').textContent = action === 'accept' ? '참여 완료' : '거절됨';
+      document.getElementById('desc').textContent = action === 'accept'
+        ? '팀에 참여했습니다. 팀 페이지로 이동합니다.'
+        : '초대를 거절했습니다.';
+      if (action === 'accept') setTimeout(() => { location.href = `/teams/?id=${d.team_id}`; }, 1500);
+    } else {
+      document.getElementById('status-icon').textContent = '⚠️';
+      document.getElementById('title').textContent = '오류';
+      document.getElementById('desc').textContent = d.error || '요청을 처리할 수 없습니다.';
+      if (r.status === 401) setTimeout(() => { location.href = '/login/'; }, 1500);
+    }
+  } catch {
+    document.getElementById('msg').innerHTML = '<div class="msg err">네트워크 오류가 발생했습니다.</div>';
+    document.getElementById('btns').style.display = 'flex';
+  }
+}
+</script>
+</body>
+</html>

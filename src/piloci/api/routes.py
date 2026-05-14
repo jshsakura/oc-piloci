@@ -58,6 +58,7 @@ def _resolve_base_url(request: Request, settings: Any) -> str:
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from piloci.api import distillation_routes, v1
+from piloci.api.team_routes import TEAM_ROUTES
 from piloci.curator.vault import (
     build_project_vault_preview,
     ensure_project_vault,
@@ -3546,4 +3547,5 @@ def get_routes() -> list[Route]:
             distillation_routes.route_patch_preferences,
             methods=["PATCH"],
         ),
+        *TEAM_ROUTES,
     ]

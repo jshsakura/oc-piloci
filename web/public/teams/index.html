@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/_next/static/css/01a8168c9cb1c6fd.css">
+  <!-- Lucide icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <title>팀 메모리 — piLoci</title>
+  <style>
+    body { min-height:100vh; background:var(--background); color:var(--foreground); font-family:system-ui,sans-serif; }
+    .page { max-width:880px; margin:0 auto; padding:2rem 1rem; }
+    .topbar { display:flex; align-items:center; gap:.75rem; margin-bottom:2rem; }
+    .topbar a { font-size:.875rem; color:var(--muted-foreground); text-decoration:none; }
+    .topbar a:hover { color:var(--foreground); }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:.75rem; padding:1.5rem; margin-bottom:1rem; }
+    .card h2 { margin:0 0 1rem; font-size:1rem; font-weight:600; display:flex; align-items:center; gap:.5rem; }
+    .row { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+    input[type=text], input[type=email], textarea, input[type=color] {
+      flex:1; min-width:0; padding:.4rem .7rem; border:1px solid var(--border);
+      border-radius:.375rem; background:transparent; color:var(--foreground);
+      font-size:.875rem; outline:none;
+    }
+    input:focus, textarea:focus { border-color:var(--ring); box-shadow:0 0 0 1px var(--ring); }
+    input[type=color] { width:2.5rem; height:2.2rem; padding:.2rem; cursor:pointer; flex:none; }
+    textarea { resize:vertical; min-height:4rem; font-family:inherit; width:100%; box-sizing:border-box; }
+    button { padding:.4rem 1rem; border-radius:.375rem; font-size:.875rem; font-weight:500; cursor:pointer; border:none; }
+    .btn-primary { background:var(--primary); color:var(--primary-foreground); }
+    .btn-primary:hover { opacity:.9; }
+    .btn-ghost { background:transparent; border:1px solid var(--border); color:var(--foreground); }
+    .btn-ghost:hover { background:var(--accent); }
+    .btn-danger { background:transparent; border:1px solid #ef4444; color:#ef4444; }
+    .btn-danger:hover { background:#fee2e2; }
+    .badge { display:inline-block; padding:.1rem .5rem; border-radius:999px; font-size:.75rem; }
+    .badge-owner { background:var(--primary); color:var(--primary-foreground); }
+    .badge-member { background:var(--muted); color:var(--muted-foreground); }
+    .tab-bar { display:flex; border-bottom:1px solid var(--border); margin-bottom:1.25rem; }
+    .tab { padding:.5rem 1rem; font-size:.875rem; cursor:pointer; border-bottom:2px solid transparent; color:var(--muted-foreground); background:none; border-top:none; border-left:none; border-right:none; }
+    .tab.active { color:var(--foreground); border-bottom-color:var(--primary); font-weight:500; }
+    .section { display:none; } .section.active { display:block; }
+    .list-item { display:flex; align-items:center; justify-content:space-between; padding:.65rem 0; border-bottom:1px solid var(--border); gap:.5rem; }
+    .list-item:last-child { border-bottom:none; }
+    .mono { font-family:monospace; font-size:.75rem; word-break:break-all; }
+    .tag { display:inline-block; padding:.1rem .4rem; background:var(--muted); border-radius:.25rem; font-size:.75rem; color:var(--muted-foreground); }
+    .tag.pending { background:#fef3c7; color:#92400e; }
+    .tag.accepted { background:#d1fae5; color:#065f46; }
+    .tag.rejected { background:#fee2e2; color:#991b1b; }
+    .msg { padding:.5rem .75rem; border-radius:.375rem; font-size:.875rem; margin-bottom:.75rem; }
+    .msg.ok { background:#d1fae5; color:#065f46; }
+    .msg.err { background:#fee2e2; color:#991b1b; }
+    .ellipsis { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:200px; display:inline-block; vertical-align:bottom; }
+    /* 팀 목록 그리드 */
+    .teams-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:.75rem; }
+    .team-card { padding:1rem; border:1px solid var(--border); border-radius:.5rem; cursor:pointer; transition:border-color .15s,box-shadow .15s; position:relative; overflow:hidden; }
+    .team-card:hover { border-color:var(--primary); box-shadow:0 2px 8px rgba(0,0,0,.08); }
+    .team-card-accent { position:absolute; top:0; left:0; right:0; height:3px; }
+    .team-card-icon { width:2rem; height:2rem; border-radius:.375rem; display:flex; align-items:center; justify-content:center; margin-bottom:.6rem; }
+    .team-card-icon svg { width:1.1rem; height:1.1rem; }
+    .team-card h3 { margin:0 0 .2rem; font-size:.9rem; font-weight:600; }
+    .team-card p { margin:0; font-size:.75rem; color:var(--muted-foreground); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    /* 팀 헤더 */
+    .team-hero { border-radius:.75rem; padding:1.5rem; margin-bottom:1rem; position:relative; overflow:hidden; }
+    .team-hero-bg { position:absolute; inset:0; opacity:.08; }
+    .team-hero-content { position:relative; display:flex; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
+    .team-hero-icon { width:3.5rem; height:3.5rem; border-radius:.75rem; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+    .team-hero-icon svg { width:1.75rem; height:1.75rem; color:#fff; }
+    .team-hero-text { flex:1; min-width:0; }
+    .team-hero-text h1 { margin:0 0 .25rem; font-size:1.4rem; font-weight:700; }
+    .team-hero-text p { margin:0; font-size:.875rem; color:var(--muted-foreground); }
+    .team-hero-actions { display:flex; gap:.5rem; flex-shrink:0; }
+    /* 편집 패널 */
+    .edit-panel { background:var(--card); border:1px solid var(--border); border-radius:.75rem; padding:1.5rem; margin-bottom:1rem; }
+    .edit-panel h3 { margin:0 0 1rem; font-size:.9rem; font-weight:600; }
+    .field { margin-bottom:.85rem; }
+    .field label { display:block; font-size:.8rem; font-weight:500; margin-bottom:.3rem; color:var(--muted-foreground); }
+    /* 아이콘 선택 그리드 */
+    .icon-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(2.2rem,1fr)); gap:.3rem; max-height:10rem; overflow-y:auto; padding:.5rem; border:1px solid var(--border); border-radius:.375rem; background:var(--muted)/20; }
+    .icon-opt { width:2.2rem; height:2.2rem; display:flex; align-items:center; justify-content:center; border-radius:.35rem; cursor:pointer; border:1.5px solid transparent; }
+    .icon-opt:hover { background:var(--accent); }
+    .icon-opt.selected { border-color:var(--primary); background:var(--primary)/10; }
+    .icon-opt svg { width:1rem; height:1rem; }
+    /* 받은 초대 */
+    .invite-in-card { background:var(--card); border:1px solid #f59e0b; border-radius:.75rem; padding:1.5rem; margin-bottom:1rem; display:none; }
+    .invite-in-card.has-items { display:block; }
+    .invite-in-item { display:flex; align-items:center; justify-content:space-between; padding:.65rem 0; border-bottom:1px solid var(--border); gap:.75rem; flex-wrap:wrap; }
+    .invite-in-item:last-child { border-bottom:none; }
+    .badge-count { background:var(--primary); color:var(--primary-foreground); border-radius:999px; font-size:.7rem; padding:.1rem .45rem; font-weight:700; }
+  </style>
+</head>
+<body>
+<script>(function(){try{var t=localStorage.getItem("piloci-theme");var d=t==="dark"||t==="light"?t:matchMedia("(prefers-color-scheme:dark)").matches?"dark":"light";document.documentElement.classList.toggle("dark",d==="dark");document.documentElement.style.colorScheme=d}catch(e){}})()</script>
+
+<div class="page">
+  <div class="topbar">
+    <a href="/dashboard/">← 대시보드</a>
+    <span style="color:var(--muted-foreground)">·</span>
+    <strong>팀 메모리</strong>
+  </div>
+
+  <!-- 받은 초대 -->
+  <div class="invite-in-card" id="incoming-invites-card">
+    <h2 style="margin:0 0 1rem;font-size:1rem;font-weight:600;display:flex;align-items:center;gap:.5rem">
+      📨 받은 초대 <span class="badge-count" id="incoming-count"></span>
+    </h2>
+    <div id="incoming-invites-list"></div>
+  </div>
+
+  <!-- ── 팀 목록 뷰 ── -->
+  <div id="list-view">
+    <div class="card">
+      <h2>내 팀</h2>
+      <div id="teams-grid" class="teams-grid"></div>
+      <div style="margin-top:1rem;padding-top:1rem;border-top:1px solid var(--border)">
+        <div class="row">
+          <input type="text" id="new-team-name" placeholder="새 팀 이름">
+          <button class="btn-primary" onclick="createTeam()">팀 만들기</button>
+        </div>
+        <div id="create-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 팀 상세 뷰 ── -->
+  <div id="detail" style="display:none">
+    <button class="btn-ghost" style="margin-bottom:1rem" onclick="showList()">← 팀 목록</button>
+
+    <!-- 팀 헤더 -->
+    <div class="team-hero" id="team-hero">
+      <div class="team-hero-bg" id="team-hero-bg"></div>
+      <div class="team-hero-content">
+        <div class="team-hero-icon" id="team-hero-icon">
+          <i data-lucide="users"></i>
+        </div>
+        <div class="team-hero-text">
+          <h1 id="team-name-title"></h1>
+          <p id="team-desc-display" style="display:none"></p>
+        </div>
+        <div class="team-hero-actions">
+          <button class="btn-ghost" id="edit-toggle-btn" onclick="toggleEdit()" style="display:none">
+            <i data-lucide="pencil" style="width:14px;height:14px;display:inline-block;vertical-align:middle;margin-right:4px"></i>편집
+          </button>
+          <button class="btn-danger" id="delete-team-btn" onclick="deleteTeam()" style="display:none;padding:.4rem .7rem;font-size:.8rem">삭제</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 편집 패널 (소유자만) -->
+    <div class="edit-panel" id="edit-panel" style="display:none">
+      <h3>팀 꾸미기</h3>
+      <div id="edit-msg"></div>
+
+      <div class="field">
+        <label>팀 이름</label>
+        <input type="text" id="edit-name" placeholder="팀 이름">
+      </div>
+      <div class="field">
+        <label>소개</label>
+        <textarea id="edit-desc" placeholder="팀 소개를 입력하세요"></textarea>
+      </div>
+      <div class="field">
+        <label>아이콘</label>
+        <div class="icon-grid" id="icon-grid"></div>
+        <input type="hidden" id="edit-avatar">
+      </div>
+      <div class="field">
+        <label>색상</label>
+        <div class="row" style="gap:.75rem">
+          <input type="color" id="edit-color" value="#6366f1">
+          <div id="color-presets" style="display:flex;gap:.4rem;flex-wrap:wrap"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:.5rem;margin-top:1rem">
+        <button class="btn-primary" onclick="saveTeamProfile()">저장</button>
+        <button class="btn-ghost" onclick="toggleEdit()">취소</button>
+      </div>
+    </div>
+
+    <div class="tab-bar">
+      <button class="tab active" onclick="switchTab('members')">멤버</button>
+      <button class="tab" onclick="switchTab('invites')">초대</button>
+      <button class="tab" onclick="switchTab('docs')">문서</button>
+    </div>
+
+    <div class="section active" id="tab-members">
+      <div class="card"><h2>멤버</h2><div id="members-list"></div></div>
+    </div>
+
+    <div class="section" id="tab-invites">
+      <div class="card">
+        <h2>멤버 초대</h2>
+        <div id="invite-msg"></div>
+        <div class="row">
+          <input type="email" id="invite-email" placeholder="초대할 이메일">
+          <button class="btn-primary" id="invite-btn" onclick="sendInvite()">초대 보내기</button>
+        </div>
+      </div>
+      <div class="card"><h2>보낸 초대 현황</h2><div id="invites-list"></div></div>
+    </div>
+
+    <div class="section" id="tab-docs">
+      <div class="card">
+        <h2>새 문서</h2>
+        <div id="doc-msg"></div>
+        <div class="row" style="margin-bottom:.5rem">
+          <input type="text" id="doc-path" placeholder="경로 (예: conventions)">
+        </div>
+        <textarea id="doc-content" placeholder="내용 (Markdown)"></textarea>
+        <div style="margin-top:.5rem"><button class="btn-primary" onclick="createDoc()">저장</button></div>
+      </div>
+      <div class="card"><h2>문서 목록</h2><div id="docs-list"></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── 아이콘 목록 (lucide) ──────────────────────────────────────────────────────
+const ICONS = [
+  'users','user-round','shield','star','zap','cpu','code','terminal','brain',
+  'rocket','flame','target','award','trophy','gem','crown','bolt','layers',
+  'grid','layout','box','archive','database','server','cloud','globe',
+  'map','compass','flag','heart','lightbulb','key','lock','leaf','tree',
+  'mountain','sun','moon','sparkles','wand','palette','pen-tool','camera',
+  'music','headphones','mic','book','notebook','file-text','link','hash',
+];
+
+const COLORS = [
+  '#6366f1','#8b5cf6','#ec4899','#ef4444','#f97316',
+  '#eab308','#22c55e','#14b8a6','#3b82f6','#64748b',
+];
+
+const api = (path, opts={}) => fetch(path, {
+  credentials:'include', ...opts,
+  headers:{'Content-Type':'application/json',...(opts.headers||{})},
+});
+
+let currentTeam = null;
+let currentUser = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+(async function init() {
+  buildIconGrid();
+  buildColorPresets();
+  const params = new URLSearchParams(location.search);
+  const teamId = params.get('id');
+  await loadMe();
+  await loadIncomingInvites();
+  if (teamId) await showTeam(teamId);
+  else await loadTeams();
+  lucide.createIcons();
+})();
+
+async function loadMe() {
+  try {
+    const r = await api('/api/me');
+    if (r.status === 401) { location.href = '/login/'; return; }
+    currentUser = await r.json();
+  } catch { location.href = '/login/'; }
+}
+
+// ── 아이콘/색상 빌더 ─────────────────────────────────────────────────────────
+function buildIconGrid() {
+  const grid = document.getElementById('icon-grid');
+  grid.innerHTML = ICONS.map(name => `
+    <div class="icon-opt" data-icon="${name}" onclick="selectIcon('${name}')" title="${name}">
+      <i data-lucide="${name}"></i>
+    </div>`).join('');
+}
+
+function buildColorPresets() {
+  const el = document.getElementById('color-presets');
+  el.innerHTML = COLORS.map(c => `
+    <div onclick="document.getElementById('edit-color').value='${c}';updateColorPreview()"
+         style="width:1.5rem;height:1.5rem;border-radius:.35rem;background:${c};cursor:pointer;border:2px solid transparent"
+         onmouseover="this.style.borderColor='var(--foreground)'" onmouseout="this.style.borderColor='transparent'"></div>
+  `).join('');
+}
+
+function selectIcon(name) {
+  document.querySelectorAll('.icon-opt').forEach(el => el.classList.remove('selected'));
+  const el = document.querySelector(`.icon-opt[data-icon="${name}"]`);
+  if (el) el.classList.add('selected');
+  document.getElementById('edit-avatar').value = name;
+}
+
+function updateColorPreview() {}
+
+// ── 받은 초대 ─────────────────────────────────────────────────────────────────
+async function loadIncomingInvites() {
+  const r = await api('/api/invites/pending');
+  const invites = r.ok ? await r.json() : [];
+  const card = document.getElementById('incoming-invites-card');
+  const list = document.getElementById('incoming-invites-list');
+  document.getElementById('incoming-count').textContent = invites.length;
+  if (!invites.length) { card.classList.remove('has-items'); return; }
+  card.classList.add('has-items');
+  list.innerHTML = invites.map(inv => `
+    <div class="invite-in-item" id="inv-row-${inv.id}">
+      <div>
+        <strong>${esc(inv.team_name)}</strong>
+        <span style="color:var(--muted-foreground);font-size:.8rem;margin-left:.4rem">팀에서 초대했습니다</span>
+      </div>
+      <div style="display:flex;gap:.4rem">
+        <button class="btn-primary" style="padding:.3rem .8rem" onclick="respondInvite('${inv.id}','accept','${esc(inv.team_id)}')">수락</button>
+        <button class="btn-ghost"   style="padding:.3rem .8rem" onclick="respondInvite('${inv.id}','reject','')">거절</button>
+      </div>
+    </div>`).join('');
+}
+
+async function respondInvite(inviteId, action, teamId) {
+  const row = document.getElementById(`inv-row-${inviteId}`);
+  if (row) row.querySelector('div:last-child').innerHTML = '<span style="font-size:.8rem;color:var(--muted-foreground)">처리 중...</span>';
+  const r = await api(`/api/invites/${inviteId}/respond`, {method:'POST', body:JSON.stringify({action})});
+  if (r.ok) {
+    await loadIncomingInvites();
+    if (action === 'accept' && teamId) { await loadTeams(); await showTeam(teamId); }
+  } else {
+    const d = await r.json().catch(()=>({}));
+    if (row) row.innerHTML = `<div class="msg err" style="margin:0;width:100%">${esc(d.error||'오류')}</div>`;
+  }
+}
+
+// ── Teams list ────────────────────────────────────────────────────────────────
+async function loadTeams() {
+  document.getElementById('list-view').style.display = '';
+  document.getElementById('detail').style.display = 'none';
+  const r = await api('/api/teams');
+  const teams = r.ok ? await r.json() : [];
+  const grid = document.getElementById('teams-grid');
+  if (!teams.length) {
+    grid.innerHTML = '<p style="color:var(--muted-foreground);font-size:.875rem;grid-column:1/-1">아직 속한 팀이 없습니다.</p>';
+    return;
+  }
+  grid.innerHTML = teams.map(t => {
+    const color = t.color || '#6366f1';
+    const icon = t.avatar || 'users';
+    const isOwner = t.owner_id === currentUser?.user_id;
+    return `
+    <div class="team-card" onclick="showTeam('${t.id}')">
+      <div class="team-card-accent" style="background:${color}"></div>
+      <div class="team-card-icon" style="background:${color}20">
+        <i data-lucide="${icon}" style="color:${color}"></i>
+      </div>
+      <h3>${esc(t.name)}</h3>
+      <p>${t.description ? esc(t.description) : (isOwner ? '소유자' : '멤버')}</p>
+    </div>`;
+  }).join('');
+  lucide.createIcons();
+}
+
+async function createTeam() {
+  const name = document.getElementById('new-team-name').value.trim();
+  if (!name) return;
+  const r = await api('/api/teams', {method:'POST', body:JSON.stringify({name})});
+  const d = await r.json();
+  const msg = document.getElementById('create-msg');
+  if (r.ok) {
+    msg.innerHTML = '<div class="msg ok">팀이 만들어졌습니다.</div>';
+    document.getElementById('new-team-name').value = '';
+    setTimeout(() => { msg.innerHTML = ''; loadTeams(); }, 1000);
+  } else {
+    msg.innerHTML = `<div class="msg err">${esc(d.error||'오류')}</div>`;
+  }
+}
+
+// ── Team detail ───────────────────────────────────────────────────────────────
+async function showTeam(id) {
+  const r = await api(`/api/teams/${id}`);
+  if (!r.ok) { await loadTeams(); return; }
+  currentTeam = await r.json();
+  history.replaceState(null, '', `?id=${id}`);
+  document.getElementById('list-view').style.display = 'none';
+  document.getElementById('detail').style.display = '';
+  renderTeamHero();
+  const isOwner = currentTeam.owner_id === currentUser?.user_id;
+  document.getElementById('delete-team-btn').style.display = isOwner ? '' : 'none';
+  document.getElementById('edit-toggle-btn').style.display = isOwner ? '' : 'none';
+  document.getElementById('invite-btn').style.display = isOwner ? '' : 'none';
+  document.getElementById('edit-panel').style.display = 'none';
+  renderMembers(currentTeam.members, isOwner);
+  await loadInvites();
+  await loadDocs();
+  lucide.createIcons();
+}
+
+function renderTeamHero() {
+  const color = currentTeam.color || '#6366f1';
+  const icon  = currentTeam.avatar || 'users';
+  document.getElementById('team-name-title').textContent = currentTeam.name;
+  const descEl = document.getElementById('team-desc-display');
+  if (currentTeam.description) { descEl.textContent = currentTeam.description; descEl.style.display = ''; }
+  else { descEl.style.display = 'none'; }
+  const heroEl = document.getElementById('team-hero');
+  heroEl.style.background = `${color}12`;
+  heroEl.style.border = `1px solid ${color}40`;
+  const iconEl = document.getElementById('team-hero-icon');
+  iconEl.style.background = color;
+  iconEl.innerHTML = `<i data-lucide="${icon}" style="color:#fff;width:1.75rem;height:1.75rem"></i>`;
+}
+
+function showList() {
+  history.replaceState(null, '', location.pathname);
+  loadTeams();
+}
+
+function switchTab(name) {
+  const names = ['members','invites','docs'];
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', names[i]===name));
+  document.querySelectorAll('.section').forEach(s => s.classList.toggle('active', s.id===`tab-${name}`));
+}
+
+async function deleteTeam() {
+  if (!confirm(`"${currentTeam.name}" 팀을 삭제합니까?`)) return;
+  const r = await api(`/api/teams/${currentTeam.id}`, {method:'DELETE'});
+  if (r.ok) showList();
+}
+
+// ── 팀 꾸미기 편집 ───────────────────────────────────────────────────────────
+function toggleEdit() {
+  const panel = document.getElementById('edit-panel');
+  const visible = panel.style.display !== 'none';
+  if (!visible) {
+    document.getElementById('edit-name').value = currentTeam.name || '';
+    document.getElementById('edit-desc').value = currentTeam.description || '';
+    document.getElementById('edit-color').value = currentTeam.color || '#6366f1';
+    const avatar = currentTeam.avatar || 'users';
+    document.getElementById('edit-avatar').value = avatar;
+    document.querySelectorAll('.icon-opt').forEach(el => el.classList.toggle('selected', el.dataset.icon === avatar));
+    lucide.createIcons();
+  }
+  panel.style.display = visible ? 'none' : '';
+  document.getElementById('edit-msg').innerHTML = '';
+}
+
+async function saveTeamProfile() {
+  const body = {
+    name: document.getElementById('edit-name').value.trim(),
+    description: document.getElementById('edit-desc').value.trim(),
+    avatar: document.getElementById('edit-avatar').value || 'users',
+    color: document.getElementById('edit-color').value,
+  };
+  const r = await api(`/api/teams/${currentTeam.id}`, {method:'PATCH', body:JSON.stringify(body)});
+  const d = await r.json();
+  if (r.ok) {
+    Object.assign(currentTeam, d);
+    renderTeamHero();
+    lucide.createIcons();
+    document.getElementById('edit-panel').style.display = 'none';
+  } else {
+    document.getElementById('edit-msg').innerHTML = `<div class="msg err">${esc(d.error||'오류')}</div>`;
+  }
+}
+
+// ── Members ───────────────────────────────────────────────────────────────────
+function renderMembers(members, isOwner) {
+  const el = document.getElementById('members-list');
+  if (!members.length) { el.innerHTML = '<p style="color:var(--muted-foreground);font-size:.875rem">멤버 없음</p>'; return; }
+  el.innerHTML = members.map(m => `
+    <div class="list-item">
+      <div>
+        <span class="ellipsis" title="${esc(m.email)}">${esc(m.email)}</span>
+        <span class="badge badge-${m.role}" style="margin-left:.4rem">${m.role==='owner'?'소유자':'멤버'}</span>
+      </div>
+      ${isOwner && m.role!=='owner' ? `<button class="btn-danger" style="padding:.2rem .6rem;font-size:.75rem" onclick="removeMember('${m.user_id}','${esc(m.email)}')">제거</button>` : ''}
+    </div>`).join('');
+}
+
+async function removeMember(uid, email) {
+  if (!confirm(`${email} 님을 팀에서 제거합니까?`)) return;
+  const r = await api(`/api/teams/${currentTeam.id}/members/${uid}`, {method:'DELETE'});
+  if (r.ok) showTeam(currentTeam.id);
+}
+
+// ── Invites ───────────────────────────────────────────────────────────────────
+async function loadInvites() {
+  const r = await api(`/api/teams/${currentTeam.id}/invites`);
+  const invites = r.ok ? await r.json() : [];
+  const el = document.getElementById('invites-list');
+  if (!invites.length) { el.innerHTML = '<p style="color:var(--muted-foreground);font-size:.875rem">보낸 초대 없음</p>'; return; }
+  el.innerHTML = invites.map(inv => `
+    <div class="list-item">
+      <div>
+        <span class="ellipsis" title="${esc(inv.invitee_email)}">${esc(inv.invitee_email)}</span>
+        <span class="tag ${inv.status}" style="margin-left:.4rem">${{pending:'대기중',accepted:'수락됨',rejected:'거절됨'}[inv.status]||inv.status}</span>
+      </div>
+      ${inv.status==='pending'?`<button class="btn-ghost" style="padding:.2rem .6rem;font-size:.75rem" onclick="cancelInvite('${inv.id}')">취소</button>`:''}
+    </div>`).join('');
+}
+
+async function sendInvite() {
+  const email = document.getElementById('invite-email').value.trim();
+  if (!email) return;
+  const r = await api(`/api/teams/${currentTeam.id}/invites`, {method:'POST', body:JSON.stringify({invitee_email:email})});
+  const d = await r.json();
+  const msg = document.getElementById('invite-msg');
+  if (r.ok) {
+    msg.innerHTML = `<div class="msg ok">✅ <strong>${esc(email)}</strong> 님에게 초대를 보냈습니다.</div>`;
+    document.getElementById('invite-email').value = '';
+    setTimeout(() => msg.innerHTML='', 4000);
+    await loadInvites();
+  } else {
+    msg.innerHTML = `<div class="msg err">${esc(d.error||'오류')}</div>`;
+  }
+}
+
+async function cancelInvite(inviteId) {
+  const r = await api(`/api/teams/${currentTeam.id}/invites/${inviteId}`, {method:'DELETE'});
+  if (r.ok) await loadInvites();
+}
+
+// ── Documents ─────────────────────────────────────────────────────────────────
+async function loadDocs() {
+  const r = await api(`/api/teams/${currentTeam.id}/documents`);
+  const docs = r.ok ? await r.json() : [];
+  const el = document.getElementById('docs-list');
+  if (!docs.length) { el.innerHTML = '<p style="color:var(--muted-foreground);font-size:.875rem">문서 없음</p>'; return; }
+  el.innerHTML = docs.map(d => `
+    <div class="list-item">
+      <div style="min-width:0;flex:1">
+        <span class="tag" style="margin-right:.4rem">${esc(d.path)}</span>
+        <span style="font-size:.75rem;color:var(--muted-foreground)">${esc(d.author_email)} · v${d.version}</span>
+        <div class="mono" style="color:var(--muted-foreground);margin-top:.1rem">${d.content_hash.slice(0,12)}…</div>
+      </div>
+      <button class="btn-danger" style="padding:.2rem .6rem;font-size:.75rem" onclick="deleteDoc('${d.id}','${esc(d.path)}')">삭제</button>
+    </div>`).join('');
+}
+
+async function createDoc() {
+  const path = document.getElementById('doc-path').value.trim();
+  const content = document.getElementById('doc-content').value;
+  if (!path) { showDocMsg('경로를 입력하세요.', true); return; }
+  const r = await api(`/api/teams/${currentTeam.id}/documents`, {method:'POST', body:JSON.stringify({path,content})});
+  const d = await r.json();
+  if (r.ok) {
+    showDocMsg('저장됐습니다.', false);
+    document.getElementById('doc-path').value = '';
+    document.getElementById('doc-content').value = '';
+    await loadDocs();
+  } else showDocMsg(d.error||'오류', true);
+}
+
+function showDocMsg(text, isErr) {
+  const el = document.getElementById('doc-msg');
+  el.innerHTML = `<div class="msg ${isErr?'err':'ok'}">${esc(text)}</div>`;
+  if (!isErr) setTimeout(() => el.innerHTML='', 2000);
+}
+
+async function deleteDoc(docId, path) {
+  if (!confirm(`"${path}" 문서를 삭제합니까?`)) return;
+  const r = await api(`/api/teams/${currentTeam.id}/documents/${docId}`, {method:'DELETE'});
+  if (r.ok) await loadDocs();
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
