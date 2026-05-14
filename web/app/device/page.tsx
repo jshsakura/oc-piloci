@@ -11,6 +11,7 @@ function DevicePending() {
   const { t } = useTranslation();
   return (
     <RoutePending
+      fullScreen
       title={t.device.pendingTitle}
       description={t.device.pendingDesc}
     />

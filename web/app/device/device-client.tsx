@@ -139,6 +139,7 @@ export default function DeviceClient() {
   if (!hasHydrated || isBootstrapping || !user) {
     return (
       <RoutePending
+        fullScreen
         title={t.device.pendingTitle}
         description={t.device.readyDesc}
       />
@@ -211,7 +212,7 @@ export default function DeviceClient() {
                   return (
                     <label
                       key={p.kind}
-                      className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-xs transition-colors ${
+                      className={`flex min-w-0 items-start gap-2 rounded-md border px-2.5 py-2 text-xs transition-colors ${
                         checked
                           ? "border-primary/40 bg-primary/5"
                           : "border-border bg-background hover:bg-muted/40"
