@@ -7,6 +7,8 @@ detected client's own configuration:
 
   * Claude Code  → ``~/.claude/settings.json``  (SessionStart + Stop hooks)
                  + ``~/.config/piloci/{hook.py, stop-hook.sh}``
+  * Codex CLI    → ``~/.codex/config.toml``  (MCP + SessionStart + Stop hooks)
+                 + ``~/.config/piloci/{hook.py, stop-hook.sh}``
   * OpenCode     → ``~/.config/opencode/opencode.json``  (mcp.piloci entry)
 
 The CLI imports ``run_install`` from here. Tests can also call individual
@@ -614,7 +616,7 @@ _CODEX_BLOCK_RE = re.compile(
 
 
 def install_codex_mcp(base_url: str, token: str, *, home: Path | None = None) -> Path:
-    """Append piloci's MCP server to Codex CLI's ``~/.codex/config.toml``."""
+    """Append piloci's MCP server + lifecycle hooks to Codex CLI's ``~/.codex/config.toml``."""
     h = home or Path.home()
     cfg = h / CODEX_DIR_NAME / "config.toml"
     cfg.parent.mkdir(parents=True, exist_ok=True)
@@ -625,12 +627,41 @@ def install_codex_mcp(base_url: str, token: str, *, home: Path | None = None) ->
     if not backup.exists() and cfg.exists():
         backup.write_text(raw)
 
+    # Download hook scripts to ~/.config/piloci/ (shared with Claude Code legacy path).
+    piloci_dir = h / PILOCI_DIR_NAME
+    piloci_dir.mkdir(parents=True, exist_ok=True)
+    hook_py = piloci_dir / "hook.py"
+    stop_sh = piloci_dir / "stop-hook.sh"
+    try:
+        hook_py.write_bytes(_http_download(base + "/api/hook/script", token=token))
+        hook_py.chmod(0o755)
+    except Exception:
+        pass
+    try:
+        stop_sh.write_bytes(_http_download(base + "/api/hook/stop-script", token=token))
+        stop_sh.chmod(0o755)
+    except Exception:
+        pass
+
+    hook_py_path = "~/.config/piloci/hook.py"
+    stop_sh_path = "~/.config/piloci/stop-hook.sh"
+
     block = (
         f"\n{_CODEX_BLOCK_BEGIN}\n"
         "[mcp_servers.piloci]\n"
         f'url = "{base}/mcp/http"\n'
-        "[mcp_servers.piloci.headers]\n"
+        "[mcp_servers.piloci.http_headers]\n"
         f'Authorization = "Bearer {token}"\n'
+        "\n"
+        "[[SessionStart]]\n"
+        "[[SessionStart.hooks]]\n"
+        'type = "command"\n'
+        f'command = "python3 {hook_py_path} 2>/dev/null || true"\n'
+        "\n"
+        "[[Stop]]\n"
+        "[[Stop.hooks]]\n"
+        'type = "command"\n'
+        f'command = "bash {stop_sh_path} 2>/dev/null || true"\n'
         f"{_CODEX_BLOCK_END}\n"
     )
     stripped = _CODEX_BLOCK_RE.sub("\n", raw).rstrip()

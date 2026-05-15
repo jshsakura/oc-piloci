@@ -192,18 +192,19 @@ _HOOK_SCRIPT_PATH = "~/.config/piloci/hook.py"
 # Install once, update config.json when token rotates.
 HOOK_SCRIPT = '''\
 #!/usr/bin/env python3
-"""piLoci SessionStart hook.
+"""piLoci SessionStart hook — works with Claude Code and Codex CLI.
 
 Install once. Update ~/.config/piloci/config.json when the token rotates.
 Tracks ingested sessions in ~/.config/piloci/state.json.
-Never blocks Claude startup; failures are silent.
+Never blocks startup; failures are silent.
 
-On 401 (token revoked or expired) the script records ``_auth_invalid`` in
-state.json so the surface that surveys hook health can flag it. The
-script does not retry until config.json is updated.
+Codex CLI passes transcript_path via stdin JSON; Claude Code is served by
+scanning ~/.claude/projects/ on disk.
 """
 import json
 import os
+import select
+import sys
 import time
 import urllib.error
 import urllib.request
@@ -231,6 +232,32 @@ def _write(p, data):
         pass
 
 
+def _read_stdin():
+    """Non-blocking stdin read: returns parsed JSON or {} if nothing is ready."""
+    try:
+        r, _, _ = select.select([sys.stdin], [], [], 0)
+        if not r:
+            return {}
+        raw = sys.stdin.read()
+        return json.loads(raw) if raw and raw.strip() else {}
+    except Exception:
+        return {}
+
+
+def _post(url, token, payload_bytes):
+    req = urllib.request.Request(
+        url,
+        data=payload_bytes,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "piloci-hook",
+        },
+        method="POST",
+    )
+    urllib.request.urlopen(req, timeout=60)
+
+
 def main():
     cfg = _read(_CONFIG)
     token = cfg.get("token")
@@ -238,14 +265,54 @@ def main():
     if not token or not url:
         return
 
-    cwd = os.getcwd()
+    state = _read(_STATE)
+    if not isinstance(state, dict):
+        state = {}
+
+    # Codex CLI path: transcript_path provided via stdin JSON
+    stdin = _read_stdin()
+    transcript_path_str = stdin.get("transcript_path")
+    cwd = stdin.get("cwd") or os.getcwd()
+
+    if transcript_path_str:
+        path = Path(transcript_path_str)
+        try:
+            st = path.stat()
+        except OSError:
+            return
+        if not (200 < st.st_size < MAX_FILE_BYTES):
+            return
+        sid = path.stem
+        sent = state.get(cwd, {})
+        if not isinstance(sent, dict):
+            sent = {}
+        fp = f"{st.st_size}:{st.st_mtime}"
+        if sent.get(sid) == fp:
+            return
+        try:
+            transcript = path.read_bytes().decode("utf-8", "ignore")
+        except OSError:
+            return
+        payload = json.dumps({"cwd": cwd, "sessions": [{"session_id": sid, "transcript": transcript}]}).encode()
+        try:
+            _post(url, token, payload)
+            sent[sid] = fp
+            state[cwd] = sent
+            state.pop("_auth_invalid", None)
+            _write(_STATE, state)
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                state["_auth_invalid"] = {"at": time.time(), "url": url}
+                _write(_STATE, state)
+        except (urllib.error.URLError, OSError):
+            pass
+        return
+
+    # Claude Code path: scan ~/.claude/projects/ for session JSONL files
     project_dir = Path.home() / ".claude" / "projects" / cwd.replace("/", "-")
     if not project_dir.is_dir():
         return
 
-    state = _read(_STATE)
-    if not isinstance(state, dict):
-        state = {}
     sent = state.get(cwd, {})
     if not isinstance(sent, dict):
         sent = {}
@@ -275,28 +342,14 @@ def main():
         return
 
     payload = json.dumps({"cwd": cwd, "sessions": sessions}).encode()
-    req = urllib.request.Request(
-        url,
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-            # Cloudflare in front of piloci flags Python-urllib's default UA as
-            # bot traffic and returns 1010. A stable explicit UA passes.
-            "User-Agent": "piloci-hook",
-        },
-        method="POST",
-    )
     try:
-        urllib.request.urlopen(req, timeout=60)
+        _post(url, token, payload)
     except urllib.error.HTTPError as e:
         if e.code == 401:
             state["_auth_invalid"] = {"at": time.time(), "url": url}
             _write(_STATE, state)
-        # On any HTTP error: do not advance sent fingerprints — we will retry next session.
         return
     except (urllib.error.URLError, OSError):
-        # Transient network problem; retry naturally on next session.
         return
 
     state[cwd] = updated
