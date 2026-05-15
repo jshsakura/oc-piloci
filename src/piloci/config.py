@@ -199,7 +199,27 @@ class Settings(BaseSettings):
 
     @override
     def model_post_init(self, __context: object) -> None:
+        self._apply_cores_aware_load_ceiling()
         self._apply_low_spec_mode()
+
+    def _apply_cores_aware_load_ceiling(self) -> None:
+        """Scale the default load ceiling to the cores this process can actually use.
+
+        Default 3.0 was tuned for a 4-core Pi 5 (≈75% saturation). When the
+        user has pinned Gemma to fewer cores (e.g. ``llama-server -t 3``,
+        cgroup cpuset, or ``PILOCI_AVAILABLE_CORES=3``), 3.0 effectively
+        means ``never hold`` and the worker piles inference on a saturated
+        box. Override only when the env variable is set explicitly so users
+        who tuned a custom ceiling keep their choice.
+        """
+        from piloci.utils.system import detect_active_cores
+
+        if "PILOCI_AVAILABLE_CORES" not in os.environ:
+            return
+        if self.distillation_load_ceiling_1m != 3.0:
+            return  # user picked a non-default ceiling — respect it
+        cores = detect_active_cores()
+        self.distillation_load_ceiling_1m = max(1.0, round(cores * 0.75, 2))
 
     def _apply_low_spec_mode(self) -> None:
         if not self.low_spec_mode:

@@ -109,6 +109,12 @@ class SchedulerDecision:
 
     ``next_poll_seconds`` is a hint to the worker on how long to sleep before
     asking again — short when actively running, longer when held off.
+
+    ``recommended_max_chunks`` is the multipass cap the worker should use for
+    the *next* extraction. The scheduler scales it down when the device is
+    warm or busy so a single long session can't keep the SoC pinned for 15
+    minutes of back-to-back Gemma calls; back up to ``config.max_chunks``
+    when conditions are cool. ``None`` means "no opinion — use the default".
     """
 
     should_run: bool
@@ -118,6 +124,7 @@ class SchedulerDecision:
     cpu_temp_c: float | None = None
     load_avg_1m: float | None = None
     next_poll_seconds: float = 60.0
+    recommended_max_chunks: int | None = None
 
 
 @dataclass
@@ -136,6 +143,47 @@ class SchedulerConfig:
     poll_interval_normal: float = 60.0
     poll_interval_idle: float = 5.0
     poll_interval_held: float = 120.0
+    # Ceiling on multipass chunks per extraction. The scheduler scales this
+    # down based on live temp/load and reports the result via
+    # SchedulerDecision.recommended_max_chunks.
+    max_chunks: int = 4
+
+
+def _recommend_chunks(
+    config: SchedulerConfig,
+    cpu_temp: float | None,
+    load_1m: float | None,
+) -> int:
+    """Pick the multipass chunk cap for the next extraction.
+
+    Heuristic — ``max_chunks`` when the device is cool *and* not loaded;
+    halved when warm or moderately busy; minimum 1 when within ~5°C of the
+    hold ceiling or near the load ceiling. The hard ``should_run`` gate
+    still applies on top — this only chooses how aggressively to sample
+    once the gate is open.
+    """
+    base = max(1, config.max_chunks)
+    if base == 1:
+        return 1
+
+    warm_temp = config.temp_ceiling_celsius - 15.0  # ≈55°C with default 70
+    hot_temp = config.temp_ceiling_celsius - 5.0  # ≈65°C with default 70
+    warm_load = config.load_ceiling_1m * 0.7
+    hot_load = config.load_ceiling_1m * 0.9
+
+    is_hot = (cpu_temp is not None and cpu_temp >= hot_temp) or (
+        load_1m is not None and load_1m >= hot_load
+    )
+    if is_hot:
+        return 1
+
+    is_warm = (cpu_temp is not None and cpu_temp >= warm_temp) or (
+        load_1m is not None and load_1m >= warm_load
+    )
+    if is_warm:
+        return max(1, base // 2)
+
+    return base
 
 
 def _now_local_time() -> time:
@@ -175,8 +223,11 @@ def decide(
         )
 
     now = now_time if now_time is not None else _now_local_time()
+    rec_chunks = _recommend_chunks(config, cpu_temp, load_1m)
 
-    # Idle window: ignore temperature, drain the backlog locally.
+    # Idle window: ignore temperature, drain the backlog locally. Still scale
+    # chunks down if temp is creeping up — overheating the SoC mid-window
+    # would only stall the next pass.
     if config.idle_window is not None and config.idle_window.contains(now):
         return SchedulerDecision(
             should_run=True,
@@ -186,6 +237,7 @@ def decide(
             cpu_temp_c=cpu_temp,
             load_avg_1m=load_1m,
             next_poll_seconds=config.poll_interval_idle,
+            recommended_max_chunks=rec_chunks,
         )
 
     # Normal hours, overflow path: backlog past threshold + external available
@@ -206,6 +258,8 @@ def decide(
             cpu_temp_c=cpu_temp,
             load_avg_1m=load_1m,
             next_poll_seconds=config.poll_interval_idle,
+            # External provider doesn't pay the local SoC cost — go full chunks.
+            recommended_max_chunks=max(1, config.max_chunks),
         )
 
     # Normal hours, local path: gate on temperature and load.
@@ -217,6 +271,7 @@ def decide(
             cpu_temp_c=cpu_temp,
             load_avg_1m=load_1m,
             next_poll_seconds=config.poll_interval_held,
+            recommended_max_chunks=rec_chunks,
         )
 
     if load_1m is not None and load_1m >= config.load_ceiling_1m:
@@ -227,6 +282,7 @@ def decide(
             cpu_temp_c=cpu_temp,
             load_avg_1m=load_1m,
             next_poll_seconds=config.poll_interval_held,
+            recommended_max_chunks=rec_chunks,
         )
 
     return SchedulerDecision(
@@ -237,6 +293,7 @@ def decide(
         cpu_temp_c=cpu_temp,
         load_avg_1m=load_1m,
         next_poll_seconds=config.poll_interval_normal,
+        recommended_max_chunks=rec_chunks,
     )
 
 

@@ -151,6 +151,7 @@ def _build_scheduler_config(
         poll_interval_normal=settings.distillation_poll_interval_normal_sec,
         poll_interval_idle=settings.distillation_poll_interval_idle_sec,
         poll_interval_held=settings.distillation_poll_interval_held_sec,
+        max_chunks=settings.distillation_max_chunks,
     )
 
 
@@ -287,8 +288,14 @@ async def _process_one(
     memory_store: MemoryStore,
     instincts_store: InstinctsStore,
     use_external: bool,
+    max_chunks: int | None = None,
 ) -> None:
-    """Run extraction on a single RawSession row, persist results, advance state."""
+    """Run extraction on a single RawSession row, persist results, advance state.
+
+    ``max_chunks`` overrides ``settings.distillation_max_chunks`` when provided
+    — the scheduler uses this to throttle multipass aggressiveness based on
+    live SoC temp / load.
+    """
     started = datetime.now(timezone.utc)
     transcript = orjson.loads(row.transcript_json)
 
@@ -305,6 +312,7 @@ async def _process_one(
         )
 
     fallbacks = await load_user_fallbacks(row.user_id)
+    effective_chunks = max_chunks if max_chunks is not None else settings.distillation_max_chunks
     distilled: DistilledSession = await extract_session_multipass(
         transcript,
         endpoint=settings.gemma_endpoint,
@@ -312,7 +320,7 @@ async def _process_one(
         fallbacks=fallbacks,
         prefer_external=use_external,
         chunk_chars=settings.distillation_chunk_chars,
-        max_chunks=settings.distillation_max_chunks,
+        max_chunks=effective_chunks,
         chunk_overlap=settings.distillation_chunk_overlap,
     )
 
@@ -508,6 +516,7 @@ async def run_distillation_worker(
                     memory_store,
                     instincts_store,
                     use_external=row_use_external,
+                    max_chunks=decision.recommended_max_chunks,
                 )
             except Exception:
                 logger.exception("distillation: row %s processing crashed", row.ingest_id)

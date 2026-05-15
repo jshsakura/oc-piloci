@@ -11,12 +11,14 @@ def _config(
     temp_ceiling: float = 70.0,
     load_ceiling: float = 3.0,
     overflow: int = 50,
+    max_chunks: int = 4,
 ) -> SchedulerConfig:
     return SchedulerConfig(
         idle_window=idle_window,
         temp_ceiling_celsius=temp_ceiling,
         load_ceiling_1m=load_ceiling,
         overflow_threshold=overflow,
+        max_chunks=max_chunks,
     )
 
 
@@ -145,3 +147,86 @@ def test_parse_idle_window_invalid() -> None:
     assert parse_idle_window("") is None
     assert parse_idle_window(None) is None
     assert parse_idle_window("25:00-26:00") is None
+
+
+def test_recommended_chunks_full_when_cool_and_idle_load() -> None:
+    decision = decide(
+        _config(max_chunks=4),
+        pending_count=5,
+        cpu_temp=45.0,
+        load_1m=0.5,
+        now_time=time(14, 0),
+    )
+    assert decision.should_run is True
+    assert decision.recommended_max_chunks == 4
+
+
+def test_recommended_chunks_halved_when_warm() -> None:
+    # 56°C ≥ ceiling 70 - 15 = 55 → warm tier, chunks halved.
+    decision = decide(
+        _config(max_chunks=4),
+        pending_count=5,
+        cpu_temp=56.0,
+        load_1m=0.5,
+        now_time=time(14, 0),
+    )
+    assert decision.should_run is True
+    assert decision.recommended_max_chunks == 2
+
+
+def test_recommended_chunks_one_when_hot() -> None:
+    # 66°C ≥ ceiling 70 - 5 = 65 → hot tier, chunks=1.
+    decision = decide(
+        _config(max_chunks=4),
+        pending_count=5,
+        cpu_temp=66.0,
+        load_1m=0.5,
+        now_time=time(14, 0),
+    )
+    # Still under the 70 hold ceiling so it runs, but with the smallest cap.
+    assert decision.should_run is True
+    assert decision.recommended_max_chunks == 1
+
+
+def test_recommended_chunks_one_when_load_near_ceiling() -> None:
+    # load 2.8 ≥ ceiling 3.0 * 0.9 = 2.7 → hot tier even though SoC is cool.
+    decision = decide(
+        _config(max_chunks=4, load_ceiling=3.0),
+        pending_count=5,
+        cpu_temp=45.0,
+        load_1m=2.8,
+        now_time=time(14, 0),
+    )
+    assert decision.should_run is True
+    assert decision.recommended_max_chunks == 1
+
+
+def test_recommended_chunks_full_for_external_overflow() -> None:
+    # External provider doesn't pay the SoC cost — recommend full chunks even
+    # if local sensors say "warm".
+    decision = decide(
+        _config(max_chunks=4, overflow=10),
+        pending_count=15,
+        has_external_provider=True,
+        cpu_temp=66.0,
+        load_1m=0.5,
+        now_time=time(14, 0),
+    )
+    assert decision.should_run is True
+    assert decision.use_external is True
+    assert decision.recommended_max_chunks == 4
+
+
+def test_recommended_chunks_idle_window_scales_with_temp() -> None:
+    # Even inside the idle window, hot SoC scales chunks down so the next
+    # poll doesn't run into the thermal hold ceiling.
+    window = IdleWindow(start=time(2, 0), end=time(7, 0))
+    decision = decide(
+        _config(idle_window=window, max_chunks=4),
+        pending_count=10,
+        cpu_temp=66.0,
+        load_1m=0.5,
+        now_time=time(3, 0),
+    )
+    assert decision.should_run is True
+    assert decision.recommended_max_chunks == 1
