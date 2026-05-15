@@ -1,5 +1,22 @@
 const BASE = "";
 
+function readCookie(name: string): string | null {
+  if (typeof document === "undefined") return null;
+  const prefix = `${name}=`;
+  const match = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  return match ? decodeURIComponent(match.slice(prefix.length)) : null;
+}
+
+function csrfHeaders(method?: string): Record<string, string> {
+  const normalized = (method ?? "GET").toUpperCase();
+  if (["GET", "HEAD", "OPTIONS", "TRACE"].includes(normalized)) return {};
+  const token = readCookie("piloci_csrf");
+  return token ? { "X-CSRF-Token": token } : {};
+}
+
 export type AuthProviderName = "kakao" | "naver" | "google" | "github";
 
 export type ChatCitation = {
@@ -34,6 +51,7 @@ export async function chatStream(
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
+      ...csrfHeaders("POST"),
     },
     body: JSON.stringify({ ...args, stream: true }),
     signal: handlers.signal,
@@ -125,6 +143,7 @@ async function request<T>(
     credentials: "include",
     headers: {
       "Content-Type": "application/json",
+      ...csrfHeaders(options.method),
       ...options.headers,
     },
   });
@@ -167,6 +186,60 @@ export const api = {
     request<import("./types").RawSessionDetail>(`/api/raw-sessions/${ingest_id}`),
   deleteProject: (id: string) =>
     request(`/api/projects/${id}`, { method: "DELETE", body: JSON.stringify({ confirm: true }) }),
+
+  // Teams
+  listTeams: () => request<import("./types").TeamSummary[]>("/api/teams"),
+  createTeam: (name: string) =>
+    request<import("./types").TeamSummary>("/api/teams", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  getTeam: (teamId: string) => request<import("./types").TeamDetail>(`/api/teams/${teamId}`),
+  updateTeam: (
+    teamId: string,
+    patch: { name?: string; description?: string | null; avatar?: string | null; color?: string | null },
+  ) =>
+    request<import("./types").TeamDetail>(`/api/teams/${teamId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  deleteTeam: (teamId: string) => request(`/api/teams/${teamId}`, { method: "DELETE" }),
+  listPendingInvites: () => request<import("./types").TeamInvite[]>("/api/invites/pending"),
+  respondInvite: (inviteId: string, action: "accept" | "reject") =>
+    request<{ status: string; team_id: string }>(`/api/invites/${inviteId}/respond`, {
+      method: "POST",
+      body: JSON.stringify({ action }),
+    }),
+  createTeamInvite: (teamId: string, invitee_email: string) =>
+    request<import("./types").TeamInvite>(`/api/teams/${teamId}/invites`, {
+      method: "POST",
+      body: JSON.stringify({ invitee_email }),
+    }),
+  listTeamInvites: (teamId: string) =>
+    request<import("./types").TeamInvite[]>(`/api/teams/${teamId}/invites`),
+  cancelTeamInvite: (teamId: string, inviteId: string) =>
+    request(`/api/teams/${teamId}/invites/${inviteId}`, { method: "DELETE" }),
+  removeTeamMember: (teamId: string, userId: string) =>
+    request(`/api/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
+  createTeamDocument: (teamId: string, input: { path: string; content: string; parent_hash?: string | null }) =>
+    request<import("./types").TeamDocumentSummary>(`/api/teams/${teamId}/documents`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  listTeamDocuments: (teamId: string) =>
+    request<import("./types").TeamDocumentSummary[]>(`/api/teams/${teamId}/documents`),
+  pullTeamDocuments: (teamId: string, manifest: Record<string, string>) =>
+    request<import("./types").TeamDocumentPull>(`/api/teams/${teamId}/documents/pull`, {
+      method: "POST",
+      body: JSON.stringify({ manifest }),
+    }),
+  updateTeamDocument: (teamId: string, docId: string, input: { content: string; parent_hash?: string | null }) =>
+    request<import("./types").TeamDocumentSummary>(`/api/teams/${teamId}/documents/${docId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  deleteTeamDocument: (teamId: string, docId: string) =>
+    request(`/api/teams/${teamId}/documents/${docId}`, { method: "DELETE" }),
 
   // Auth
   forgotPassword: (email: string) =>

@@ -108,7 +108,7 @@ addopts = "--cov=src/piloci --cov-report=term-missing"
 source = ["src/piloci"]
 
 [tool.coverage.report]
-fail_under = 27
+fail_under = 73
 show_missing = true
 exclude_lines = [
     "pragma: no cover",

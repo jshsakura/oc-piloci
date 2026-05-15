@@ -14,7 +14,7 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import PlainTextResponse
 from starlette.routing import Route
 
-from piloci.api.security import SecurityHeadersMiddleware
+from piloci.api.security import CSRFMiddleware, SecurityHeadersMiddleware
 from piloci.auth.middleware import AuthMiddleware
 from piloci.main import (
     _build_mcp,
@@ -282,7 +282,8 @@ def test_create_app_registers_routes_and_middleware(monkeypatch, with_static: bo
     assert app.user_middleware[0].cls is CORSMiddleware
     assert app.user_middleware[1].cls is RuntimeProfilingMiddleware
     assert app.user_middleware[2].cls is SecurityHeadersMiddleware
-    assert app.user_middleware[3].cls is AuthMiddleware
+    assert app.user_middleware[3].cls is CSRFMiddleware
+    assert app.user_middleware[4].cls is AuthMiddleware
     assert app.state.store is store
     assert app.state.instincts_store is instincts_store
     ratelimit_mock.assert_called_once_with(app)

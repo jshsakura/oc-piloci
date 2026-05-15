@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.requests import Request
@@ -11,6 +13,13 @@ from starlette.testclient import TestClient
 
 from piloci.auth.middleware import AuthMiddleware
 from piloci.config import Settings
+
+
+def _session_cm(session: MagicMock) -> AsyncMock:
+    cm = AsyncMock()
+    cm.__aenter__ = AsyncMock(return_value=session)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    return cm
 
 
 def _settings() -> Settings:
@@ -131,3 +140,69 @@ def test_dispatch_rejects_requests_without_auth(monkeypatch) -> None:
     assert response.text == "Unauthorized"
     verify_token_mock.assert_not_called()
     get_session_store_mock.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_validate_bearer_user_rejects_revoked_token(monkeypatch) -> None:
+    from piloci.auth.middleware import _validate_bearer_user
+
+    api_token = MagicMock(revoked=True, expires_at=None)
+    db_user = MagicMock(is_active=True, approval_status="approved", is_admin=False)
+    result = MagicMock()
+    result.one_or_none.return_value = (api_token, db_user)
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=result)
+
+    monkeypatch.setattr(
+        "piloci.auth.middleware.async_session", MagicMock(return_value=_session_cm(session))
+    )
+
+    validated = await _validate_bearer_user({"sub": "user-1", "jti": "token-1"})
+
+    assert validated is None
+
+
+@pytest.mark.asyncio
+async def test_validate_bearer_user_refreshes_current_user_flags(monkeypatch) -> None:
+    from piloci.auth.middleware import _validate_bearer_user
+
+    api_token = MagicMock(
+        revoked=False,
+        expires_at=datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=5),
+    )
+    db_user = MagicMock(is_active=True, approval_status="approved", is_admin=True)
+    result = MagicMock()
+    result.one_or_none.return_value = (api_token, db_user)
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=result)
+    monkeypatch.setattr(
+        "piloci.auth.middleware.async_session", MagicMock(return_value=_session_cm(session))
+    )
+
+    payload = {"sub": "user-1", "jti": "token-1", "is_admin": False}
+    validated = await _validate_bearer_user(payload)
+
+    assert validated is payload
+    assert validated["is_admin"] is True
+    assert validated["approval_status"] == "approved"
+
+
+@pytest.mark.asyncio
+async def test_validate_session_user_rejects_inactive_user(monkeypatch) -> None:
+    from piloci.auth.middleware import _validate_session_user
+
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = MagicMock(
+        is_active=False, approval_status="approved", is_admin=False
+    )
+    session = MagicMock()
+    session.execute = AsyncMock(return_value=result)
+    monkeypatch.setattr(
+        "piloci.auth.middleware.async_session", MagicMock(return_value=_session_cm(session))
+    )
+
+    validated = await _validate_session_user(
+        {"user_id": "user-1", "approval_status": "approved", "is_admin": False}
+    )
+
+    assert validated is None

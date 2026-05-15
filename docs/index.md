@@ -12,6 +12,8 @@
 | [MEMORY.md](../MEMORY.md) | Development history and session notes |
 | [SECURITY.md](../SECURITY.md) | Security policy and vulnerability reporting |
 | [WEB_BUILD.md](./WEB_BUILD.md) | Web frontend build and development instructions |
+| [ADR-001-storage-isolation.md](./ADR-001-storage-isolation.md) | LanceDB storage isolation decision |
+| [ADR-014-lancedb-backend.md](./ADR-014-lancedb-backend.md) | LanceDB backend adoption decision |
 
 ## Key concepts
 

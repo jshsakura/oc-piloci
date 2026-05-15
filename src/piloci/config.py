@@ -74,6 +74,7 @@ class Settings(BaseSettings):
     external_llm_model: str | None = None
     external_llm_api_key: str | None = None
     external_llm_label: str = "system-fallback"
+    allow_private_llm_provider_urls: bool = False
 
     # Lazy distillation pipeline — replaces the eager curator + analyzer.
     # The defaults here are server-wide; per-user UserPreferences rows

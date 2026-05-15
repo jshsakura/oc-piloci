@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
+import socket
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, cast
+from urllib.parse import urlparse
 
 import orjson
 from cryptography.fernet import InvalidToken
@@ -13,7 +16,19 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
-from piloci.api.ratelimit import RATE_DATA_IO, RATE_LOGIN, RATE_PASSWORD_RESET, RATE_SIGNUP, limiter
+from piloci.api.ratelimit import (
+    RATE_ADMIN,
+    RATE_CHAT,
+    RATE_DATA_IO,
+    RATE_DEVICE,
+    RATE_INGEST,
+    RATE_LOGIN,
+    RATE_MUTATION,
+    RATE_PASSWORD_RESET,
+    RATE_SIGNUP,
+    limiter,
+)
+from piloci.api.security import delete_csrf_cookie, new_csrf_token, set_csrf_cookie
 from piloci.auth.jwt_utils import create_token
 from piloci.auth.local import (
     AccountLockedError,
@@ -119,6 +134,41 @@ def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _validate_llm_base_url(base_url: str, *, allow_private: bool = False) -> str | None:
+    parsed = urlparse(base_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return "base_url must be http(s) URL"
+    if allow_private:
+        return None
+
+    host = parsed.hostname.strip().lower()
+    if host in {"localhost", "localhost.localdomain"}:
+        return "private or localhost LLM provider URLs are disabled"
+
+    try:
+        ip_candidates = [ipaddress.ip_address(host)]
+    except ValueError:
+        try:
+            infos = socket.getaddrinfo(
+                host, parsed.port or (443 if parsed.scheme == "https" else 80)
+            )
+            ip_candidates = [ipaddress.ip_address(info[4][0]) for info in infos]
+        except Exception:
+            return "base_url host could not be resolved"
+
+    if any(
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+        for ip in ip_candidates
+    ):
+        return "private or localhost LLM provider URLs are disabled"
+    return None
+
+
 def _ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
@@ -209,15 +259,18 @@ async def route_login(request: Request) -> Response:
                 totp_code=totp_code,
             )
         response = _json({"user_id": user.id, "email": user.email, "is_admin": user.is_admin})
+        max_age = settings.session_expire_days * 86400
+        secure_cookie = _resolve_base_url(request, settings).startswith("https")
         response.set_cookie(
             "piloci_session",
             session_id,
             httponly=True,
             samesite="lax",
-            secure=_resolve_base_url(request, settings).startswith("https"),
-            max_age=settings.session_expire_days * 86400,
+            secure=secure_cookie,
+            max_age=max_age,
             path="/",
         )
+        set_csrf_cookie(response, new_csrf_token(), secure=secure_cookie, max_age=max_age)
         return response
     except AccountLockedError as e:
         return _json({"error": str(e)}, 429)
@@ -245,6 +298,7 @@ async def route_logout(request: Request) -> Response:
             await store.delete_session(session_id, session["user_id"])
     response = _json({"status": "logged out"})
     response.delete_cookie("piloci_session", path="/")
+    delete_csrf_cookie(response)
     return response
 
 
@@ -1361,8 +1415,12 @@ async def route_create_llm_provider(request: Request) -> Response:
         return _json({"error": "name, base_url, model, api_key are required"}, 400)
     if len(name) > 100 or len(base_url) > 500 or len(model) > 100 or len(api_key) > 500:
         return _json({"error": "field too long"}, 422)
-    if not (base_url.startswith("http://") or base_url.startswith("https://")):
-        return _json({"error": "base_url must start with http(s)://"}, 422)
+    settings = get_settings()
+    url_error = _validate_llm_base_url(
+        base_url, allow_private=settings.allow_private_llm_provider_urls
+    )
+    if url_error:
+        return _json({"error": url_error}, 422)
 
     enabled = bool(body.get("enabled", True))
     priority_raw = body.get("priority", 100)
@@ -1376,7 +1434,6 @@ async def route_create_llm_provider(request: Request) -> Response:
     from piloci.auth.crypto import encrypt_token
     from piloci.db.models import LLMProvider
 
-    settings = get_settings()
     encrypted = encrypt_token(api_key, settings)
     now = datetime.now(timezone.utc)
     provider = LLMProvider(
@@ -1429,7 +1486,7 @@ async def route_update_llm_provider(request: Request) -> Response:
         if (
             not url
             or len(url) > 500
-            or not (url.startswith("http://") or url.startswith("https://"))
+            or _validate_llm_base_url(url, allow_private=settings.allow_private_llm_provider_urls)
         ):
             return _json({"error": "base_url invalid"}, 422)
         updates["base_url"] = url
@@ -1998,6 +2055,7 @@ async def route_oauth_callback(request: Request) -> Response:
         max_age=max_age,
         path="/",
     )
+    set_csrf_cookie(response, new_csrf_token(), secure=is_https, max_age=max_age)
     return response
 
 
@@ -3444,6 +3502,22 @@ def get_routes() -> list[Route]:
     reset_password_limited = limiter.limit(RATE_PASSWORD_RESET)(route_reset_password)
     data_export_limited = limiter.limit(RATE_DATA_IO)(route_data_export)
     data_import_limited = limiter.limit(RATE_DATA_IO)(route_data_import)
+    device_code_limited = limiter.limit(RATE_DEVICE)(route_device_code)
+    device_poll_limited = limiter.limit(RATE_DEVICE)(route_device_poll)
+    device_approve_limited = limiter.limit(RATE_MUTATION)(route_device_approve)
+    token_create_limited = limiter.limit(RATE_MUTATION)(route_create_token)
+    token_revoke_limited = limiter.limit(RATE_MUTATION)(route_revoke_token)
+    llm_create_limited = limiter.limit(RATE_MUTATION)(route_create_llm_provider)
+    llm_update_limited = limiter.limit(RATE_MUTATION)(route_update_llm_provider)
+    llm_delete_limited = limiter.limit(RATE_MUTATION)(route_delete_llm_provider)
+    ingest_limited = limiter.limit(RATE_INGEST)(route_ingest)
+    sessions_ingest_limited = limiter.limit(RATE_INGEST)(route_sessions_ingest)
+    chat_limited = limiter.limit(RATE_CHAT)(route_chat)
+    admin_approve_limited = limiter.limit(RATE_ADMIN)(route_admin_approve_user)
+    admin_reject_limited = limiter.limit(RATE_ADMIN)(route_admin_reject_user)
+    admin_toggle_admin_limited = limiter.limit(RATE_ADMIN)(route_admin_toggle_admin)
+    admin_toggle_active_limited = limiter.limit(RATE_ADMIN)(route_admin_toggle_active)
+    admin_delete_limited = limiter.limit(RATE_ADMIN)(route_admin_delete_user)
 
     return [
         Route("/healthz", route_healthz),
@@ -3473,13 +3547,13 @@ def get_routes() -> list[Route]:
         Route("/api/projects/{id}", route_update_project, methods=["PATCH"]),
         Route("/api/projects/{id}", route_delete_project, methods=["DELETE"]),
         Route("/api/tokens", route_list_tokens, methods=["GET"]),
-        Route("/api/tokens", route_create_token, methods=["POST"]),
-        Route("/api/tokens/{id}", route_revoke_token, methods=["DELETE"]),
+        Route("/api/tokens", token_create_limited, methods=["POST"]),
+        Route("/api/tokens/{id}", token_revoke_limited, methods=["DELETE"]),
         Route("/api/install/heartbeat", route_install_heartbeat, methods=["POST"]),
         Route("/api/llm-providers", route_list_llm_providers, methods=["GET"]),
-        Route("/api/llm-providers", route_create_llm_provider, methods=["POST"]),
-        Route("/api/llm-providers/{id}", route_update_llm_provider, methods=["PATCH"]),
-        Route("/api/llm-providers/{id}", route_delete_llm_provider, methods=["DELETE"]),
+        Route("/api/llm-providers", llm_create_limited, methods=["POST"]),
+        Route("/api/llm-providers/{id}", llm_update_limited, methods=["PATCH"]),
+        Route("/api/llm-providers/{id}", llm_delete_limited, methods=["DELETE"]),
         Route("/api/audit", route_list_audit, methods=["GET"]),
         Route("/api/account/2fa/enable", route_2fa_enable, methods=["POST"]),
         Route("/api/account/2fa/confirm", route_2fa_confirm, methods=["POST"]),
@@ -3500,30 +3574,30 @@ def get_routes() -> list[Route]:
             methods=["POST", "GET"],
         ),
         # v0.3: auto-capture + memory admin
-        Route("/api/ingest", route_ingest, methods=["POST"]),
+        Route("/api/ingest", ingest_limited, methods=["POST"]),
         Route("/api/memories", route_create_memory, methods=["POST"]),
         Route("/api/memories/{id}", route_get_memory, methods=["GET"]),
         Route("/api/memories/{id}", route_update_memory, methods=["PATCH"]),
         Route("/api/memories/{id}", route_delete_memory, methods=["DELETE"]),
         Route("/api/memories/clear", route_clear_memories, methods=["POST"]),
         Route("/api/sessions/analyze", route_analyze_session, methods=["POST"]),
-        Route("/api/sessions/ingest", route_sessions_ingest, methods=["POST"]),
+        Route("/api/sessions/ingest", sessions_ingest_limited, methods=["POST"]),
         Route("/api/hook/script", route_hook_script, methods=["GET"]),
         Route("/api/hook/stop-script", route_hook_stop_script, methods=["GET"]),
         Route("/api/hook/codex-stop-script", route_hook_codex_stop_script, methods=["GET"]),
         Route("/api/hook/opencode-plugin", route_opencode_plugin, methods=["GET"]),
         Route("/install/{code}", route_install, methods=["GET"]),
-        Route("/auth/device/code", route_device_code, methods=["POST"]),
+        Route("/auth/device/code", device_code_limited, methods=["POST"]),
         Route("/auth/device/info", route_device_info, methods=["GET"]),
-        Route("/auth/device/poll", route_device_poll, methods=["POST"]),
-        Route("/api/device/approve", route_device_approve, methods=["POST"]),
-        Route("/api/chat", route_chat, methods=["POST"]),
+        Route("/auth/device/poll", device_poll_limited, methods=["POST"]),
+        Route("/api/device/approve", device_approve_limited, methods=["POST"]),
+        Route("/api/chat", chat_limited, methods=["POST"]),
         Route("/api/admin/users", route_admin_list_users, methods=["GET"]),
-        Route("/api/admin/users/{id}/approve", route_admin_approve_user, methods=["POST"]),
-        Route("/api/admin/users/{id}/reject", route_admin_reject_user, methods=["POST"]),
-        Route("/api/admin/users/{id}/toggle-admin", route_admin_toggle_admin, methods=["POST"]),
-        Route("/api/admin/users/{id}/toggle-active", route_admin_toggle_active, methods=["POST"]),
-        Route("/api/admin/users/{id}", route_admin_delete_user, methods=["DELETE"]),
+        Route("/api/admin/users/{id}/approve", admin_approve_limited, methods=["POST"]),
+        Route("/api/admin/users/{id}/reject", admin_reject_limited, methods=["POST"]),
+        Route("/api/admin/users/{id}/toggle-admin", admin_toggle_admin_limited, methods=["POST"]),
+        Route("/api/admin/users/{id}/toggle-active", admin_toggle_active_limited, methods=["POST"]),
+        Route("/api/admin/users/{id}", admin_delete_limited, methods=["DELETE"]),
         # v1 SDK REST surface — thin shims over MCP tool handlers
         Route("/api/v1/memory", v1.route_v1_memory, methods=["POST"]),
         Route("/api/v1/recall", v1.route_v1_recall, methods=["POST"]),

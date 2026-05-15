@@ -39,6 +39,7 @@ _SCHEMA = pa.schema(
 
 # Allow UUID format plus simple slug IDs like "dev-user", "dev-project"
 _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
+_SAFE_TAG_RE = re.compile(r"^[^'\x00\r\n]{1,80}$")
 
 
 class MemoryWrite(TypedDict):
@@ -52,6 +53,12 @@ def _safe_id(value: str) -> str:
     """Validate ID contains only alphanumeric/dash/underscore (SQL injection guard)."""
     if not _SAFE_ID_RE.match(value):
         raise ValueError(f"Invalid ID format: {value!r}")
+    return value
+
+
+def _safe_tag(value: str) -> str:
+    if not _SAFE_TAG_RE.match(value):
+        raise ValueError(f"Invalid tag format: {value!r}")
     return value
 
 
@@ -173,6 +180,8 @@ class MemoryStore:
     ) -> list[str]:
         if not memories:
             return []
+        user_id = _safe_id(user_id)
+        project_id = _safe_id(project_id)
 
         tbl = await self._get_table()
         now = int(time.time())
@@ -223,7 +232,7 @@ class MemoryStore:
         where = self._must_filter_sql(user_id, project_id)
         if tags:
             for tag in tags:
-                safe_tag = tag.replace("'", "''")
+                safe_tag = _safe_tag(tag)
                 where += f" AND list_contains(tags, '{safe_tag}')"
         return where
 

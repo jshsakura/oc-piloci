@@ -671,7 +671,7 @@ const ko = {
     },
     appShell: {
       locale: { trigger: '언어 선택', title: '언어를 선택하세요', desc: '인터페이스에 사용할 언어를 고르세요.' },
-      nav: { dashboard: '대시보드', projects: '프로젝트', chat: '대화' },
+      nav: { dashboard: '대시보드', projects: '프로젝트', teams: '팀', chat: '대화' },
       dropdown: { settings: '설정', activity: '활동 기록', admin: '관리자', logout: '로그아웃' },
       footer: { privacy: '개인정보 처리방침', terms: '서비스 약관' },
     },
@@ -1691,7 +1691,7 @@ const en: CopyShape = {
     },
     appShell: {
       locale: { trigger: 'Language', title: 'Choose a language', desc: 'Pick the language used across the interface.' },
-      nav: { dashboard: 'Dashboard', projects: 'Projects', chat: 'Chat' },
+      nav: { dashboard: 'Dashboard', projects: 'Projects', teams: 'Teams', chat: 'Chat' },
       dropdown: { settings: 'Settings', activity: 'Activity', admin: 'Admin', logout: 'Log Out' },
       footer: { privacy: 'Privacy Policy', terms: 'Terms of Service' },
     },

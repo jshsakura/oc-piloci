@@ -21,10 +21,10 @@
 - [x] PLAN.md 작성
 - [x] pyproject.toml 스캐폴드
 - [x] 디렉토리 구조 생성 (Python 백엔드 + Next.js 프론트)
-- [x] Dockerfile + docker-compose.yml (Qdrant 포함)
+- [x] Dockerfile + docker-compose.yml (piloci + Redis + cloudflared, LanceDB 내장)
 - [x] Python 의존성 설치 (uv)
 - [x] MCP 서버 스켈레톤
-- [x] Qdrant 연동
+- [x] LanceDB 연동
 - [x] fastembed 연동
 - [x] **로컬 인증 (email + argon2 비밀번호)**
 - [x] 세션 관리 (Redis)
@@ -36,6 +36,7 @@
 - [x] 랜딩/로그인/회원가입 페이지
 - [x] 대시보드 (프로젝트 목록)
 - [x] 프로젝트 상세 (메모리 관리)
+- [x] 팀 작업공간 UI (`/teams`: 팀 생성, 초대, 멤버, 공유 문서)
 - [x] 설정 페이지 (토큰/2FA/비밀번호)
 - [x] Google OAuth (선택 로그인 옵션으로)
 - [x] 2FA (TOTP) 옵션
@@ -54,8 +55,8 @@
 - [x] LanceDB 통합 테스트 (`tests/test_storage_lancedb.py`) — 21개 통과
 - [x] config: `lancedb_path`, `lancedb_index_type`, `lancedb_index_threshold` 추가
 - [x] README 갱신
-- [ ] ADR-14 신규
-- [ ] ADR-1 갱신
+- [x] ADR-14 신규 (`docs/ADR-014-lancedb-backend.md`)
+- [x] ADR-1 갱신 (`docs/ADR-001-storage-isolation.md`)
 
 > 상세는 아래 **`v0.2: Qdrant 제거 + LanceDB 도입`** 섹션 참조.
 > ⚠️ 운영 데이터 없음 → "마이그레이션"이 아니라 "백엔드 교체". 데이터 이전 스크립트 불필요.
@@ -139,7 +140,7 @@
                 │  │ │ Auth Routes  │ │  │ ← /auth/*
                 │  │ └──────────────┘ │  │
                 │  │ ┌──────────────┐ │  │
-                │  │ │ MCP Endpoint │ │  │ ← /sse, /messages/
+                │  │ │ MCP Endpoint │ │  │ ← /mcp/http, /mcp
                 │  │ │ (SSE + JWT)  │ │  │
                 │  │ └──────────────┘ │  │
                 │  └─┬────────────┬───┘  │
@@ -181,7 +182,7 @@
 | 세션/캐시 저장소 | **Redis** (Docker 컨테이너) | 인메모리 <1ms, TTL 네이티브, Rate limit에 최적 |
 | 2FA | pyotp | TOTP 표준 (Google Authenticator 호환) |
 | Rate limit | slowapi + Redis backend | 원자적 카운터, 정확한 슬라이딩 윈도우 |
-| CSRF | starlette-csrf | 표준 |
+| CSRF | Double-submit cookie middleware | 세션 쿠키 요청 방어, Bearer API는 제외 |
 | 의존성 관리 | uv | servicenow-mcp와 동일 |
 
 ### 프론트엔드 (styleseed 기반)
@@ -341,35 +342,30 @@ CREATE INDEX idx_api_tokens_user ON api_tokens(user_id) WHERE revoked = 0;
 CREATE INDEX idx_api_tokens_project ON api_tokens(project_id) WHERE revoked = 0;
 ```
 
-### Qdrant (벡터 스토어)
+### LanceDB (벡터 스토어)
 
-**컬렉션 전략**: 단일 컬렉션 + `(user_id, project_id)` payload 필터링
-**이유**: 컬렉션 분리는 오버헤드, payload 인덱스로 충분히 빠름. 유저/프로젝트 모두 인덱스.
+**테이블 전략**: 단일 memories 테이블 + `(user_id, project_id)` SQL WHERE 필터링
+**이유**: 별도 벡터 DB 프로세스 없이 Pi 5에서 안정적으로 운영 가능. 테이블 분리보다 단일 테이블 + 필수 스코프 필터가 단순하고 백업도 쉽다.
 
 ```python
-collection_name = "piloci_memories"
+table_name = "memories"
 vector_size = 384  # bge-small-en-v1.5
 
-# Point schema
+# Row schema
 {
-    "id": "uuid-v7",
+    "memory_id": "uuid",
+    "user_id": "uuid",        # 필수 스코프
+    "project_id": "uuid",     # 필수 스코프
     "vector": [0.1, 0.2, ...],  # 384 floats
-    "payload": {
-        "user_id": "uuid",        # 인덱스 필수
-        "project_id": "uuid",     # 인덱스 필수 (프로젝트 격리 키)
-        "content": "원문 텍스트",
-        "metadata": {...},         # 자유 형식
-        "tags": ["tag1", "tag2"],  # 인덱스 필수
-        "created_at": 1234567890,
-        "updated_at": 1234567890,
-    }
+    "content": "원문 텍스트",
+    "metadata": {...},
+    "tags": ["tag1", "tag2"],
+    "created_at": 1234567890,
+    "updated_at": 1234567890,
 }
 
 # 모든 쿼리에 자동 적용되는 필수 필터
-must_filter = [
-    FieldCondition(key="user_id", match=MatchValue(value=user_id)),
-    FieldCondition(key="project_id", match=MatchValue(value=project_id)),
-]
+where = "user_id = '{user_id}' AND project_id = '{project_id}'"
 ```
 
 ### JWT 페이로드
@@ -447,7 +443,7 @@ must_filter = [
 | GET | `/auth/google/callback` | OAuth 콜백 |
 | POST | `/auth/logout` | 로그아웃 |
 | GET | `/healthz` | 헬스체크 (liveness) |
-| GET | `/readyz` | 준비 상태 (DB/Qdrant 연결 확인) |
+| GET | `/readyz` | 준비 상태 (DB/Redis/LanceDB/worker 상태 확인) |
 
 ### Authenticated (세션 쿠키 + CSRF 토큰)
 
@@ -475,8 +471,8 @@ must_filter = [
 
 | Method | Path | 설명 |
 |---|---|---|
-| GET | `/sse` | MCP SSE 연결 |
-| POST | `/messages/` | MCP 메시지 |
+| ANY | `/mcp/http` | MCP Streamable HTTP 연결 |
+| GET | `/mcp` | MCP SSE 호환 연결 |
 
 ---
 
@@ -548,10 +544,12 @@ must_filter = [
   - `/auth/login`: 10/min per IP
   - `/auth/signup`: 3/min per IP
   - `/auth/*/password-reset`: 3/hour per IP
-  - MCP `/sse`: 60/min per token
-  - MCP 툴 호출: 100/min per token
-- **CSRF 보호**: 모든 POST/PATCH/DELETE 세션 요청에 CSRF 토큰 필수
-- **Content Security Policy**: `default-src 'self'; script-src 'self' 'nonce-{random}'`
+  - device auth: 20/min
+  - ingest: 30/min
+  - chat: 30/min
+  - mutation/admin/team endpoints: 경로별 제한
+- **CSRF 보호**: 세션 쿠키가 있는 모든 unsafe 요청에 double-submit CSRF 토큰 필수
+- **Content Security Policy**: API/health 응답에 `default-src 'self'; script-src 'self'` 적용
 - **보안 헤더**:
   ```
   X-Content-Type-Options: nosniff
@@ -600,7 +598,7 @@ must_filter = [
 - Dependabot + pip-audit CI 통합
 
 **백업 & 복구:**
-- Qdrant snapshot: 일 1회 자동 (cron)
+- LanceDB 디렉토리 스냅샷: 일 1회 자동 (cron)
 - SQLite dump: 시간당 1회 WAL 체크포인트 + 일 1회 전체 덤프
 - 백업 위치: 로컬 + (선택) S3/rclone 오프사이트
 - 복구 스크립트 포함 (`scripts/restore.sh`)
@@ -613,7 +611,7 @@ must_filter = [
   "mcpServers": {
     "piloci": {
       "type": "http",
-        "url": "https://piloci.example.com/sse",
+        "url": "https://piloci.example.com/mcp/http",
       "headers": {
         "Authorization": "Bearer eyJ...webapp-token..."
       }
@@ -626,7 +624,7 @@ must_filter = [
   "mcpServers": {
     "piloci": {
       "type": "http",
-        "url": "https://piloci.example.com/sse",
+        "url": "https://piloci.example.com/mcp/http",
       "headers": {
         "Authorization": "Bearer eyJ...research-token..."
       }
@@ -638,8 +636,8 @@ must_filter = [
 
 ### 방어 계층
 
-- **CSRF**: 세션 쿠키는 SameSite=Lax, OAuth state 파라미터
-- **Rate limiting**: slowapi로 경로별 제한 (로그인 10/min, API 100/min)
+- **CSRF**: 세션 쿠키는 SameSite=Lax + double-submit CSRF, OAuth state 파라미터
+- **Rate limiting**: slowapi로 경로별 제한, Redis URL 설정 시 Redis backend 사용
 - **Quota**: 유저별 총 바이트 수 제한 (기본 1GB)
 - **Token rotation**: JWT 만료 90일, 수동 폐기 가능
 - **비밀키 관리**: `.env` 파일, 절대 커밋 금지
@@ -819,7 +817,7 @@ piloci/
 │       │   └── migrations/      ← Alembic
 │       ├── storage/
 │       │   ├── __init__.py
-│       │   ├── qdrant.py        ← Qdrant 래퍼 + 자동 필터 강제
+│       │   ├── lancedb_store.py ← LanceDB 래퍼 + 자동 필터 강제
 │       │   ├── embed.py         ← fastembed 래퍼
 │       │   └── cache.py         ← 임베딩 LRU 캐시
 │       ├── tools/
@@ -892,8 +890,8 @@ piloci/
 
 ### M1: Docker 기반 MCP 서버 (단일 유저, stdio/http)
 - pyproject.toml + 기본 구조
-- Dockerfile + docker-compose.dev.yml (piloci + qdrant)
-- Qdrant + fastembed 연동
+- Dockerfile + docker-compose.dev.yml (piloci + Redis)
+- LanceDB + fastembed 연동
 - 7개 MCP 툴 구현 (유저/프로젝트 격리 없이)
 - stdio + HTTP 두 방식 동작
 - 로컬 Claude Code에서 연결 테스트
@@ -918,6 +916,7 @@ piloci/
 - 로그인/회원가입
 - 대시보드 (프로젝트 목록)
 - 프로젝트 상세 (메모리 목록 + 검색)
+- 팀 작업공간 (`/teams`: 생성/초대/문서 협업)
 - 설정 (토큰 관리)
 - API 클라이언트 (타입 안전, 자동 재시도)
 - `next build && next export` → Python에서 서빙
@@ -939,7 +938,7 @@ piloci/
 
 ### M5: 성능 최적화 & 관찰성
 - 임베딩 캐시 튜닝
-- Qdrant quantization
+- LanceDB compaction/index tuning
 - 구조화 로그 → JSON
 - 프로메테우스 메트릭 (옵션)
 - 부하 테스트 (locust)
@@ -1099,7 +1098,7 @@ piloci/
 - [ ] `pytest tests/test_storage_lancedb.py` 통과
 - [ ] 모든 7개 MCP 툴 end-to-end smoke test (lancedb 백엔드)
 - [ ] `/health` 엔드포인트가 LanceDB 디렉토리/테이블 상태 반환
-- [ ] `docker compose up` Qdrant 컨테이너 없이 백엔드 정상 부팅
+- [x] `docker compose up` Qdrant 컨테이너 없이 백엔드 정상 부팅
 - [ ] `~/app/piloci/lancedb/` 디렉토리 자동 생성 + 초기 테이블 생성 확인
 - [ ] (user_id, project_id) 필터 누락 케이스 테스트 — 데이터 유출 없음
 - [x] PyPI 0.2.0 dry-run 빌드 성공 (`uv build`)
@@ -1217,10 +1216,10 @@ piloci/
 
 ## 핵심 설계 결정 (ADR)
 
-### ADR-1: 컬렉션 분리 vs payload 필터
-**결정**: 단일 컬렉션 + `user_id` 인덱스
-**이유**: 컬렉션/테이블 생성 비용, 인덱스 공유로 메모리 효율, 페이로드/스칼라 필터는 인덱스 있으면 거의 공짜
-**v0.2 갱신**: Qdrant "단일 컬렉션 + payload 필터" → LanceDB "단일 테이블 + SQL WHERE 필터". 개념·격리 모델 동일, 구현 매체만 다름
+### ADR-1: 테이블 분리 vs 스코프 필터
+**결정**: 단일 LanceDB 테이블 + `user_id`/`project_id` 필수 WHERE 필터
+**이유**: 컬렉션/테이블 생성 비용을 피하고, 임베디드 LanceDB 운영을 단순하게 유지하면서 저장소 어댑터가 격리 필터를 강제한다.
+**문서**: `docs/ADR-001-storage-isolation.md`
 
 ### ADR-2: 임베딩 모델 선정
 **결정**: `BAAI/bge-small-en-v1.5` (384d, 25MB)

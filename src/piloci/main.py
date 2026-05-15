@@ -14,7 +14,7 @@ from starlette.routing import Mount
 
 from piloci.api.ratelimit import setup_ratelimit
 from piloci.api.routes import get_routes
-from piloci.api.security import SecurityHeadersMiddleware
+from piloci.api.security import CSRFMiddleware, SecurityHeadersMiddleware
 from piloci.api.static import get_static_app
 from piloci.auth.middleware import AuthMiddleware
 from piloci.config import get_settings
@@ -277,11 +277,12 @@ def create_app():
                 CORSMiddleware,
                 allow_origins=settings.cors_origins,
                 allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-                allow_headers=["Authorization", "Content-Type"],
+                allow_headers=["Authorization", "Content-Type", "X-CSRF-Token"],
                 allow_credentials=True,
             ),
             Middleware(RuntimeProfilingMiddleware),
             Middleware(SecurityHeadersMiddleware),
+            Middleware(CSRFMiddleware),
             Middleware(AuthMiddleware, settings=settings),
         ],
         lifespan=lifespan,

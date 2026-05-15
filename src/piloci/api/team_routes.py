@@ -16,6 +16,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route
 
+from piloci.api.ratelimit import RATE_MUTATION, limiter
 from piloci.db.session import async_session
 
 # ---------------------------------------------------------------------------
@@ -41,6 +42,10 @@ def _content_hash(content: str) -> str:
 
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 async def _get_team_member(db, team_id: str, user_id: str):
@@ -77,7 +82,7 @@ async def route_create_team(request: Request) -> Response:
     from piloci.db.models import Team, TeamMember
 
     user_id = _uid(user)
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
     team_id = str(uuid.uuid4())
 
     try:
@@ -290,7 +295,7 @@ async def route_create_invite(request: Request) -> Response:
         if member.role != "owner":
             return _json({"error": "Forbidden — owner only"}, 403)
 
-        now = datetime.now(timezone.utc)
+        now = _utcnow()
         token = str(uuid.uuid4())
         invite_id = str(uuid.uuid4())
         invite = TeamInvite(
@@ -418,7 +423,7 @@ async def _handle_invite_response(request: Request, new_status: str) -> Response
         if invite.status != "pending":
             return _json({"error": f"Invite already {invite.status}"}, 409)
 
-        now = datetime.now(timezone.utc)
+        now = _utcnow()
         if invite.expires_at < now:
             return _json({"error": "Invite has expired"}, 410)
 
@@ -526,7 +531,7 @@ async def route_create_document(request: Request) -> Response:
         if not member:
             return _json({"error": "Not found"}, 404)
 
-        now = datetime.now(timezone.utc)
+        now = _utcnow()
         doc_id = str(uuid.uuid4())
         ch = _content_hash(content)
         doc = TeamDocument(
@@ -723,7 +728,7 @@ async def route_update_document(request: Request) -> Response:
                 409,
             )
 
-        now = datetime.now(timezone.utc)
+        now = _utcnow()
         new_hash = _content_hash(content)
         old_hash = doc.content_hash
         doc.content = content
@@ -774,7 +779,7 @@ async def route_delete_document(request: Request) -> Response:
             return _json({"error": "Not found"}, 404)
 
         doc.is_deleted = True
-        doc.updated_at = datetime.now(timezone.utc)
+        doc.updated_at = _utcnow()
         db.add(doc)
 
     return _json({"deleted": True})
@@ -799,7 +804,7 @@ async def route_my_pending_invites(request: Request) -> Response:
 
     from piloci.db.models import Team, TeamInvite
 
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
     async with async_session() as db:
         result = await db.execute(
             select(TeamInvite, Team.name)
@@ -853,7 +858,7 @@ async def route_respond_invite(request: Request) -> Response:
 
     from piloci.db.models import TeamInvite, TeamMember
 
-    now = datetime.now(timezone.utc)
+    now = _utcnow()
     async with async_session() as db:
         result = await db.execute(select(TeamInvite).where(TeamInvite.id == invite_id))
         invite = result.scalar_one_or_none()
@@ -889,49 +894,64 @@ async def route_respond_invite(request: Request) -> Response:
 # Route list (exported for registration in routes.py)
 # ---------------------------------------------------------------------------
 
+_create_team_limited = limiter.limit(RATE_MUTATION)(route_create_team)
+_patch_team_limited = limiter.limit(RATE_MUTATION)(route_patch_team)
+_delete_team_limited = limiter.limit(RATE_MUTATION)(route_delete_team)
+_respond_invite_limited = limiter.limit(RATE_MUTATION)(route_respond_invite)
+_create_invite_limited = limiter.limit(RATE_MUTATION)(route_create_invite)
+_cancel_invite_limited = limiter.limit(RATE_MUTATION)(route_cancel_invite)
+_accept_invite_limited = limiter.limit(RATE_MUTATION)(route_accept_invite)
+_reject_invite_limited = limiter.limit(RATE_MUTATION)(route_reject_invite)
+_remove_member_limited = limiter.limit(RATE_MUTATION)(route_remove_member)
+_create_document_limited = limiter.limit(RATE_MUTATION)(route_create_document)
+_pull_documents_limited = limiter.limit(RATE_MUTATION)(route_pull_documents)
+_update_document_limited = limiter.limit(RATE_MUTATION)(route_update_document)
+_delete_document_limited = limiter.limit(RATE_MUTATION)(route_delete_document)
+
+
 TEAM_ROUTES = [
     # Teams
-    Route("/api/teams", route_create_team, methods=["POST"]),
+    Route("/api/teams", _create_team_limited, methods=["POST"]),
     Route("/api/teams", route_list_teams, methods=["GET"]),
     Route("/api/teams/{team_id}", route_get_team, methods=["GET"]),
-    Route("/api/teams/{team_id}", route_patch_team, methods=["PATCH"]),
-    Route("/api/teams/{team_id}", route_delete_team, methods=["DELETE"]),
+    Route("/api/teams/{team_id}", _patch_team_limited, methods=["PATCH"]),
+    Route("/api/teams/{team_id}", _delete_team_limited, methods=["DELETE"]),
     # Invites — in-site flow (auth only, no token)
     Route("/api/invites/pending", route_my_pending_invites, methods=["GET"]),
-    Route("/api/invites/{invite_id}/respond", route_respond_invite, methods=["POST"]),
+    Route("/api/invites/{invite_id}/respond", _respond_invite_limited, methods=["POST"]),
     # Invites (team-scoped management)
-    Route("/api/teams/{team_id}/invites", route_create_invite, methods=["POST"]),
+    Route("/api/teams/{team_id}/invites", _create_invite_limited, methods=["POST"]),
     Route("/api/teams/{team_id}/invites", route_list_invites, methods=["GET"]),
     Route(
         "/api/teams/{team_id}/invites/{invite_id}",
-        route_cancel_invite,
+        _cancel_invite_limited,
         methods=["DELETE"],
     ),
     # Invites (legacy token-based — kept for MCP tool compatibility)
-    Route("/api/invites/{token}/accept", route_accept_invite, methods=["POST"]),
-    Route("/api/invites/{token}/reject", route_reject_invite, methods=["POST"]),
+    Route("/api/invites/{token}/accept", _accept_invite_limited, methods=["POST"]),
+    Route("/api/invites/{token}/reject", _reject_invite_limited, methods=["POST"]),
     # Members
     Route(
         "/api/teams/{team_id}/members/{user_id}",
-        route_remove_member,
+        _remove_member_limited,
         methods=["DELETE"],
     ),
     # Documents
-    Route("/api/teams/{team_id}/documents", route_create_document, methods=["POST"]),
+    Route("/api/teams/{team_id}/documents", _create_document_limited, methods=["POST"]),
     Route("/api/teams/{team_id}/documents", route_list_documents, methods=["GET"]),
     Route(
         "/api/teams/{team_id}/documents/pull",
-        route_pull_documents,
+        _pull_documents_limited,
         methods=["POST"],
     ),
     Route(
         "/api/teams/{team_id}/documents/{doc_id}",
-        route_update_document,
+        _update_document_limited,
         methods=["PUT"],
     ),
     Route(
         "/api/teams/{team_id}/documents/{doc_id}",
-        route_delete_document,
+        _delete_document_limited,
         methods=["DELETE"],
     ),
 ]

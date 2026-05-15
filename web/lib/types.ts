@@ -19,6 +19,56 @@ export interface Project {
   created_at: string;
 }
 
+export interface TeamSummary {
+  id: string;
+  name: string;
+  owner_id: string;
+  created_at: string;
+}
+
+export interface TeamMember {
+  user_id: string;
+  email: string;
+  role: "owner" | "member" | string;
+  joined_at: string;
+}
+
+export interface TeamDetail extends TeamSummary {
+  description?: string | null;
+  avatar?: string | null;
+  color?: string | null;
+  members: TeamMember[];
+}
+
+export interface TeamInvite {
+  id: string;
+  team_id?: string;
+  team_name?: string;
+  invitee_email?: string;
+  status?: string;
+  token?: string;
+  expires_at: string;
+  created_at?: string;
+}
+
+export interface TeamDocumentSummary {
+  id: string;
+  team_id?: string;
+  path: string;
+  content_hash: string;
+  version: number;
+  author_email?: string;
+  updated_at?: string;
+  created_at?: string;
+}
+
+export interface TeamDocumentPull {
+  added: Array<TeamDocumentSummary & { content: string }>;
+  modified: Array<TeamDocumentSummary & { content: string }>;
+  deleted: Array<{ path: string }>;
+  unchanged: Array<{ path: string; content_hash: string }>;
+}
+
 export interface Memory {
   id: string;
   content: string;

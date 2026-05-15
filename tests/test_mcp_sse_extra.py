@@ -88,6 +88,7 @@ async def test_handle_sse_verifies_bearer_sets_context_and_runs_server():
     with (
         patch("piloci.mcp.sse.get_settings", return_value=settings),
         patch("piloci.mcp.sse.verify_token", return_value=auth_payload) as verify,
+        patch("piloci.mcp.sse._validate_bearer_user", AsyncMock(return_value=auth_payload)),
         patch("piloci.mcp.sse.send_session_summary", send_summary),
     ):
         await app(scope, receive, send)
@@ -138,6 +139,7 @@ async def test_handle_sse_swallows_summary_errors_and_resets_context():
     with (
         patch("piloci.mcp.sse.get_settings", return_value=settings),
         patch("piloci.mcp.sse.verify_token", return_value=auth_payload),
+        patch("piloci.mcp.sse._validate_bearer_user", AsyncMock(return_value=auth_payload)),
         patch(
             "piloci.mcp.sse.send_session_summary",
             AsyncMock(side_effect=RuntimeError("telegram down")),

@@ -6,9 +6,9 @@ Self-hosted, multi-user LLM memory service for teams — on Raspberry Pi 5.
 
 piLoci combines a Python MCP server, web dashboard, SQLite auth data, LanceDB vector storage, and an Obsidian-style workspace layer so your team can run project-scoped memory on your own hardware.
 
-> **Current status**: alpha, package version `0.0.1`
+> **Current status**: alpha, package version `0.3.28`
 >
-> Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, Google OAuth option, 2FA option, audit logs, transcript ingest pipeline, cached vault workspace/export flow, low-token recall flow, batched curator embeddings, and thresholded Telegram session alerts are implemented.
+> Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, team workspace UI, Google OAuth option, 2FA option, audit logs, transcript ingest pipeline, cached vault workspace/export flow, low-token recall flow, batched curator embeddings, and thresholded Telegram session alerts are implemented.
 
 ## Overview
 
@@ -16,7 +16,7 @@ piLoci (파이로싸이) — from **Raspberry Pi** + **Method of Loci** (the anc
 
 **Built for teams**: Multiple users share a single piLoci instance. Each user gets their own account (with optional 2FA), and projects enforce strict memory isolation — so your team works together on the same hardware without leaking context between projects. Think of it as a shared, always-on brain for your project team.
 
-The project is in alpha (v0.0.1). While many core components are functional, ongoing development continues to harden reliability, security, and UX.
+The project is in alpha (v0.3.x). Core components are functional, and ongoing development continues to harden reliability, security, and UX.
 
 ## Inspiration: llm-wiki
 
@@ -137,23 +137,26 @@ See [PLAN.md](./PLAN.md) for the phased plan and current status.
 - LanceDB memory storage
 - fastembed-based embeddings
 - Redis sessions and rate limiting
-- Web UI for login, dashboard, project detail, settings
+- Double-submit CSRF protection for cookie-authenticated mutations
+- Bearer token revocation checks against persisted token state
+- Web UI for login, dashboard, project detail, settings, and teams
 - Project-scoped memory isolation
 - Google OAuth and TOTP 2FA options
 - Audit logs and production Docker deployment
 - Transcript ingest endpoint + `piloci-ingest` CLI for client session capture
 - Vault workspace API that turns memories into markdown notes, tags, links, and graph data
 - In-browser project workspace viewer for generated notes and relationships
+- Team workspace UI at `/teams` for team creation, invites, members, and shared documents
 - Persistent vault JSON cache plus downloadable Obsidian-style zip export
 - Low-token recall flow: preview by default, full fetch by ID, large-result markdown export
 - Batched curator embeddings on ingest to reduce repeated executor hops
 - Thresholded Telegram session summaries with zero extra LLM cost
 - Real 5-minute MCP `listProjects` cache to avoid repeated SQLite hits
+- Streamable HTTP MCP sessions now share the same summary notification path as SSE
 
 ### What is still open
 
 - Cloudflare Tunnel production setup for a real public hostname (`PLAN.md` marks this as manual)
-- ADR refresh for the LanceDB transition
 - Two-way sync from Obsidian edits back into piLoci memories
 
 ## Functional Highlights
@@ -167,6 +170,7 @@ See [PLAN.md](./PLAN.md) for the phased plan and current status.
 - **Transcript ingest pipeline**: `piloci-ingest` can collect session transcripts from Claude Code, OpenCode, and Codex-style histories and send them to `/api/ingest` for queued processing.
 - **Obsidian-style workspace generation**: piLoci can derive markdown notes with YAML frontmatter, tags, wikilinks, and graph relationships from stored memories.
 - **Workspace API + browser UI**: `GET /api/projects/slug/{slug}/workspace` returns notes and graph data, and the web app already lets you browse the generated workspace without a separate export step.
+- **Team workspace UI**: `/teams` gives team creation, email invites, member visibility, and shared document editing a visible home in the app shell.
 - **Cached vault + export path**: generated workspace data now persists under `/data/vaults/{slug}/vault.json`, and `GET /api/vault/{slug}/export` returns an Obsidian-style zip with markdown notes plus the vault JSON snapshot.
 - **Local-first deployment model**: SQLite, LanceDB, and Redis stay under your control, with no required hosted memory backend.
 
@@ -187,7 +191,7 @@ Delivered the end-to-end product skeleton: auth, projects, MCP tools, REST API, 
 
 ### v0.2 — Qdrant removal and LanceDB adoption
 
-This is the current documentation phase. The storage backend has already been switched from Qdrant to LanceDB because Raspberry Pi 5 deployment reliability matters more than theoretical scale.
+Completed. The storage backend was switched from Qdrant to LanceDB because Raspberry Pi 5 deployment reliability matters more than theoretical scale.
 
 Done in this phase:
 
@@ -197,22 +201,25 @@ Done in this phase:
 - LanceDB integration tests
 - Config updates for `LANCEDB_PATH` and index settings
 - README refresh to match the new architecture
-
-Still pending in this phase:
-
 - ADR-14: LanceDB backend decision record
 - ADR-1 update from Qdrant terminology to LanceDB terminology
 
 ### v0.3 — automatic curation pipeline
 
-Planned next step: move from “memory storage” toward “living project knowledge base.”
+In progress and mostly implemented: piLoci is moving from “memory storage” toward a “living project knowledge base.”
 
-The current plan in `PLAN.md` points toward:
+The current implementation includes:
 
 - automatic capture and recall flow redesign
 - background curation with local Gemma
 - markdown/wiki-style vault outputs
 - richer Obsidian-compatible knowledge views
+
+## Security Notes
+
+- Cookie-authenticated unsafe requests require a browser-readable `piloci_csrf` cookie and matching `X-CSRF-Token` header.
+- Bearer-authenticated MCP/API requests skip CSRF but are checked against persisted token state when the JWT has a `jti`.
+- Custom external LLM providers reject private, loopback, link-local, multicast, reserved, and unresolved hosts by default. Set `ALLOW_PRIVATE_LLM_PROVIDER_URLS=true` only for trusted single-user/local deployments.
 
 ## Deploy with Docker
 

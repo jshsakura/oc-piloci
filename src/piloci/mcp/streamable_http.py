@@ -9,8 +9,10 @@ from mcp.server.streamable_http import StreamableHTTPServerTransport
 from starlette.responses import Response
 
 from piloci.auth.jwt_utils import verify_token
+from piloci.auth.middleware import _validate_bearer_user
 from piloci.config import get_settings
 from piloci.mcp.session_state import build_session_tracker, mcp_auth_ctx, mcp_session_ctx
+from piloci.notify.telegram import send_session_summary
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,9 @@ def create_streamable_http_app(mcp_server: Server) -> Callable:
         try:
             settings = get_settings()
             auth_payload = verify_token(token, settings)
+            auth_payload = await _validate_bearer_user(auth_payload)
+            if auth_payload is None:
+                raise ValueError("token has been revoked or user is inactive")
             auth_payload["_raw_token"] = token
         except ValueError as e:
             logger.warning("MCP HTTP auth failed: %s", e)
@@ -73,6 +78,12 @@ def create_streamable_http_app(mcp_server: Server) -> Callable:
                 await http_transport.handle_request(scope, receive, send)
                 await http_transport.terminate()
         finally:
+            tracker = mcp_session_ctx.get()
+            if tracker is not None:
+                try:
+                    await send_session_summary(tracker, get_settings())
+                except Exception as e:
+                    logger.warning("Telegram MCP session notify failed: %s", e)
             mcp_auth_ctx.reset(token_ctx)
             mcp_session_ctx.reset(session_ctx)
 

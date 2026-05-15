@@ -1,5 +1,13 @@
 # MEMORY
 
+## 2026-05-15
+
+- Closed the security/product hardening pass: added double-submit CSRF for cookie-authenticated unsafe requests, Redis-backed slowapi storage with broader route coverage, persisted Bearer-token revocation checks, stale session/user revalidation, MCP Streamable HTTP session-summary parity, LLM provider private-network URL rejection by default, and stricter LanceDB user/project/tag validation.
+- Surfaced the previously API-only team feature in the web app: `/teams` is now in the app shell navigation and supports team creation, pending invite handling, member visibility, email invites, and shared team document create/update/delete flows through typed frontend API methods.
+- Added backend regression coverage for the new hardening areas and team routes, including CSRF middleware, auth revocation/stale-user validation, private LLM URL validation, LanceDB unsafe input rejection, MCP auth/session summary behavior, and full team invite/document flows. Team route tests exposed a real SQLite timezone comparison bug in invite expiry handling, fixed by normalizing team-route timestamps to naive UTC.
+- Updated project docs and status tracking: `PLAN.md`, `README.md`, and `README.ko.md` now reflect LanceDB/ADR completion, the security hardening changes, and the `/teams` workspace. Coverage gate was raised from `27` to `73` after full-suite coverage reached `73.44%`.
+- Verification: `uv run black src tests && uv run isort src tests && uv run ruff check src tests` passed; targeted team integration tests passed (`2 passed`); full backend suite passed (`750 passed, 1 skipped`, total coverage `73.44%`); web checks passed with `pnpm exec tsc --noEmit`, `pnpm run lint`, `pnpm run test:coverage` (`12 passed`), and `pnpm build`.
+
 ## 2026-05-10
 
 - Simplified the landing page install CTA: the separate install/update buttons are now one “설치 및 업데이트” / “Install and Update” command, copying `uvx oc-piloci@latest setup` so fresh installs and refreshes use the same path.

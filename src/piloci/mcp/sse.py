@@ -10,6 +10,7 @@ from mcp.server.streamable_http import StreamableHTTPServerTransport
 from starlette.responses import JSONResponse, Response
 
 from piloci.auth.jwt_utils import verify_token
+from piloci.auth.middleware import _validate_bearer_user
 from piloci.config import get_settings
 from piloci.mcp.session_state import build_session_tracker, mcp_auth_ctx, mcp_session_ctx
 from piloci.notify.telegram import send_session_summary
@@ -17,7 +18,7 @@ from piloci.notify.telegram import send_session_summary
 logger = logging.getLogger(__name__)
 
 
-def _auth(headers_raw: list) -> tuple[dict, str | None]:
+async def _auth(headers_raw: list) -> tuple[dict, str | None]:
     """Extract and verify Bearer token. Returns (auth_payload, error_msg)."""
     headers = {k: v for k, v in headers_raw}
     auth_header = headers.get(b"authorization", b"").decode()
@@ -27,6 +28,9 @@ def _auth(headers_raw: list) -> tuple[dict, str | None]:
     try:
         settings = get_settings()
         payload = verify_token(token, settings)
+        payload = await _validate_bearer_user(payload)
+        if payload is None:
+            return {}, "token has been revoked or user is inactive"
         payload["_raw_token"] = token
         return payload, None
     except ValueError as e:
@@ -39,7 +43,7 @@ def create_sse_app(mcp_server: Server, *, debug: bool = False, prefix: str = "")
     sse_transport = SseServerTransport(msg_path)
 
     async def _handle_sse(scope, receive, send) -> None:
-        auth_payload, err = _auth(scope.get("headers", []))
+        auth_payload, err = await _auth(scope.get("headers", []))
         if err:
             logger.warning("MCP SSE auth failed: %s", err)
             await Response("Unauthorized", status_code=401)(scope, receive, send)
@@ -61,7 +65,7 @@ def create_sse_app(mcp_server: Server, *, debug: bool = False, prefix: str = "")
             mcp_auth_ctx.reset(token_ctx)
 
     async def _handle_streamable_http(scope, receive, send) -> None:
-        auth_payload, err = _auth(scope.get("headers", []))
+        auth_payload, err = await _auth(scope.get("headers", []))
         if err:
             logger.warning("MCP HTTP auth failed: %s", err)
             await Response("Unauthorized", status_code=401)(scope, receive, send)
@@ -84,6 +88,12 @@ def create_sse_app(mcp_server: Server, *, debug: bool = False, prefix: str = "")
                 await http_transport.handle_request(scope, receive, send)
                 await http_transport.terminate()
         finally:
+            tracker = mcp_session_ctx.get()
+            if tracker is not None:
+                try:
+                    await send_session_summary(tracker, get_settings())
+                except Exception as e:
+                    logger.warning("Telegram MCP session notify failed: %s", e)
             mcp_auth_ctx.reset(token_ctx)
             mcp_session_ctx.reset(session_ctx)
 

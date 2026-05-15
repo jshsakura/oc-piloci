@@ -166,6 +166,24 @@ async def test_list_tag_filter(lancedb_store):
 
 
 @pytest.mark.asyncio
+async def test_list_rejects_unsafe_tag_filter(lancedb_store):
+    await lancedb_store.save(_USER, _PROJECT, "tagged", _VECTOR, tags=["safe"])
+
+    with pytest.raises(ValueError):
+        await lancedb_store.list(_USER, _PROJECT, tags=["bad'tag"])
+
+
+@pytest.mark.asyncio
+async def test_save_many_rejects_unsafe_user_id(lancedb_store):
+    with pytest.raises(ValueError):
+        await lancedb_store.save_many(
+            "bad'user",
+            _PROJECT,
+            [{"content": "bad", "vector": _VECTOR}],
+        )
+
+
+@pytest.mark.asyncio
 async def test_list_pagination(lancedb_store):
     for i in range(5):
         await lancedb_store.save(_USER, _PROJECT, f"mem{i}", _VECTOR)

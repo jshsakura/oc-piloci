@@ -125,6 +125,36 @@ def test_truthy_helper_handles_expected_values() -> None:
         assert routes._truthy(value) is False
 
 
+def test_validate_llm_base_url_rejects_private_targets(monkeypatch: pytest.MonkeyPatch) -> None:
+    from piloci.api import routes
+
+    assert routes._validate_llm_base_url("http://localhost:11434") is not None
+    assert routes._validate_llm_base_url("http://127.0.0.1:11434") is not None
+
+    monkeypatch.setattr(
+        routes.socket,
+        "getaddrinfo",
+        MagicMock(return_value=[(None, None, None, None, ("10.0.0.5", 11434))]),
+    )
+
+    assert routes._validate_llm_base_url("https://llm.internal.example") is not None
+
+
+def test_validate_llm_base_url_allows_public_or_explicit_private_opt_in(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from piloci.api import routes
+
+    monkeypatch.setattr(
+        routes.socket,
+        "getaddrinfo",
+        MagicMock(return_value=[(None, None, None, None, ("8.8.8.8", 443))]),
+    )
+
+    assert routes._validate_llm_base_url("https://llm.example.com") is None
+    assert routes._validate_llm_base_url("http://127.0.0.1:11434", allow_private=True) is None
+
+
 def test_ip_helper_prefers_forwarded_header_and_falls_back_to_client() -> None:
     from piloci.api import routes
 
