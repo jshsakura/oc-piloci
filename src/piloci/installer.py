@@ -654,7 +654,6 @@ def install_codex_mcp(base_url: str, token: str, *, home: Path | None = None) ->
         f'url = "{base}/mcp/http"\n'
         "[mcp_servers.piloci.http_headers]\n"
         f'Authorization = "Bearer {token}"\n'
-        'User-Agent = "curl/8.5.0"\n'
         "\n"
         "[[SessionStart]]\n"
         "[[SessionStart.hooks]]\n"
