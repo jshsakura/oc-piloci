@@ -2305,6 +2305,21 @@ async def route_hook_stop_script(request: Request) -> Response:
     )
 
 
+async def route_hook_codex_stop_script(request: Request) -> Response:
+    """GET /api/hook/codex-stop-script — cross-platform Python Stop hook for Codex CLI."""
+    user = _require_user(request)
+    if user is None:
+        return Response("unauthorized", status_code=401)
+
+    from piloci.tools.install_script import CODEX_STOP_HOOK_SCRIPT
+
+    return Response(
+        CODEX_STOP_HOOK_SCRIPT,
+        media_type="text/x-python",
+        headers={"Content-Disposition": 'attachment; filename="stop-hook-codex.py"'},
+    )
+
+
 async def route_opencode_plugin(request: Request) -> Response:
     """GET /api/hook/opencode-plugin — OpenCode plugin TypeScript source.
 
@@ -3493,6 +3508,7 @@ def get_routes() -> list[Route]:
         Route("/api/sessions/ingest", route_sessions_ingest, methods=["POST"]),
         Route("/api/hook/script", route_hook_script, methods=["GET"]),
         Route("/api/hook/stop-script", route_hook_stop_script, methods=["GET"]),
+        Route("/api/hook/codex-stop-script", route_hook_codex_stop_script, methods=["GET"]),
         Route("/api/hook/opencode-plugin", route_opencode_plugin, methods=["GET"]),
         Route("/install/{code}", route_install, methods=["GET"]),
         Route("/auth/device/code", route_device_code, methods=["POST"]),

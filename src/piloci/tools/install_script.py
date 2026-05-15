@@ -370,6 +370,79 @@ PYEOF
 exit 0
 """
 
+# Cross-platform Stop hook for Codex CLI (Mac / Linux / Windows).
+# Reads Codex stop payload from stdin and ships the transcript to piLoci.
+CODEX_STOP_HOOK_SCRIPT = '''\
+#!/usr/bin/env python3
+"""piLoci Stop hook for Codex CLI — Mac, Linux, Windows.
+
+Reads token + URL from ~/.config/piloci/config.json at runtime.
+Receives Codex stop payload via stdin; extracts transcript_path and POSTs to piLoci.
+"""
+import json
+import sys
+import urllib.error
+import urllib.request
+from pathlib import Path
+
+_CONFIG = Path.home() / ".config" / "piloci" / "config.json"
+_MIN_ROLE_LINES = 4
+
+
+def main():
+    try:
+        cfg = json.loads(_CONFIG.read_text())
+    except Exception:
+        return
+
+    token = cfg.get("token")
+    url = cfg.get("analyze_url")
+    if not token or not url:
+        return
+
+    try:
+        raw = sys.stdin.read()
+        payload = json.loads(raw) if raw and raw.strip() else {}
+    except Exception:
+        return
+
+    transcript_path_str = payload.get("transcript_path")
+    cwd = payload.get("cwd", "")
+    if not transcript_path_str:
+        return
+
+    path = Path(transcript_path_str)
+    try:
+        transcript = path.read_bytes().decode("utf-8", "ignore")
+    except OSError:
+        return
+
+    if transcript.count(\'"role"\') < _MIN_ROLE_LINES:
+        return
+
+    body: dict = {"transcript": transcript}
+    if cwd:
+        body["cwd"] = cwd
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "piloci-codex-stop-hook",
+        },
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=30)
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+        pass
+
+
+main()
+'''
+
 
 def build_install_script(*, token: str, base_url: str) -> str:
     """Return the bash installer with token + base URL inlined.

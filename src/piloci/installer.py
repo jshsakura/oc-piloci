@@ -631,20 +631,22 @@ def install_codex_mcp(base_url: str, token: str, *, home: Path | None = None) ->
     piloci_dir = h / PILOCI_DIR_NAME
     piloci_dir.mkdir(parents=True, exist_ok=True)
     hook_py = piloci_dir / "hook.py"
-    stop_sh = piloci_dir / "stop-hook.sh"
+    stop_hook_py = piloci_dir / "stop-hook-codex.py"
     try:
         hook_py.write_bytes(_http_download(base + "/api/hook/script", token=token))
         hook_py.chmod(0o755)
     except Exception:
         pass
     try:
-        stop_sh.write_bytes(_http_download(base + "/api/hook/stop-script", token=token))
-        stop_sh.chmod(0o755)
+        stop_hook_py.write_bytes(_http_download(base + "/api/hook/codex-stop-script", token=token))
+        stop_hook_py.chmod(0o755)
     except Exception:
         pass
 
-    hook_py_path = "~/.config/piloci/hook.py"
-    stop_sh_path = "~/.config/piloci/stop-hook.sh"
+    # Use absolute paths so ~ expansion is not needed on any platform.
+    # Forward slashes work on all OSes including Windows.
+    hook_py_path = hook_py.as_posix()
+    stop_hook_py_path = stop_hook_py.as_posix()
 
     block = (
         f"\n{_CODEX_BLOCK_BEGIN}\n"
@@ -652,16 +654,19 @@ def install_codex_mcp(base_url: str, token: str, *, home: Path | None = None) ->
         f'url = "{base}/mcp/http"\n'
         "[mcp_servers.piloci.http_headers]\n"
         f'Authorization = "Bearer {token}"\n'
+        'User-Agent = "curl/8.5.0"\n'
         "\n"
         "[[SessionStart]]\n"
         "[[SessionStart.hooks]]\n"
         'type = "command"\n'
         f'command = "python3 {hook_py_path} 2>/dev/null || true"\n'
+        f'commandWindows = "python {hook_py_path}"\n'
         "\n"
         "[[Stop]]\n"
         "[[Stop.hooks]]\n"
         'type = "command"\n'
-        f'command = "bash {stop_sh_path} 2>/dev/null || true"\n'
+        f'command = "python3 {stop_hook_py_path} 2>/dev/null || true"\n'
+        f'commandWindows = "python {stop_hook_py_path}"\n'
         f"{_CODEX_BLOCK_END}\n"
     )
     stripped = _CODEX_BLOCK_RE.sub("\n", raw).rstrip()
