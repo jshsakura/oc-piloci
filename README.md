@@ -308,7 +308,7 @@ After the server is up, every machine that runs Claude Code or OpenCode pairs wi
 ### Recommended: device-flow CLI (cross-platform)
 
 ```bash
-uvx --from oc-piloci piloci setup --server https://piloci.example.com
+pip install -U oc-piloci && python -m piloci setup --server https://piloci.example.com
 ```
 
 The CLI prints an `ABCD-1234` code, opens your browser to `/device`, polls for approval, and configures every detected client. Equivalent to running `piloci login` followed by `piloci install`.

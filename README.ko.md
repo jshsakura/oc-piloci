@@ -281,7 +281,7 @@ LOG_FORMAT=json
 ### 권장: device-flow CLI (크로스 플랫폼)
 
 ```bash
-uvx --from oc-piloci piloci setup --server https://piloci.example.com
+pip install -U oc-piloci && python -m piloci setup --server https://piloci.example.com
 ```
 
 CLI가 `ABCD-1234` 코드를 출력하고 브라우저로 `/device` 페이지를 엽니다 — 거기서 로그인 + 승인하면, CLI가 폴링해서 토큰을 받고 감지된 모든 클라이언트를 자동 설정합니다. `piloci login` + `piloci install` 합친 명령.

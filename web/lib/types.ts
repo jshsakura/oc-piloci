@@ -58,7 +58,7 @@ export interface TokenSetup {
   install_url?: string;
   /** Ready-to-paste one-liner: ``curl -sSL <install_url> | bash`` (Linux/macOS). */
   install_command?: string;
-  /** Cross-platform alternative: ``uvx oc-piloci install <install_url>`` (Windows). */
+  /** Cross-platform alternative: ``pip install -U oc-piloci && python -m piloci install <install_url>`` (Windows). */
   install_command_windows?: string;
 }
 

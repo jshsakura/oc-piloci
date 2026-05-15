@@ -1219,7 +1219,9 @@ async def route_create_token(request: Request) -> Response:
         setup["install_url"] = install_url
         setup["install_command"] = f"curl -sSL {install_url} | bash"
         # Cross-platform fallback — pure-Python installer; works on Windows.
-        setup["install_command_windows"] = f"uvx oc-piloci install {install_url}"
+        setup["install_command_windows"] = (
+            f"pip install -U oc-piloci && python -m piloci install {install_url}"
+        )
     except Exception:
         # Redis hiccup must not block token creation — the user can still
         # fall back to the manual setup snippets in ``setup``.
