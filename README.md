@@ -6,7 +6,7 @@ Self-hosted, multi-user LLM memory service for teams — on Raspberry Pi 5.
 
 piLoci combines a Python MCP server, web dashboard, SQLite auth data, LanceDB vector storage, and an Obsidian-style workspace layer so your team can run project-scoped memory on your own hardware.
 
-> **Current status**: alpha, package version `0.3.28`
+> **Current status**: alpha, package version `0.3.29`
 >
 > Core product is working: local auth, Redis-backed sessions, project-scoped MCP tokens, 4 MCP tools (`memory`, `recall`, `listProjects`, `whoAmI`), web dashboard, team workspace UI, Google OAuth option, 2FA option, audit logs, transcript ingest pipeline, cached vault workspace/export flow, low-token recall flow, batched curator embeddings, and thresholded Telegram session alerts are implemented.
 
