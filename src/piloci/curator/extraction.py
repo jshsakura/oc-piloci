@@ -16,10 +16,17 @@ from piloci.curator.gemma import ProviderTarget, chat_json
 logger = logging.getLogger(__name__)
 
 
-# Single transcript char budget for the unified prompt. Sized to fit comfortably
-# inside a 4096-token context after system prompt + output budget. Curator's
-# old 4000-char cap and analyzer's 6000-char cap are unified here.
+# Per-chunk transcript budget. One chunk = one Gemma round-trip and must fit
+# inside the 4096-token context after system prompt + output budget.
 DEFAULT_TRANSCRIPT_MAX_CHARS = 4000
+
+# Multipass cap. Long transcripts get sampled across N chunks (head, evenly
+# spaced middles, tail) so the distiller sees the whole arc — not just the
+# 4000-char head+tail concatenation _truncate produces. 4 chunks × 4000 chars
+# = ~16K chars covered per session, which on real data lifts coverage from
+# 0.3% to ~2% of the median 1.2M-char session.
+DEFAULT_MAX_CHUNKS = 4
+DEFAULT_CHUNK_OVERLAP = 200
 
 # Output JSON budget. Memories tend toward 5-15 items, instincts 3-7.
 # 1500 tokens accommodates both lists with room for tags/evidence.
@@ -126,6 +133,74 @@ def _truncate(text: str, max_chars: int) -> str:
     head_budget = min(budget // 3, 500)
     tail_budget = budget - head_budget
     return text[:head_budget] + marker + (text[-tail_budget:] if tail_budget > 0 else "")
+
+
+def _split_into_chunks(
+    text: str,
+    n_chunks: int,
+    chunk_chars: int,
+    overlap: int,
+) -> list[str]:
+    """Sample a long transcript into up to ``n_chunks`` windows of ``chunk_chars``.
+
+    Short enough to fit in one chunk → returns ``[text]``. Otherwise the
+    starts are spread evenly across [0, len-chunk_chars] so the first
+    window always covers the session opening (intent/setup) and the last
+    always covers the closing (final decisions/code). When windows would
+    overlap by more than ``chunk_chars - overlap`` we merge them — keeps
+    Pi 5 call count bounded on short-but-over-cap transcripts.
+    """
+    if n_chunks < 1:
+        return []
+    if not text or len(text) <= chunk_chars or n_chunks == 1:
+        return [text[:chunk_chars]] if text else []
+    last_start = len(text) - chunk_chars
+    if n_chunks == 2:
+        raw_starts = [0, last_start]
+    else:
+        step = last_start / (n_chunks - 1)
+        raw_starts = [int(round(i * step)) for i in range(n_chunks)]
+    starts: list[int] = []
+    min_stride = max(1, chunk_chars - overlap)
+    for s in raw_starts:
+        if not starts or s - starts[-1] >= min_stride:
+            starts.append(s)
+    return [text[s : s + chunk_chars] for s in starts]
+
+
+def _normalize_for_dedupe(s: str) -> str:
+    import re as _re
+
+    return _re.sub(r"\s+", " ", (s or "").strip()).lower()
+
+
+def _merge_distilled(parts: list["DistilledSession"]) -> "DistilledSession":
+    """Combine N per-chunk extractions, deduping by normalized content keys."""
+    seen_mem: set[str] = set()
+    memories: list[DistilledMemory] = []
+    seen_ins: set[tuple[str, str]] = set()
+    instincts: list[DistilledInstinct] = []
+    for part in parts:
+        for mem in part.memories:
+            key = _normalize_for_dedupe(mem.content)[:200]
+            if not key or key in seen_mem:
+                continue
+            seen_mem.add(key)
+            memories.append(mem)
+        for inst in part.instincts:
+            key_t = _normalize_for_dedupe(inst.trigger)
+            key_a = _normalize_for_dedupe(inst.action)
+            if not key_t or not key_a:
+                continue
+            tup = (key_t, key_a)
+            if tup in seen_ins:
+                continue
+            seen_ins.add(tup)
+            instincts.append(inst)
+    # External path "wins" — if any chunk routed externally, count the whole
+    # session as external so the budget bookkeeping reflects reality.
+    path = "external" if any(p.processing_path == "external" for p in parts) else "local"
+    return DistilledSession(memories=memories, instincts=instincts, processing_path=path)
 
 
 def _validate_memory(item: Any) -> DistilledMemory | None:
@@ -237,3 +312,55 @@ async def extract_session(
     label = winning_target[0] if winning_target else ""
     path = "local" if label in ("primary", "local-after") else "external"
     return DistilledSession(memories=memories, instincts=instincts, processing_path=path)
+
+
+async def extract_session_multipass(
+    transcript: str | list[dict[str, Any]],
+    *,
+    endpoint: str = "http://localhost:9090/v1/chat/completions",
+    model: str = "gemma",
+    fallbacks: list[ProviderTarget] | None = None,
+    prefer_external: bool = False,
+    chunk_chars: int = DEFAULT_TRANSCRIPT_MAX_CHARS,
+    max_chunks: int = DEFAULT_MAX_CHUNKS,
+    chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    timeout: float = DEFAULT_TIMEOUT_SEC,
+    retries: int = 2,
+) -> DistilledSession:
+    """Sample-and-merge variant of ``extract_session`` for long transcripts.
+
+    A median piLoci session is ~1.2M chars; ``extract_session``'s single 4000-
+    char window made Gemma see <0.3% of it. This wrapper splits the transcript
+    into up to ``max_chunks`` evenly-spaced windows (first window covers the
+    session opening, last covers the closing), runs one Gemma call per
+    chunk, then dedupes the resulting memories and instincts by normalized
+    content keys. Short transcripts (≤ chunk_chars) collapse to one call,
+    matching the old behavior — no extra work for trivial sessions.
+    """
+    text = _normalize_transcript(transcript)
+    if not text.strip():
+        return DistilledSession(memories=[], instincts=[])
+
+    chunks = _split_into_chunks(text, max_chunks, chunk_chars, chunk_overlap)
+    if not chunks:
+        return DistilledSession(memories=[], instincts=[])
+
+    parts: list[DistilledSession] = []
+    for chunk in chunks:
+        part = await extract_session(
+            chunk,
+            endpoint=endpoint,
+            model=model,
+            fallbacks=fallbacks,
+            prefer_external=prefer_external,
+            max_chars=chunk_chars,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            retries=retries,
+        )
+        parts.append(part)
+
+    if len(parts) == 1:
+        return parts[0]
+    return _merge_distilled(parts)

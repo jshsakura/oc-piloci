@@ -99,6 +99,14 @@ class Settings(BaseSettings):
     distillation_poll_interval_held_sec: float = 120.0
     # Attempts per RawSession row before it's stamped 'failed'.
     distillation_max_attempts: int = 3
+    # Multipass chunking. A median session is ~1.2M chars and a single 4000-
+    # char window made Gemma see <0.3% of it. The worker now samples up to
+    # ``distillation_max_chunks`` windows (head, evenly-spaced middles, tail)
+    # and merges deduped results. Each chunk is one Gemma round-trip — bump
+    # ``max_chunks`` only after confirming the device has spare time.
+    distillation_chunk_chars: int = 4000
+    distillation_max_chunks: int = 4
+    distillation_chunk_overlap: int = 200
     # Server-wide default monthly budget for external LLM (USD). Per-user
     # UserPreferences override. None = no cap.
     distillation_default_budget_monthly_usd: float | None = None

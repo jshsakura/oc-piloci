@@ -31,7 +31,7 @@ from piloci.curator.extraction import (
     DistilledInstinct,
     DistilledMemory,
     DistilledSession,
-    extract_session,
+    extract_session_multipass,
 )
 from piloci.curator.llm_providers import load_user_fallbacks
 from piloci.curator.scheduler import (
@@ -305,12 +305,15 @@ async def _process_one(
         )
 
     fallbacks = await load_user_fallbacks(row.user_id)
-    distilled: DistilledSession = await extract_session(
+    distilled: DistilledSession = await extract_session_multipass(
         transcript,
         endpoint=settings.gemma_endpoint,
         model=settings.gemma_model,
         fallbacks=fallbacks,
         prefer_external=use_external,
+        chunk_chars=settings.distillation_chunk_chars,
+        max_chunks=settings.distillation_max_chunks,
+        chunk_overlap=settings.distillation_chunk_overlap,
     )
 
     # An empty result with no error usually means the LLM returned junk JSON

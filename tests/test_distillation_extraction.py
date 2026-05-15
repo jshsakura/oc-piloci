@@ -8,10 +8,13 @@ from piloci.curator.extraction import (
     DistilledInstinct,
     DistilledMemory,
     DistilledSession,
+    _merge_distilled,
+    _split_into_chunks,
     _truncate,
     _validate_instinct,
     _validate_memory,
     extract_session,
+    extract_session_multipass,
 )
 
 
@@ -153,3 +156,130 @@ async def test_extract_session_failure_returns_empty() -> None:
     # Should swallow the exception and return empty rather than crashing the worker.
     assert result.memories == []
     assert result.instincts == []
+
+
+def test_split_into_chunks_short_text_one_chunk() -> None:
+    text = "short transcript"
+    chunks = _split_into_chunks(text, n_chunks=4, chunk_chars=4000, overlap=200)
+    assert chunks == [text]
+
+
+def test_split_into_chunks_empty_returns_empty_list() -> None:
+    assert _split_into_chunks("", n_chunks=4, chunk_chars=4000, overlap=200) == []
+
+
+def test_split_into_chunks_two_chunks_covers_head_and_tail() -> None:
+    text = "H" * 100 + "M" * 9800 + "T" * 100
+    chunks = _split_into_chunks(text, n_chunks=2, chunk_chars=4000, overlap=200)
+    assert len(chunks) == 2
+    assert chunks[0].startswith("H")
+    assert chunks[-1].endswith("T")
+    # Each window obeys the cap.
+    assert all(len(c) == 4000 for c in chunks)
+
+
+def test_split_into_chunks_four_chunks_evenly_spaced() -> None:
+    # 20K text with 4 chunks of 4000 chars → starts at 0, 5333, 10666, 16000.
+    text = "x" * 20_000
+    chunks = _split_into_chunks(text, n_chunks=4, chunk_chars=4000, overlap=200)
+    assert len(chunks) == 4
+    assert all(len(c) == 4000 for c in chunks)
+
+
+def test_split_into_chunks_collapses_overlapping_starts() -> None:
+    # 5K text with 4 chunks of 4000 — starts would be ~0, 333, 666, 1000.
+    # Overlap is 200 so min_stride = 3800; only two distinct starts survive.
+    text = "y" * 5000
+    chunks = _split_into_chunks(text, n_chunks=4, chunk_chars=4000, overlap=200)
+    assert len(chunks) <= 2
+
+
+def test_merge_distilled_dedupes_memories_by_normalized_content() -> None:
+    a = DistilledSession(
+        memories=[DistilledMemory(content="Uses argon2id", tags=["security"])],
+        instincts=[],
+    )
+    b = DistilledSession(
+        memories=[
+            # Same content modulo whitespace + case → deduped
+            DistilledMemory(content="  uses   ARGON2id  ", tags=["auth"]),
+            DistilledMemory(content="Prefers black formatter", tags=["style"]),
+        ],
+        instincts=[],
+    )
+    merged = _merge_distilled([a, b])
+    assert len(merged.memories) == 2
+    assert merged.memories[0].content == "Uses argon2id"
+    assert merged.memories[1].content == "Prefers black formatter"
+
+
+def test_merge_distilled_dedupes_instincts_by_trigger_action() -> None:
+    a = DistilledSession(
+        memories=[],
+        instincts=[DistilledInstinct(trigger="before commit", action="run pre-commit")],
+    )
+    b = DistilledSession(
+        memories=[],
+        instincts=[
+            DistilledInstinct(trigger="Before Commit", action="Run Pre-commit"),  # dup
+            DistilledInstinct(trigger="on push", action="run tests"),
+        ],
+    )
+    merged = _merge_distilled([a, b])
+    assert len(merged.instincts) == 2
+
+
+def test_merge_distilled_marks_external_if_any_chunk_was_external() -> None:
+    a = DistilledSession(memories=[], instincts=[], processing_path="local")
+    b = DistilledSession(memories=[], instincts=[], processing_path="external")
+    merged = _merge_distilled([a, b])
+    assert merged.processing_path == "external"
+
+
+@pytest.mark.asyncio
+async def test_extract_session_multipass_short_transcript_one_call() -> None:
+    calls: list[int] = []
+
+    async def fake_chat_json(*args, **kwargs):
+        calls.append(1)
+        record = kwargs.get("record_target")
+        if record is not None:
+            record.append("primary")
+        return {"memories": [{"content": "x", "tags": [], "category": "fact"}], "instincts": []}
+
+    with patch("piloci.curator.extraction.chat_json", side_effect=fake_chat_json):
+        result = await extract_session_multipass(
+            "tiny transcript with at least one assistant turn",
+            chunk_chars=4000,
+            max_chunks=4,
+        )
+    assert len(calls) == 1
+    assert len(result.memories) == 1
+
+
+@pytest.mark.asyncio
+async def test_extract_session_multipass_long_transcript_calls_per_chunk() -> None:
+    calls: list[int] = []
+
+    async def fake_chat_json(*args, **kwargs):
+        calls.append(1)
+        record = kwargs.get("record_target")
+        if record is not None:
+            record.append("primary")
+        # Each chunk returns one unique memory so dedupe doesn't collapse them.
+        idx = len(calls)
+        return {
+            "memories": [{"content": f"chunk-{idx} memory", "tags": [], "category": "fact"}],
+            "instincts": [],
+        }
+
+    long_text = "z" * 20_000  # > 4 × 4000, forces 4 chunks
+    with patch("piloci.curator.extraction.chat_json", side_effect=fake_chat_json):
+        result = await extract_session_multipass(
+            long_text,
+            chunk_chars=4000,
+            max_chunks=4,
+            chunk_overlap=200,
+        )
+    assert len(calls) == 4
+    assert len(result.memories) == 4
