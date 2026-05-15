@@ -7,6 +7,7 @@
 - Added backend regression coverage for the new hardening areas and team routes, including CSRF middleware, auth revocation/stale-user validation, private LLM URL validation, LanceDB unsafe input rejection, MCP auth/session summary behavior, and full team invite/document flows. Team route tests exposed a real SQLite timezone comparison bug in invite expiry handling, fixed by normalizing team-route timestamps to naive UTC.
 - Updated project docs and status tracking: `PLAN.md`, `README.md`, and `README.ko.md` now reflect LanceDB/ADR completion, the security hardening changes, and the `/teams` workspace. Coverage gate was raised from `27` to `73` after full-suite coverage reached `73.44%`.
 - Verification: `uv run black src tests && uv run isort src tests && uv run ruff check src tests` passed; targeted team integration tests passed (`2 passed`); full backend suite passed (`750 passed, 1 skipped`, total coverage `73.44%`); web checks passed with `pnpm exec tsc --noEmit`, `pnpm run lint`, `pnpm run test:coverage` (`12 passed`), and `pnpm build`.
+- After the `v0.3.29` release push, GitHub Actions on Python 3.11 failed only the coverage gate (`72.36% < 73%`) while all tests passed. Added focused coverage for low-spec settings clamps, LLM provider fallback loading, data portability edge cases, and distillation route helpers, raising local full-suite coverage to `74.43%` (`770 passed, 1 skipped`) before preparing the follow-up `0.3.30` release.
 
 ## 2026-05-10
 

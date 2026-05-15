@@ -6,7 +6,7 @@
 
 piLoci는 Python MCP 서버, 웹 대시보드, SQLite 인증, LanceDB 벡터 저장소, Obsidian 스타일 워크스페이스를 결합하여, 팀이 자체 하드웨어에서 프로젝트 단위 메모리를 운영할 수 있게 합니다.
 
-> **현재 상태**: 알파, 패키지 버전 `0.3.29`
+> **현재 상태**: 알파, 패키지 버전 `0.3.30`
 >
 > 핵심 기능 구현 완료: 로컬 인증, Redis 세션, 프로젝트 스코프 MCP 토큰, 4개 MCP 도구(`memory`, `recall`, `listProjects`, `whoAmI`), 웹 대시보드, 팀 작업공간 UI, Google OAuth, 2FA, 감사 로그, 트랜스크립트 수집 파이프라인, 볼트 워크스페이스 MVP.
 

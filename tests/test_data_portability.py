@@ -5,6 +5,7 @@ import zipfile
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import orjson
 import pyarrow.parquet as pq
@@ -427,6 +428,237 @@ def test_next_free_slug_picks_base_when_free():
     chosen, renamed = dp._next_free_slug("foo", set())
     assert chosen == "foo"
     assert renamed is False
+
+
+def test_metadata_export_coercion_keeps_only_json_objects():
+    assert dp._coerce_metadata_str({"source": "ui"}) == '{"source":"ui"}'
+    assert dp._coerce_metadata_str(b'{"source":"bytes"}') == '{"source":"bytes"}'
+    assert dp._coerce_metadata_str('{"source":"str"}') == '{"source":"str"}'
+    assert dp._coerce_metadata_str(b"not-json") == "{}"
+    assert dp._coerce_metadata_str("not-json") == "{}"
+    assert dp._coerce_metadata_str('["not", "object"]') == "{}"
+    assert dp._coerce_metadata_str(None) == "{}"
+
+
+def test_import_normalizers_reject_unusable_values():
+    assert dp._normalize_slug(None) is None
+    assert dp._normalize_slug(" Bad Slug ") is None
+    assert dp._normalize_slug(" Valid-Slug ") == "valid-slug"
+    assert dp._normalize_tags(None) == []
+    assert dp._normalize_tags("solo") == []
+    assert dp._normalize_tags(["alpha", 42]) == ["alpha", "42"]
+    assert dp._normalize_metadata({"ok": True}) == {"ok": True}
+    assert dp._normalize_metadata(b'{"ok":true}') == {"ok": True}
+    assert dp._normalize_metadata('{"ok":true}') == {"ok": True}
+    assert dp._normalize_metadata(b"bad") == {}
+    assert dp._normalize_metadata("bad") == {}
+    assert dp._normalize_metadata("[]") == {}
+
+
+@pytest.mark.asyncio
+async def test_build_memories_parquet_empty_project_list_does_not_touch_store():
+    class Store:
+        async def _get_table(self):
+            raise AssertionError("empty export should not query LanceDB")
+
+    payload, count = await dp._build_memories_parquet("user-1", [], Store())
+
+    table = pq.read_table(io.BytesIO(payload))
+    assert count == 0
+    assert table.num_rows == 0
+    assert table.schema == dp._MEMORIES_SCHEMA
+
+
+@pytest.mark.asyncio
+async def test_build_memories_parquet_serializes_lancedb_rows():
+    class Query:
+        def where(self, where_clause):
+            assert where_clause == "user_id = 'user-1' AND project_id IN ('proj-a')"
+            return self
+
+        async def to_list(self):
+            return [
+                {
+                    "memory_id": "mem-1",
+                    "project_id": "proj-a",
+                    "content": "hello",
+                    "tags": ["alpha", 7],
+                    "metadata": b'{"kind":"note"}',
+                    "created_at": 11,
+                    "updated_at": 12,
+                    "vector": [1, "2.5"],
+                }
+            ]
+
+    class Table:
+        def query(self):
+            return Query()
+
+    class Store:
+        async def _get_table(self):
+            return Table()
+
+    payload, count = await dp._build_memories_parquet(
+        "user-1", [SimpleNamespace(id="proj-a")], Store()
+    )
+
+    table = pq.read_table(io.BytesIO(payload))
+    assert count == 1
+    assert table.column("memory_id").to_pylist() == ["mem-1"]
+    assert table.column("tags").to_pylist() == [["alpha", "7"]]
+    assert table.column("metadata").to_pylist() == ['{"kind":"note"}']
+    assert table.column("vector").to_pylist() == [[1.0, 2.5]]
+
+
+def test_parse_archive_rejects_invalid_payload_shapes():
+    with pytest.raises(dp.ArchiveError, match="missing manifest"):
+        sink = io.BytesIO()
+        with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(dp.PROJECTS_NAME, b"[]")
+        dp._parse_archive(sink.getvalue())
+
+    with pytest.raises(dp.ArchiveError, match="not valid JSON"):
+        sink = io.BytesIO()
+        with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(dp.MANIFEST_NAME, b"{")
+        dp._parse_archive(sink.getvalue())
+
+    with pytest.raises(dp.ArchiveError, match="manifest.json must be a JSON object"):
+        sink = io.BytesIO()
+        with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(dp.MANIFEST_NAME, b"[]")
+        dp._parse_archive(sink.getvalue())
+
+    with pytest.raises(dp.ArchiveError, match="profiles.json must be a JSON list"):
+        sink = io.BytesIO()
+        with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                dp.MANIFEST_NAME,
+                orjson.dumps({"archive_version": dp.ARCHIVE_VERSION}),
+            )
+            zf.writestr(dp.PROFILES_NAME, b"{}")
+        dp._parse_archive(sink.getvalue())
+
+    with pytest.raises(dp.ArchiveError, match="projects.json must be a JSON list"):
+        sink = io.BytesIO()
+        with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                dp.MANIFEST_NAME,
+                orjson.dumps({"archive_version": dp.ARCHIVE_VERSION}),
+            )
+            zf.writestr(dp.PROJECTS_NAME, b"{}")
+        dp._parse_archive(sink.getvalue())
+
+
+def test_parse_archive_uses_empty_defaults_for_optional_payloads():
+    sink = io.BytesIO()
+    with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            dp.MANIFEST_NAME,
+            orjson.dumps({"archive_version": dp.ARCHIVE_VERSION}),
+        )
+
+    manifest, projects, memories, profiles = dp._parse_archive(sink.getvalue())
+
+    assert manifest["archive_version"] == dp.ARCHIVE_VERSION
+    assert projects == []
+    assert memories.num_rows == 0
+    assert profiles == []
+
+
+def test_safe_id_rejects_query_breakout_characters():
+    assert dp._safe_id("user-1") == "user-1"
+    with pytest.raises(ValueError):
+        dp._safe_id("bad'user")
+
+
+@pytest.mark.asyncio
+async def test_import_archive_skips_invalid_projects_memories_and_profiles(monkeypatch):
+    table = pq.read_table(io.BytesIO(_seed_memories_parquet_for_import()))
+    sink = io.BytesIO()
+    with zipfile.ZipFile(sink, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(
+            dp.MANIFEST_NAME,
+            orjson.dumps(
+                {
+                    "archive_version": dp.ARCHIVE_VERSION,
+                    "embed_model": "different-model",
+                    "vector_size": dp.VECTOR_SIZE,
+                }
+            ),
+        )
+        zf.writestr(
+            dp.PROJECTS_NAME,
+            orjson.dumps(
+                [
+                    "not-a-project",
+                    {"id": 7, "slug": "alpha", "name": "Alpha"},
+                    {"id": "old-a", "slug": "bad slug", "name": "Alpha"},
+                    {"id": "old-b", "slug": "beta", "name": None},
+                ]
+            ),
+        )
+        mem_sink = io.BytesIO()
+        pq.write_table(table, mem_sink)
+        zf.writestr(dp.MEMORIES_NAME, mem_sink.getvalue())
+        zf.writestr(
+            dp.PROFILES_NAME,
+            orjson.dumps(
+                [
+                    "not-a-profile",
+                    {"project_id": 123, "profile_json": "{}"},
+                    {"project_id": "missing", "profile_json": "{}"},
+                    {"project_id": "missing", "profile_json": {}},
+                ]
+            ),
+        )
+
+    async def existing_slugs(user_id):
+        return set()
+
+    class Store:
+        async def save_many(self, **kwargs):
+            raise AssertionError("invalid archive rows should not be imported")
+
+    monkeypatch.setattr(dp, "_existing_slugs_for_user", existing_slugs)
+
+    async def embed_one(text):
+        raise AssertionError("unmapped memory rows should not be re-embedded")
+
+    summary = await dp.import_archive(
+        sink.getvalue(),
+        user_id="user-1",
+        store=Store(),
+        settings=SimpleNamespace(embed_model="current-model"),
+        embed_one_fn=embed_one,
+        allow_reembed=True,
+    )
+
+    assert summary.projects_imported == 0
+    assert summary.memories_imported == 0
+    assert summary.profiles_imported == 0
+    assert summary.re_embedded is True
+
+
+def _seed_memories_parquet_for_import() -> bytes:
+    out = io.BytesIO()
+    pq.write_table(
+        dp.pa.Table.from_pydict(
+            {
+                "memory_id": ["mem-1"],
+                "project_id": ["missing"],
+                "content": ["ignored"],
+                "tags": [[]],
+                "metadata": ["{}"],
+                "created_at": [1],
+                "updated_at": [2],
+                "vector": [[0.1] * dp.VECTOR_SIZE],
+            },
+            schema=dp._MEMORIES_SCHEMA,
+        ),
+        out,
+    )
+    return out.getvalue()
 
 
 def test_next_free_slug_appends_imported_suffix_on_collision():
