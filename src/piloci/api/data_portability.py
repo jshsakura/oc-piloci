@@ -206,7 +206,17 @@ async def build_export_archive(
     settings: Settings,
     piloci_version: str,
 ) -> bytes:
-    """Assemble an in-memory zip archive of one user's data."""
+    """Assemble an in-memory zip archive of one user's data.
+
+    Includes *all* of the user's memories — coding facts AND private
+    ``feedback`` entries (frustration, praise, sarcasm) used by the weekly
+    self-retrospective. The caller is the data subject themselves, so this
+    is the right default for a "give me everything" export. Callers that
+    intend to hand the archive to a third party (team upload, support
+    ticket attachment) should filter the memories.parquet client-side or
+    use piloci.storage.privacy.is_private_memory to drop them before
+    forwarding.
+    """
     _safe_id(user_id)
     projects = await _load_user_projects(user_id)
     profiles = await _load_user_profiles(user_id)

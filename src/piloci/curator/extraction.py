@@ -40,7 +40,8 @@ DEFAULT_TIMEOUT_SEC = 300.0
 
 _SYSTEM = (
     "You distill an AI coding session transcript into two structured outputs:\n"
-    "  1. memories  — durable facts/decisions/preferences/patterns/errors/solutions.\n"
+    "  1. memories  — durable facts/decisions/preferences/patterns/errors/"
+    "solutions/feedback.\n"
     "  2. instincts — repeated behavioral patterns (trigger → action) the user expects.\n"
     "\n"
     "Output ONE JSON object, no prose, with this exact schema:\n"
@@ -48,13 +49,13 @@ _SYSTEM = (
     '  "memories": [\n'
     '    {"content": "<single self-contained sentence>",\n'
     '     "tags": ["tag1", "tag2"],\n'
-    '     "category": "fact|decision|preference|pattern|error|solution"}\n'
+    '     "category": "fact|decision|preference|pattern|error|solution|feedback"}\n'
     "  ],\n"
     '  "instincts": [\n'
     '    {"trigger": "<short condition>",\n'
     '     "action": "<short response>",\n'
     '     "domain": "code-style|testing|git|debugging|workflow|architecture|'
-    'performance|security|api|frontend|other",\n'
+    'performance|security|api|frontend|reaction|other",\n'
     '     "evidence": "<one short sentence justifying this>"}\n'
     "  ]\n"
     "}\n"
@@ -65,9 +66,19 @@ _SYSTEM = (
     "  → Korean memories. English conversations → English memories. Mixed\n"
     "  conversations → match the language the user uses most. Schema keys\n"
     "  (`category`, `domain` enums) stay English — they are identifiers.\n"
-    "- Skip chitchat, tool traces, routine commands.\n"
+    "- Skip routine acknowledgements ('ok', 'thanks for the help'),\n"
+    "  tool traces, and shell command repetition.\n"
+    "- DO capture strong emotional reactions — praise, frustration, anger,\n"
+    "  sarcasm, profanity, satisfaction. These tell you what the user values\n"
+    "  and what hurts. Single sharp reactions go in `memories` under category\n"
+    "  `feedback` (one short sentence quoting or paraphrasing the moment).\n"
+    "  When a trigger → reaction pattern repeats across the session, add it to\n"
+    "  `instincts` with domain `reaction`. Examples: trigger='build keeps\n"
+    "  failing on Pi' → action='user gets visibly frustrated, calls it 슬프다',\n"
+    "  trigger='multipass result lands' → action='user celebrates with 굿잡'.\n"
     "- 1-2 sentences per memory, self-contained.\n"
-    "- Extract 3-7 instincts. Focus on repeated corrections and preferences.\n"
+    "- Extract 3-7 instincts. Focus on repeated corrections, preferences,\n"
+    "  and recurring emotional reactions.\n"
     "- Ignore one-time fixes and external API failures.\n"
     "- If the transcript yields nothing useful, output empty arrays."
 )

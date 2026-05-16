@@ -43,6 +43,31 @@ def test_validate_memory_caps_tags() -> None:
     assert len(mem.tags) == 5
 
 
+def test_validate_memory_accepts_feedback_category() -> None:
+    mem = _validate_memory(
+        {
+            "content": "사용자가 multipass 결과 확인 후 굿잡이라며 만족",
+            "tags": ["multipass", "celebration"],
+            "category": "feedback",
+        }
+    )
+    assert mem is not None
+    assert mem.category == "feedback"
+
+
+def test_validate_instinct_accepts_reaction_domain() -> None:
+    inst = _validate_instinct(
+        {
+            "trigger": "Pi 빌드 반복 실패",
+            "action": "사용자가 짜증을 내며 슬프다 표현",
+            "domain": "reaction",
+            "evidence": "세션 중 3회 반복",
+        }
+    )
+    assert inst is not None
+    assert inst.domain == "reaction"
+
+
 def test_validate_instinct_accepts_well_formed() -> None:
     inst = _validate_instinct(
         {

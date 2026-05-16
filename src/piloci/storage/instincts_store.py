@@ -35,6 +35,10 @@ DOMAINS = frozenset(
         "security",
         "api",
         "frontend",
+        # Personal emotional reaction patterns (frustration, praise, etc.) —
+        # private by default; never exposed to team workspaces. See
+        # piloci.storage.privacy.is_private_instinct.
+        "reaction",
         "other",
     ]
 )
@@ -51,6 +55,8 @@ DOMAIN_SKILL_MAP: dict[str, list[str]] = {
     "workflow": ["autonomous-loops", "continuous-agent-loop"],
     "api": ["api-design", "api-connector-builder"],
     "frontend": ["frontend-patterns", "nextjs-turbopack"],
+    # Reactions are journaling, not skills — no skill suggestions surface here.
+    "reaction": [],
     "other": [],
 }
 

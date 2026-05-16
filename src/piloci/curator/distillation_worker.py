@@ -232,7 +232,11 @@ async def _save_memories(
                 "content": mem.content,
                 "vector": vec,
                 "tags": mem.tags[:5],
-                "metadata": {"source": "distilled"},
+                # Persist the distiller's category so downstream (search
+                # filters, privacy gating, weekly digest) can tell a
+                # ``feedback`` memory apart from a coding ``fact``. Up to
+                # v0.3.35 this was dropped on the floor.
+                "metadata": {"source": "distilled", "category": mem.category},
             }
         )
         accepted_vectors.append(vec)
