@@ -6,6 +6,7 @@ All queries enforce (user_id, project_id) isolation. Recall uses 3-phase
 token-saving strategy: preview → fetch → to_file.
 """
 
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -114,6 +115,15 @@ class RecallInput(BaseModel):
     ] = True
     tags: Annotated[list[str] | None, Field(description="Filter by tags")] = None
     limit: Annotated[int, Field(description="Max results (preview mode)", ge=1, le=50)] = 5
+    include_feedback: Annotated[
+        bool,
+        Field(
+            description=(
+                "Include private 'feedback' memories (frustration/praise quotes). "
+                "Off by default — UI/digest callers set true."
+            ),
+        ),
+    ] = False
 
 
 class ListProjectsInput(BaseModel):
@@ -577,6 +587,38 @@ async def _get_profile(profile_fn: Any, user_id: str, project_id: str) -> dict[s
         return None
 
 
+def _filter_feedback_out(rows: list[Any]) -> list[Any]:
+    """Drop private 'feedback' memories. Used when include_feedback=False.
+
+    Memory ``category`` is persisted inside the JSON ``metadata`` blob so we
+    parse it lazily — bad/missing JSON falls through as "not feedback" rather
+    than raising, since filter logic should never hide a coding memory because
+    its metadata is malformed.
+    """
+    from piloci.storage.privacy import PRIVATE_MEMORY_CATEGORIES
+
+    kept = []
+    for r in rows:
+        meta_raw = r.get("metadata") if isinstance(r, dict) else None
+        category: str | None = None
+        if isinstance(meta_raw, str) and meta_raw:
+            try:
+                parsed = json.loads(meta_raw)
+                if isinstance(parsed, dict):
+                    cat = parsed.get("category")
+                    if isinstance(cat, str):
+                        category = cat
+            except (ValueError, TypeError):
+                pass
+        elif isinstance(meta_raw, dict):
+            cat = meta_raw.get("category")
+            if isinstance(cat, str):
+                category = cat
+        if category not in PRIVATE_MEMORY_CATEGORIES:
+            kept.append(r)
+    return kept
+
+
 async def handle_recall(
     args: RecallInput,
     user_id: str,
@@ -592,6 +634,8 @@ async def handle_recall(
             row = await store.get(user_id, project_id, mid)
             if row:
                 fetched.append(row)
+        if not args.include_feedback:
+            fetched = _filter_feedback_out(fetched)
         response: dict[str, Any] = {"memories": fetched, "mode": "full", "fetched": len(fetched)}
         if args.include_profile:
             profile = await _get_profile(profile_fn, user_id, project_id)
@@ -621,6 +665,9 @@ async def handle_recall(
             top_k=args.limit,
             tags=args.tags,
         )
+
+    if not args.include_feedback:
+        results = _filter_feedback_out(results)
 
     if args.to_file and export_dir is not None:
         profile = (

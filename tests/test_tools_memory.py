@@ -128,6 +128,79 @@ async def test_recall_fetch_ids_skips_missing(mock_store):
 
 
 # ---------------------------------------------------------------------------
+# recall — feedback (private) memory filter
+# ---------------------------------------------------------------------------
+
+import json as _json  # noqa: E402 — local alias for test data construction
+
+_FEEDBACK_ROW = {
+    "memory_id": "feedback-1",
+    "content": "사용자가 multipass 결과에 굿잡이라며 만족",
+    "score": 0.88,
+    "tags": ["multipass"],
+    "created_at": 1700000001,
+    # category lands inside the metadata JSON blob (matches what
+    # distillation_worker._save_memories writes since v0.3.36).
+    "metadata": _json.dumps({"source": "distilled", "category": "feedback"}),
+}
+
+_CODING_ROW = {
+    "memory_id": "coding-1",
+    "content": "uses argon2id for password hashing",
+    "score": 0.85,
+    "tags": ["security"],
+    "created_at": 1700000002,
+    "metadata": _json.dumps({"source": "distilled", "category": "preference"}),
+}
+
+
+@pytest.mark.asyncio
+async def test_recall_preview_drops_feedback_by_default(mock_store):
+    """MCP recall defaults to LLM-facing — feedback memories must not leak."""
+    mock_store.hybrid_search.return_value = [_FEEDBACK_ROW, _CODING_ROW]
+    args = RecallInput(query="hello", include_profile=False)
+    result = await handle_recall(args, USER, PROJECT, mock_store, embed)
+    ids = [m["id"] for m in result["memories"]]
+    assert "feedback-1" not in ids
+    assert "coding-1" in ids
+
+
+@pytest.mark.asyncio
+async def test_recall_preview_keeps_feedback_when_opted_in(mock_store):
+    """UI / weekly-digest callers pass include_feedback=True to see everything."""
+    mock_store.hybrid_search.return_value = [_FEEDBACK_ROW, _CODING_ROW]
+    args = RecallInput(query="hello", include_profile=False, include_feedback=True)
+    result = await handle_recall(args, USER, PROJECT, mock_store, embed)
+    ids = {m["id"] for m in result["memories"]}
+    assert ids == {"feedback-1", "coding-1"}
+
+
+@pytest.mark.asyncio
+async def test_recall_fetch_ids_also_filters_feedback(mock_store):
+    """fetch_ids path runs the same filter — direct ID lookup can't bypass it."""
+
+    def _fake_get(user_id, project_id, memory_id):
+        return _FEEDBACK_ROW if memory_id == "feedback-1" else _CODING_ROW
+
+    mock_store.get.side_effect = _fake_get
+    args = RecallInput(query=None, fetch_ids=["feedback-1", "coding-1"])
+    result = await handle_recall(args, USER, PROJECT, mock_store, embed)
+    ids = [m["memory_id"] for m in result["memories"]]
+    assert ids == ["coding-1"]
+    assert result["fetched"] == 1
+
+
+@pytest.mark.asyncio
+async def test_recall_filter_tolerates_bad_metadata(mock_store):
+    """Malformed metadata JSON should never hide a coding memory."""
+    row = {**_CODING_ROW, "metadata": "{not valid json"}
+    mock_store.hybrid_search.return_value = [row]
+    args = RecallInput(query="hello", include_profile=False)
+    result = await handle_recall(args, USER, PROJECT, mock_store, embed)
+    assert len(result["memories"]) == 1
+
+
+# ---------------------------------------------------------------------------
 # recall — to_file mode
 # ---------------------------------------------------------------------------
 
