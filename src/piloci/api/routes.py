@@ -2347,10 +2347,12 @@ async def route_hook_script(request: Request) -> Response:
 
 
 async def route_hook_stop_script(request: Request) -> Response:
-    """GET /api/hook/stop-script — return the generic stop-hook.sh to save locally.
+    """GET /api/hook/stop-script — return the cross-platform Stop hook to save locally.
 
-    The script reads ~/.config/piloci/config.json at runtime for token + analyze_url.
-    Companion to hook.py: SessionStart catches up, Stop pushes live per turn.
+    Now serves the Python hook (Mac/Linux/Windows) instead of the old bash
+    variant. The script reads ~/.config/piloci/config.json at runtime for
+    token + analyze_url. Companion to hook.py: SessionStart catches up, Stop
+    pushes live per turn.
     """
     user = _require_user(request)
     if user is None:
@@ -2360,8 +2362,8 @@ async def route_hook_stop_script(request: Request) -> Response:
 
     return Response(
         STOP_HOOK_SCRIPT,
-        media_type="text/x-shellscript",
-        headers={"Content-Disposition": 'attachment; filename="stop-hook.sh"'},
+        media_type="text/x-python",
+        headers={"Content-Disposition": 'attachment; filename="stop-hook.py"'},
     )
 
 
@@ -2406,7 +2408,7 @@ async def route_opencode_plugin(request: Request) -> Response:
 
 
 async def route_install(request: Request) -> Response:
-    """GET /install/{code} — exchange a one-time install code for a bash installer.
+    """GET /install/{code} — exchange a one-time install code for an installer.
 
     The code is consumed atomically; subsequent requests with the same code
     return 410 Gone. No auth required — the code IS the credential.
@@ -2414,16 +2416,32 @@ async def route_install(request: Request) -> Response:
     Response format is content-negotiated:
       * ``Accept: application/json`` (or ``?format=json``) → ``{token, base_url}``
         for the Python CLI installer.
-      * default → bash one-liner that ``curl ... | bash`` consumes.
+      * ``?os=win`` (or ``Accept: application/x-powershell``) → PowerShell
+        installer for ``iwr -useb ... | iex`` on Windows.
+      * default → bash one-liner that ``curl ... | bash`` consumes (POSIX).
     """
     code = (request.path_params.get("code") or "").strip()
     accept = request.headers.get("accept", "").lower()
     fmt = request.query_params.get("format", "").lower()
+    os_param = request.query_params.get("os", "").lower()
+    user_agent = request.headers.get("user-agent", "").lower()
     wants_json = "application/json" in accept or fmt == "json"
+    wants_powershell = (
+        os_param in ("win", "windows")
+        or fmt in ("ps1", "powershell")
+        or "x-powershell" in accept
+        or "powershell" in user_agent
+    )
 
     if not code or len(code) > 64 or any(c.isspace() for c in code):
         if wants_json:
             return _json({"error": "invalid install code"}, 400)
+        if wants_powershell:
+            return Response(
+                "Write-Error '[piloci] invalid install code'\nexit 1\n",
+                status_code=400,
+                media_type="text/x-powershell",
+            )
         return Response(
             "#!/usr/bin/env bash\necho '[piloci] invalid install code' >&2\nexit 1\n",
             status_code=400,
@@ -2431,7 +2449,7 @@ async def route_install(request: Request) -> Response:
         )
 
     from piloci.auth.install_pairing import get_install_pairing_store
-    from piloci.tools.install_script import build_install_script
+    from piloci.tools.install_script import build_install_script, build_powershell_install_script
 
     settings = get_settings()
     store = get_install_pairing_store(settings)
@@ -2442,6 +2460,13 @@ async def route_install(request: Request) -> Response:
                 {"error": "이 install code는 만료되었거나 이미 사용됐습니다."},
                 410,
             )
+        if wants_powershell:
+            gone_ps = (
+                "Write-Error '[piloci] 이 install code는 만료되었거나 이미 사용됐습니다.'\n"
+                "Write-Error '         웹에서 새 토큰을 발급해 주세요.'\n"
+                "exit 1\n"
+            )
+            return Response(gone_ps, status_code=410, media_type="text/x-powershell")
         gone = (
             "#!/usr/bin/env bash\n"
             "echo '[piloci] 이 install code는 만료되었거나 이미 사용됐습니다.' >&2\n"
@@ -2454,6 +2479,16 @@ async def route_install(request: Request) -> Response:
         return _json(
             {"token": payload["token"], "base_url": payload["base_url"]},
             200,
+        )
+
+    if wants_powershell:
+        ps_script = build_powershell_install_script(
+            token=payload["token"], base_url=payload["base_url"]
+        )
+        return Response(
+            ps_script,
+            media_type="text/x-powershell",
+            headers={"Cache-Control": "no-store"},
         )
 
     script = build_install_script(token=payload["token"], base_url=payload["base_url"])

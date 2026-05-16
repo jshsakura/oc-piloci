@@ -1,7 +1,7 @@
 """Templates for the bash installer and Stop hook served to client machines.
 
 The installer is delivered in response to a one-time ``install_code``. It
-lays down ``~/.config/piloci/{hook.py,stop-hook.sh,config.json}`` and
+lays down ``~/.config/piloci/{hook.py,stop-hook.py,config.json}`` and
 merges the two hook commands into ``~/.claude/settings.json`` while
 preserving any pre-existing user hooks. The token is inlined into the
 script body — the network response is the only place it appears.
@@ -141,7 +141,7 @@ _strip_piloci_hooks(settings_path)
 _strip_dict_key(claude_mcp, "mcpServers")
 _strip_dict_key(opencode_cfg, "mcp")
 
-for name in ("hook.py", "stop-hook.sh"):
+for name in ("hook.py", "stop-hook.py", "stop-hook.sh"):
     p = cfg_dir / name
     if p.exists():
         p.unlink()
@@ -210,7 +210,7 @@ plugin = Path(os.environ["PILOCI_PLUGIN_DIR"])
         }]}],
         "Stop": [{"hooks": [{
             "type": "command",
-            "command": "bash ${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh 2>/dev/null || true",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.py 2>/dev/null || true",
         }]}],
     },
 }, indent=2))
@@ -232,9 +232,12 @@ PYEOF
     chmod 755 "$CLAUDE_PLUGIN_DIR/hooks/hook.py"
 
     curl -sfL -H "Authorization: Bearer $PILOCI_TOKEN" \\
-        "$PILOCI_BASE/api/hook/stop-script" -o "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.sh.tmp"
-    mv "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.sh.tmp" "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.sh"
-    chmod 755 "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.sh"
+        "$PILOCI_BASE/api/hook/stop-script" -o "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.py.tmp"
+    mv "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.py.tmp" "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.py"
+    chmod 755 "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.py"
+    # Clean up any legacy bash file from older installs so the plugin dir
+    # doesn't ship two parallel Stop hooks.
+    rm -f "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.sh"
 
     INSTALLED_KINDS+=("claude")
 fi
@@ -286,89 +289,89 @@ echo "  토큰 회전 시 ~/.config/piloci/config.json 만 갱신하세요."
 """
 
 
-STOP_HOOK_SCRIPT = """#!/usr/bin/env bash
-# piloci Stop hook — pushes the current session's transcript at end of turn.
-# Reads token + URL from ~/.config/piloci/config.json (no secrets in this file).
-set -euo pipefail
+STOP_HOOK_SCRIPT = '''\
+#!/usr/bin/env python3
+"""piLoci Stop hook (Claude Code / Codex) — Mac, Linux, Windows.
 
-CFG="$HOME/.config/piloci/config.json"
-[ -f "$CFG" ] || exit 0
-
-CFG_OUT=$(python3 - "$CFG" <<'PYEOF' 2>/dev/null || true
-import json
-import sys
-try:
-    d = json.load(open(sys.argv[1]))
-    print(d.get("token", ""))
-    print(d.get("analyze_url", ""))
-except Exception:
-    pass
-PYEOF
-)
-PILOCI_TOKEN=$(printf '%s\\n' "$CFG_OUT" | sed -n '1p')
-PILOCI_URL=$(printf '%s\\n' "$CFG_OUT" | sed -n '2p')
-[ -n "$PILOCI_TOKEN" ] || exit 0
-[ -n "$PILOCI_URL" ] || exit 0
-
-STDIN_DATA=$(cat 2>/dev/null || true)
-TRANSCRIPT_FILE=""
-if [ -n "$STDIN_DATA" ]; then
-    TRANSCRIPT_FILE=$(printf '%s' "$STDIN_DATA" | python3 -c \\
-        "import sys, json; d=json.load(sys.stdin); print(d.get('transcript_path',''))" \\
-        2>/dev/null || true)
-fi
-[ -n "$TRANSCRIPT_FILE" ] || exit 0
-[ -f "$TRANSCRIPT_FILE" ] || exit 0
-
-# Skip turns with too little content.
-MSG_COUNT=$(grep -c '"role"' "$TRANSCRIPT_FILE" 2>/dev/null || echo "0")
-if [ "$MSG_COUNT" -lt 4 ]; then
-    exit 0
-fi
-
-# Pull cwd off STDIN payload so the server can resolve user-scoped tokens
-# to a project via slug — without it the analyze route 400s with
-# "project scope required".
-PILOCI_CWD=$(printf '%s' "$STDIN_DATA" | python3 -c \\
-    "import sys, json, os; d=json.load(sys.stdin); print(d.get('cwd', '') or os.getcwd())" \\
-    2>/dev/null || pwd)
-
-PILOCI_TOKEN="$PILOCI_TOKEN" PILOCI_URL="$PILOCI_URL" \\
-    PILOCI_TRANSCRIPT="$TRANSCRIPT_FILE" PILOCI_CWD="$PILOCI_CWD" python3 - <<'PYEOF'
+Pushes the current session's transcript at end of turn. Reads token +
+URL from ~/.config/piloci/config.json at runtime (no secrets in this
+file). Receives the host's stop payload via stdin; extracts the
+transcript path and POSTs to piLoci. Failures are silent so a Stop hook
+crash never blocks the user's next turn.
+"""
 import json
 import os
+import sys
 import urllib.error
 import urllib.request
+from pathlib import Path
 
-url = os.environ["PILOCI_URL"]
-token = os.environ["PILOCI_TOKEN"]
-fn = os.environ["PILOCI_TRANSCRIPT"]
-cwd = os.environ.get("PILOCI_CWD", "")
-try:
-    transcript = open(fn, "rb").read().decode("utf-8", "ignore")
-except OSError:
-    raise SystemExit(0)
-body = {"transcript": transcript}
-if cwd:
-    body["cwd"] = cwd
-payload = json.dumps(body).encode()
-req = urllib.request.Request(
-    url,
-    data=payload,
-    headers={
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {token}",
-        "User-Agent": "piloci-stop-hook",
-    },
-    method="POST",
-)
-try:
-    urllib.request.urlopen(req, timeout=30)
-except (urllib.error.URLError, urllib.error.HTTPError, OSError):
-    pass
-PYEOF
-exit 0
-"""
+_CONFIG = Path.home() / ".config" / "piloci" / "config.json"
+_MIN_ROLE_LINES = 4
+
+
+def _read_stdin_payload():
+    if sys.stdin is None or sys.stdin.isatty():
+        return {}
+    try:
+        raw = sys.stdin.read()
+    except OSError:
+        return {}
+    if not raw or not raw.strip():
+        return {}
+    try:
+        return json.loads(raw)
+    except Exception:
+        return {}
+
+
+def main():
+    try:
+        cfg = json.loads(_CONFIG.read_text())
+    except Exception:
+        return
+
+    token = cfg.get("token")
+    url = cfg.get("analyze_url")
+    if not token or not url:
+        return
+
+    payload = _read_stdin_payload()
+    transcript_path_str = payload.get("transcript_path")
+    if not transcript_path_str:
+        return
+
+    path = Path(transcript_path_str)
+    try:
+        transcript = path.read_bytes().decode("utf-8", "ignore")
+    except OSError:
+        return
+
+    # Skip turns that are too small to be worth shipping.
+    if transcript.count(\'"role"\') < _MIN_ROLE_LINES:
+        return
+
+    cwd = payload.get("cwd") or os.getcwd()
+    body = {"transcript": transcript, "cwd": cwd}
+
+    req = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "piloci-stop-hook",
+        },
+        method="POST",
+    )
+    try:
+        urllib.request.urlopen(req, timeout=30)
+    except (urllib.error.URLError, urllib.error.HTTPError, OSError):
+        pass
+
+
+main()
+'''
 
 # Cross-platform Stop hook for Codex CLI (Mac / Linux / Windows).
 # Reads Codex stop payload from stdin and ships the transcript to piLoci.
@@ -453,3 +456,141 @@ def build_install_script(*, token: str, base_url: str) -> str:
     """
     base = base_url.rstrip("/")
     return _INSTALL_TEMPLATE.replace(_BASE_PLACEHOLDER, base).replace(_TOKEN_PLACEHOLDER, token)
+
+
+# ---------------------------------------------------------------------------
+# Windows PowerShell installer — same end state as the bash variant
+# ---------------------------------------------------------------------------
+
+_POWERSHELL_INSTALL_TEMPLATE = r"""#Requires -Version 5.1
+# piloci Windows installer (PowerShell 5.1+ / 7.x).
+# 한 줄 실행:
+#   iwr -useb https://your.piloci.example/install/<code>.ps1 | iex
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+
+$PILOCI_BASE  = '__PILOCI_BASE__'
+$PILOCI_TOKEN = '__PILOCI_TOKEN__'
+
+function Find-PythonCommand {
+    # `py` launcher (Python.org official) is the canonical Windows entry point;
+    # fall back to plain `python` for chocolatey / winget / Microsoft Store builds
+    # that skip it. Return the literal command name so we can embed it in hook
+    # configs the host AI client will shell out to later.
+    $cmd = Get-Command py -ErrorAction SilentlyContinue
+    if ($cmd) { return 'py' }
+    $cmd = Get-Command python -ErrorAction SilentlyContinue
+    if ($cmd) { return 'python' }
+    return $null
+}
+
+$pythonCmd = Find-PythonCommand
+if (-not $pythonCmd) {
+    Write-Error '[piloci] Python 3.10+ 가 필요합니다. https://www.python.org/downloads/ 에서 설치하세요.'
+    exit 1
+}
+Write-Host "[piloci] Python: $pythonCmd"
+
+# Auth header reused for every download.
+$headers = @{ Authorization = "Bearer $PILOCI_TOKEN"; 'User-Agent' = 'piloci-installer' }
+
+# 1) Shared config dir under ~/.config/piloci — same layout as POSIX so a user
+#    moving a config between machines doesn't need to relocate it.
+$cfgDir = Join-Path $env:USERPROFILE '.config\piloci'
+if (-not (Test-Path $cfgDir)) {
+    New-Item -ItemType Directory -Force -Path $cfgDir | Out-Null
+}
+
+Write-Host '[piloci] config.json 작성…'
+$config = [ordered]@{
+    token       = $PILOCI_TOKEN
+    ingest_url  = "$PILOCI_BASE/api/sessions/ingest"
+    analyze_url = "$PILOCI_BASE/api/sessions/analyze"
+}
+$cfgPath = Join-Path $cfgDir 'config.json'
+($config | ConvertTo-Json -Depth 5) | Set-Content -Path $cfgPath -Encoding UTF8
+
+# Drop the cross-platform hook scripts. POSIX installs drop both into the
+# shared config dir AND the Claude plugin folder for symmetry — do the same
+# here so manual edits land in a single place.
+Write-Host '[piloci] hook 스크립트 다운로드…'
+Invoke-WebRequest -Uri "$PILOCI_BASE/api/hook/script" -Headers $headers `
+    -OutFile (Join-Path $cfgDir 'hook.py') -UseBasicParsing
+Invoke-WebRequest -Uri "$PILOCI_BASE/api/hook/stop-script" -Headers $headers `
+    -OutFile (Join-Path $cfgDir 'stop-hook.py') -UseBasicParsing
+# Remove legacy bash file from older installs so the dir stops shipping two.
+$legacyShPath = Join-Path $cfgDir 'stop-hook.sh'
+if (Test-Path $legacyShPath) { Remove-Item -Force $legacyShPath }
+
+# 2) Claude Code plugin folder, if the user has it.
+$claudeDir = Join-Path $env:USERPROFILE '.claude'
+if (Test-Path $claudeDir) {
+    Write-Host '[piloci] Claude Code 플러그인 폴더 드롭…'
+    $pluginDir = Join-Path $claudeDir 'plugins\piloci'
+    $hooksDir  = Join-Path $pluginDir 'hooks'
+    $manifestDir = Join-Path $pluginDir '.claude-plugin'
+    foreach ($d in @($hooksDir, $manifestDir)) {
+        if (-not (Test-Path $d)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
+    }
+
+    $manifest = [ordered]@{
+        name        = 'piloci'
+        version     = '0.0.0'
+        description = 'piLoci memory — auto-capture sessions and expose memory/recall/recommend MCP tools'
+        author      = @{ name = 'piLoci' }
+        homepage    = 'https://github.com/jshsakura/oc-piloci'
+        license     = 'MIT'
+    }
+    ($manifest | ConvertTo-Json -Depth 5) |
+        Set-Content -Path (Join-Path $manifestDir 'plugin.json') -Encoding UTF8
+
+    $hookCmd     = "$pythonCmd `${CLAUDE_PLUGIN_ROOT}/hooks/hook.py 2>NUL"
+    $stopHookCmd = "$pythonCmd `${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.py 2>NUL"
+    $hooksJson = [ordered]@{
+        description = 'piLoci auto-capture (SessionStart catch-up + Stop live push)'
+        hooks = [ordered]@{
+            SessionStart = @(@{ hooks = @(@{ type = 'command'; command = $hookCmd }) })
+            Stop         = @(@{ hooks = @(@{ type = 'command'; command = $stopHookCmd }) })
+        }
+    }
+    ($hooksJson | ConvertTo-Json -Depth 10) |
+        Set-Content -Path (Join-Path $hooksDir 'hooks.json') -Encoding UTF8
+
+    Invoke-WebRequest -Uri "$PILOCI_BASE/api/hook/script" -Headers $headers `
+        -OutFile (Join-Path $hooksDir 'hook.py') -UseBasicParsing
+    Invoke-WebRequest -Uri "$PILOCI_BASE/api/hook/stop-script" -Headers $headers `
+        -OutFile (Join-Path $hooksDir 'stop-hook.py') -UseBasicParsing
+    $legacyPluginSh = Join-Path $hooksDir 'stop-hook.sh'
+    if (Test-Path $legacyPluginSh) { Remove-Item -Force $legacyPluginSh }
+
+    $mcp = [ordered]@{
+        mcpServers = [ordered]@{
+            piloci = [ordered]@{
+                type    = 'http'
+                url     = "$PILOCI_BASE/mcp/http"
+                headers = @{ Authorization = "Bearer $PILOCI_TOKEN" }
+            }
+        }
+    }
+    ($mcp | ConvertTo-Json -Depth 10) |
+        Set-Content -Path (Join-Path $pluginDir '.mcp.json') -Encoding UTF8
+}
+
+Write-Host ''
+Write-Host '[piloci] 설치 완료.'
+Write-Host "  토큰 회전 시 $cfgPath 만 갱신하세요."
+"""
+
+
+def build_powershell_install_script(*, token: str, base_url: str) -> str:
+    """Return the PowerShell installer with token + base URL inlined.
+
+    Mirrors ``build_install_script`` for Windows clients — same end state in
+    ``%USERPROFILE%\\.config\\piloci`` and the optional Claude Code plugin
+    folder. PowerShell 5.1 compatible (the default shell shipped with
+    Windows 10/11) so users don't need to install PowerShell 7 first.
+    """
+    base = base_url.rstrip("/")
+    return _POWERSHELL_INSTALL_TEMPLATE.replace(_BASE_PLACEHOLDER, base).replace(
+        _TOKEN_PLACEHOLDER, token
+    )

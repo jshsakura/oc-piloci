@@ -200,7 +200,7 @@ def install_claude_plugin(
         ├── .claude-plugin/plugin.json
         ├── hooks/hooks.json    ← SessionStart + Stop wired to scripts below
         ├── hooks/hook.py       ← downloaded from /api/hook/script
-        ├── hooks/stop-hook.sh  ← downloaded from /api/hook/stop-script
+        ├── hooks/stop-hook.py  ← downloaded from /api/hook/stop-script (cross-platform)
         └── .mcp.json           ← memory/recall/recommend MCP server
     """
     h = home or Path.home()
@@ -260,7 +260,7 @@ def install_claude_plugin(
                                 {
                                     "type": "command",
                                     "command": (
-                                        "bash ${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh "
+                                        f"{_python_cmd()} ${{CLAUDE_PLUGIN_ROOT}}/hooks/stop-hook.py "
                                         "2>/dev/null || true"
                                     ),
                                 }
@@ -280,12 +280,20 @@ def install_claude_plugin(
     except PermissionError:
         pass
 
-    stop_sh = hooks_dir / "stop-hook.sh"
-    stop_sh.write_bytes(_http_download(base + "/api/hook/stop-script", token=token))
+    stop_hook_py = hooks_dir / "stop-hook.py"
+    stop_hook_py.write_bytes(_http_download(base + "/api/hook/stop-script", token=token))
     try:
-        stop_sh.chmod(0o755)
+        stop_hook_py.chmod(0o755)
     except PermissionError:
         pass
+    # Best-effort cleanup of the legacy bash file from older installs so the
+    # plugin folder stops shipping two parallel Stop hooks.
+    legacy_sh = hooks_dir / "stop-hook.sh"
+    if legacy_sh.exists():
+        try:
+            legacy_sh.unlink()
+        except OSError:
+            pass
 
     # 3. MCP server config — same mcpServers wrapper as project .mcp.json.
     mcp_path = plugin_dir / ".mcp.json"
@@ -366,7 +374,7 @@ def _merge_claude_settings(settings_path: Path) -> None:
     )
     _install_hook(
         "Stop",
-        "bash ~/.config/piloci/stop-hook.sh 2>/dev/null || true",
+        f"{_python_cmd()} ~/.config/piloci/stop-hook.py 2>/dev/null || true",
     )
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -739,7 +747,9 @@ def cleanup_legacy_install(*, home: Path | None = None, remove_plugins: bool = F
                     removed.append(f"{settings_path} (piloci hook 엔트리)")
 
     legacy_dir = h / PILOCI_DIR_NAME
-    for name in ("hook.py", "stop-hook.sh"):
+    # Includes legacy 'stop-hook.sh' from <0.3.34 installs so cleanup leaves
+    # nothing behind regardless of which version originally laid the file down.
+    for name in ("hook.py", "stop-hook.py", "stop-hook.sh"):
         p = legacy_dir / name
         if p.exists():
             p.unlink()

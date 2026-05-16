@@ -136,9 +136,11 @@ async def test_hook_stop_script_route_returns_generic_template() -> None:
         )
     )
     assert response.status_code == 200
-    assert response.media_type == "text/x-shellscript"
+    # v0.3.34: Stop hook is now cross-platform Python instead of bash so the
+    # same endpoint works on Windows. Media type + shebang follow.
+    assert response.media_type == "text/x-python"
     body = response.body.decode()
-    assert body.startswith("#!/usr/bin/env bash")
+    assert body.lstrip().startswith("#!/usr/bin/env python")
     # The template must not embed any token. "Bearer {token}" is the runtime
     # header format so the literal string is fine; what must NOT appear is a
     # concrete credential.

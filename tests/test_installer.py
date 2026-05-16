@@ -167,7 +167,13 @@ def test_run_install_claude_only_drops_plugin(tmp_path: Path) -> None:
     assert (pdir / ".claude-plugin" / "plugin.json").exists()
     assert json.loads((pdir / "hooks" / "hooks.json").read_text())["hooks"]["SessionStart"]
     assert (pdir / "hooks" / "hook.py").read_bytes() == fake_hook
-    assert (pdir / "hooks" / "stop-hook.sh").read_bytes() == fake_stop
+    # Stop hook is now cross-platform Python — file extension changed in v0.3.34.
+    assert (pdir / "hooks" / "stop-hook.py").read_bytes() == fake_stop
+    assert not (pdir / "hooks" / "stop-hook.sh").exists()
+    hooks_json = json.loads((pdir / "hooks" / "hooks.json").read_text())
+    stop_cmd = hooks_json["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert "stop-hook.py" in stop_cmd
+    assert "bash" not in stop_cmd
     mcp = json.loads((pdir / ".mcp.json").read_text())
     assert mcp["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer tok"
     # MCP also registered in ~/.claude/claude.json for global discovery.
