@@ -188,6 +188,22 @@ def cwd_to_slug(cwd: str) -> str:
 
 _HOOK_SCRIPT_PATH = "~/.config/piloci/hook.py"
 
+
+def _hook_python_cmd() -> str:
+    """Pick the Python launcher to embed in hook command strings.
+
+    Mirrors installer._python_cmd — kept as a local copy so this module stays
+    importable without circulating through ``piloci.installer`` (the installer
+    imports tools, not the other way around).
+    """
+    import os as _os
+    import shutil as _shutil
+
+    if _os.name == "nt":
+        return "py" if _shutil.which("py") else "python"
+    return "python3"
+
+
 # Generic script — no token. Reads ~/.config/piloci/config.json at runtime.
 # Install once, update config.json when token rotates.
 HOOK_SCRIPT = '''\
@@ -203,7 +219,6 @@ scanning ~/.claude/projects/ on disk.
 """
 import json
 import os
-import select
 import sys
 import time
 import urllib.error
@@ -233,12 +248,26 @@ def _write(p, data):
 
 
 def _read_stdin():
-    """Non-blocking stdin read: returns parsed JSON or {} if nothing is ready."""
+    """Non-blocking stdin read: returns parsed JSON or {} if nothing is ready.
+
+    Cross-platform: select.select on stdin works on POSIX file descriptors but
+    not on Windows pipes. We test isatty first — interactive shells never have
+    JSON piped in — then drain stdin if data is actually there (Codex CLI path)
+    or skip silently (Claude Code SessionStart, which provides no stdin).
+    """
     try:
-        r, _, _ = select.select([sys.stdin], [], [], 0)
-        if not r:
+        if sys.stdin is None or sys.stdin.isatty():
             return {}
-        raw = sys.stdin.read()
+        if os.name == "nt":
+            # Windows: select can't poll a pipe FD. Read whatever is buffered.
+            raw = sys.stdin.read()
+        else:
+            import select as _select
+
+            r, _, _ = _select.select([sys.stdin], [], [], 0)
+            if not r:
+                return {}
+            raw = sys.stdin.read()
         return json.loads(raw) if raw and raw.strip() else {}
     except Exception:
         return {}
@@ -308,8 +337,11 @@ def main():
             pass
         return
 
-    # Claude Code path: scan ~/.claude/projects/ for session JSONL files
-    project_dir = Path.home() / ".claude" / "projects" / cwd.replace("/", "-")
+    # Claude Code path: scan ~/.claude/projects/ for session JSONL files.
+    # Project directories use the cwd with every path separator replaced by '-'
+    # — strip both '/' and '\\' so Windows paths (C:\\Users\\x\\app) map to
+    # the same '-C-Users-x-app' shape as Linux's '/home/x/app' → '-home-x-app'.
+    project_dir = Path.home() / ".claude" / "projects" / cwd.replace("\\\\", "-").replace("/", "-")
     if not project_dir.is_dir():
         return
 
@@ -386,7 +418,7 @@ def _build_session_start_hook() -> dict[str, Any]:
                     "hooks": [
                         {
                             "type": "command",
-                            "command": f"python3 {_HOOK_SCRIPT_PATH} 2>/dev/null || true",
+                            "command": f"{_hook_python_cmd()} {_HOOK_SCRIPT_PATH} 2>/dev/null || true",
                         }
                     ],
                 }

@@ -55,6 +55,22 @@ def _parse_jsonc(text: str) -> object:
 
 # ---------------------------------------------------------------------------
 
+
+def _python_cmd() -> str:
+    """Return the Python launcher string baked into hook command lines.
+
+    On Windows the canonical entry point is the ``py`` launcher (PEP 397) that
+    ships with the official Python.org installer; fall back to ``python`` for
+    chocolatey/winget builds that omit it. POSIX systems standardize on
+    ``python3``. The result is used inside hook command strings that the host
+    AI client (Claude Code / Codex) shells out to, so it must match what the
+    user has actually installed on this OS.
+    """
+    if os.name == "nt":
+        return "py" if shutil.which("py") else "python"
+    return "python3"
+
+
 PILOCI_DIR_NAME = ".config/piloci"
 CLAUDE_DIR_NAME = ".claude"
 OPENCODE_DIR_NAME = ".config/opencode"
@@ -231,7 +247,7 @@ def install_claude_plugin(
                                 {
                                     "type": "command",
                                     "command": (
-                                        "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/hook.py "
+                                        f"{_python_cmd()} ${{CLAUDE_PLUGIN_ROOT}}/hooks/hook.py "
                                         "2>/dev/null || true"
                                     ),
                                 }
@@ -346,7 +362,7 @@ def _merge_claude_settings(settings_path: Path) -> None:
 
     _install_hook(
         "SessionStart",
-        "python3 ~/.config/piloci/hook.py 2>/dev/null || true",
+        f"{_python_cmd()} ~/.config/piloci/hook.py 2>/dev/null || true",
     )
     _install_hook(
         "Stop",
@@ -658,13 +674,13 @@ def install_codex_mcp(base_url: str, token: str, *, home: Path | None = None) ->
         "[[SessionStart]]\n"
         "[[SessionStart.hooks]]\n"
         'type = "command"\n'
-        f'command = "python3 {hook_py_path} 2>/dev/null || true"\n'
+        f'command = "{_python_cmd()} {hook_py_path} 2>/dev/null || true"\n'
         f'commandWindows = "python {hook_py_path}"\n'
         "\n"
         "[[Stop]]\n"
         "[[Stop.hooks]]\n"
         'type = "command"\n'
-        f'command = "python3 {stop_hook_py_path} 2>/dev/null || true"\n'
+        f'command = "{_python_cmd()} {stop_hook_py_path} 2>/dev/null || true"\n'
         f'commandWindows = "python {stop_hook_py_path}"\n'
         f"{_CODEX_BLOCK_END}\n"
     )
