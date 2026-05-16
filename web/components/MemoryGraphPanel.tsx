@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { ZoomIn, ZoomOut, Maximize2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,13 +33,29 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
 export function MemoryGraphPanel({ nodes, edges, onNodeClick }: MemoryGraphPanelProps) {
   const graphRef = useRef<any>(null);
   const [hovered, setHovered] = useState<GraphNode | null>(null);
+  // Tracks the node id under the cursor so the hover handler can short-circuit
+  // when force-graph fires the same node repeatedly on every mouse move.
+  const hoveredIdRef = useRef<string | null>(null);
 
-  const graphData = {
-    nodes: nodes.map((n) => ({ ...n, val: n.kind === "project" ? 6 : n.kind === "topic" ? 4 : 2 })),
-    links: edges.map((e) => ({ source: e.source, target: e.target, kind: e.kind })),
-  };
+  // react-force-graph-2d treats a new graphData object as "the graph changed"
+  // and reinitializes the d3 physics — keep the reference stable across
+  // unrelated parent re-renders (hover, theme, layout) so the simulation
+  // doesn't restart whenever the user wiggles the mouse.
+  const graphData = useMemo(
+    () => ({
+      nodes: nodes.map((n) => ({
+        ...n,
+        val: n.kind === "project" ? 6 : n.kind === "topic" ? 4 : 2,
+      })),
+      links: edges.map((e) => ({ source: e.source, target: e.target, kind: e.kind })),
+    }),
+    [nodes, edges],
+  );
 
-  const nodeColor = useCallback((node: any) => KIND_COLOR[node.kind as GraphNode["kind"]] ?? "#94a3b8", []);
+  const nodeColor = useCallback(
+    (node: any) => KIND_COLOR[node.kind as GraphNode["kind"]] ?? "#94a3b8",
+    [],
+  );
 
   const nodeLabel = useCallback((node: any) => node.label as string, []);
 
@@ -52,7 +68,14 @@ export function MemoryGraphPanel({ nodes, edges, onNodeClick }: MemoryGraphPanel
     [onNodeClick],
   );
 
+  // onNodeHover fires on every mouse-move while the cursor is over the canvas,
+  // not just on enter/leave. Short-circuit when the node id hasn't changed —
+  // otherwise a single hover triggers a setState per frame and React re-renders
+  // the tooltip + all parent listeners 30+ times per second.
   const handleNodeHover = useCallback((node: any) => {
+    const nextId = (node?.id as string | undefined) ?? null;
+    if (hoveredIdRef.current === nextId) return;
+    hoveredIdRef.current = nextId;
     setHovered(node ? (node as GraphNode) : null);
   }, []);
 

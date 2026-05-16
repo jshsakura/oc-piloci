@@ -41,6 +41,17 @@ function ProjectDetailContent() {
   });
 
   const notes = useMemo(() => data?.workspace.notes ?? [], [data?.workspace.notes]);
+  // Stabilize the graph inputs across unrelated re-renders so MemoryGraphPanel
+  // doesn't see a new graphData reference (and restart the d3 simulation)
+  // every time the parent rerenders for tabs/translations/etc.
+  const graphNodes = useMemo(
+    () => data?.workspace.graph.nodes ?? [],
+    [data?.workspace.graph.nodes],
+  );
+  const graphEdges = useMemo(
+    () => data?.workspace.graph.edges ?? [],
+    [data?.workspace.graph.edges],
+  );
 
   useEffect(() => {
     if (!selectedNoteId && notes.length > 0) {
@@ -150,10 +161,7 @@ function ProjectDetailContent() {
               맥락 지도 불러오는 중…
             </div>
           ) : (
-            <MemoryGraphPanel
-              nodes={data?.workspace.graph.nodes ?? []}
-              edges={data?.workspace.graph.edges ?? []}
-            />
+            <MemoryGraphPanel nodes={graphNodes} edges={graphEdges} />
           )}
         </TabsContent>
       </Tabs>
