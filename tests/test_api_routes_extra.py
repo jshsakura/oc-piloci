@@ -2595,7 +2595,10 @@ async def test_route_analyze_session_persists_to_raw_sessions(
     monkeypatch.setattr(
         routes,
         "get_settings",
-        lambda: SimpleNamespace(distillation_max_pending_backlog=200),
+        lambda: SimpleNamespace(
+            distillation_max_pending_backlog=200,
+            ingest_max_body_bytes=10 * 1024 * 1024,
+        ),
     )
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
     monkeypatch.setattr("piloci.curator.backlog.enforce_ceiling_after_ingest", _no_archive)
@@ -2627,7 +2630,10 @@ async def test_route_analyze_session_filters_trivial_transcript(
     monkeypatch.setattr(
         routes,
         "get_settings",
-        lambda: SimpleNamespace(distillation_max_pending_backlog=200),
+        lambda: SimpleNamespace(
+            distillation_max_pending_backlog=200,
+            ingest_max_body_bytes=10 * 1024 * 1024,
+        ),
     )
     monkeypatch.setattr(routes, "async_session", MagicMock(return_value=_session_cm(db)))
 

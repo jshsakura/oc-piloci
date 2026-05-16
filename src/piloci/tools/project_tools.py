@@ -68,17 +68,24 @@ async def handle_list_projects(
         return []
 
     try:
-        from sqlalchemy import text
+        from sqlalchemy import select
+
+        from piloci.db.models import Project
 
         result = await db_session.execute(
-            text(
-                "SELECT id, slug, name, description, created_at, memory_count, bytes_used"
-                " FROM projects WHERE user_id = :uid ORDER BY created_at DESC"
-            ),
-            {"uid": user_id},
+            select(
+                Project.id,
+                Project.slug,
+                Project.name,
+                Project.description,
+                Project.created_at,
+                Project.memory_count,
+                Project.bytes_used,
+            )
+            .where(Project.user_id == user_id)
+            .order_by(Project.created_at.desc())
         )
-        rows = result.mappings().all()
-        return [dict(row) for row in rows]
+        return [dict(row) for row in result.mappings().all()]
     except Exception:
         logger.exception("handle_list_projects failed (user_id=%s)", user_id)
         return []
@@ -95,34 +102,29 @@ async def handle_create_project(
         return {"error": "database not available"}
 
     try:
-        from sqlalchemy import text
+        from sqlalchemy import select
 
-        # Duplicate slug check
+        from piloci.db.models import Project
+
         existing = await db_session.execute(
-            text("SELECT id FROM projects WHERE user_id = :uid AND slug = :slug"),
-            {"uid": user_id, "slug": args.slug},
+            select(Project.id).where(Project.user_id == user_id, Project.slug == args.slug)
         )
         if existing.first() is not None:
             return {"error": f"slug '{args.slug}' already exists"}
 
         now = datetime.now(tz=timezone.utc)
-        project_id = str(uuid.uuid4())
-        await db_session.execute(
-            text(
-                "INSERT INTO projects (id, user_id, slug, name, description, created_at, updated_at)"
-                " VALUES (:id, :uid, :slug, :name, :desc, :now, :now)"
-            ),
-            {
-                "id": project_id,
-                "uid": user_id,
-                "slug": args.slug,
-                "name": args.name,
-                "desc": args.description,
-                "now": now,
-            },
+        project = Project(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            slug=args.slug,
+            name=args.name,
+            description=args.description,
+            created_at=now,
+            updated_at=now,
         )
+        db_session.add(project)
         await db_session.commit()
-        return {"project_id": project_id, "slug": args.slug, "name": args.name}
+        return {"project_id": project.id, "slug": project.slug, "name": project.name}
     except Exception:
         logger.exception("handle_create_project failed (user_id=%s, slug=%s)", user_id, args.slug)
         return {"error": "failed to create project"}
@@ -142,25 +144,26 @@ async def handle_delete_project(
         return {"deleted": False, "reason": "database not available"}
 
     try:
-        from sqlalchemy import text
+        from sqlalchemy import delete as sql_delete
+        from sqlalchemy import or_, select
 
-        # Match by slug or id, and enforce ownership
+        from piloci.db.models import Project
+
+        # Match by slug or id, and enforce ownership.
         row = await db_session.execute(
-            text(
-                "SELECT id FROM projects" " WHERE user_id = :uid AND (slug = :proj OR id = :proj)"
-            ),
-            {"uid": user_id, "proj": args.project},
+            select(Project.id).where(
+                Project.user_id == user_id,
+                or_(Project.slug == args.project, Project.id == args.project),
+            )
         )
         record = row.first()
         if record is None:
             return {"deleted": False, "reason": "not found"}
 
-        await db_session.execute(
-            text("DELETE FROM projects WHERE id = :id"),
-            {"id": record[0]},
-        )
+        project_id = record[0]
+        await db_session.execute(sql_delete(Project).where(Project.id == project_id))
         await db_session.commit()
-        return {"deleted": True, "project_id": record[0]}
+        return {"deleted": True, "project_id": project_id}
     except Exception:
         logger.exception(
             "handle_delete_project failed (user_id=%s, project=%s)", user_id, args.project

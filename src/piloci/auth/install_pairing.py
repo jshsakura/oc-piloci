@@ -33,8 +33,15 @@ INSTALL_CODE_TTL_SEC = 10 * 60  # 10 minutes
 
 
 def _generate_code() -> str:
-    """Return a URL-safe install code (~64 bits entropy, ~11 chars)."""
-    return secrets.token_urlsafe(8)
+    """Return a URL-safe install code (~128 bits entropy, ~22 chars).
+
+    Raised from 8 bytes (64 bits) to 16 bytes (128 bits) so brute-force is
+    infeasible even without rate-limiting — the code is single-use inside a
+    10-minute TTL, but it doubles as the credential for an authenticated
+    install. /install/{code} also has a per-IP rate limit applied at the
+    route layer to slow online attackers further.
+    """
+    return secrets.token_urlsafe(16)
 
 
 class InstallPairingStore:

@@ -3149,7 +3149,7 @@ async def route_analyze_session(request: Request) -> Response:
     """POST /api/sessions/analyze — extract instincts from a Claude Code session transcript.
 
     Body: {"transcript": "...", "project_id": "optional override"}
-    Called by the piloci-stop-hook.sh script at end of each session.
+    Called by the piloci stop-hook (Python) at end of each session.
     """
     user = _require_user(request)
     if user is None:
@@ -3159,8 +3159,15 @@ async def route_analyze_session(request: Request) -> Response:
     if not isinstance(user_id, str) or not user_id:
         return _json({"error": "user_id required"}, 400)
 
+    settings = get_settings()
+    raw_body = await request.body()
+    # Same cap as /api/sessions/ingest — a single Stop turn shouldn't exceed
+    # the ingest batch limit, and the Pi can't keep up with anything larger.
+    if len(raw_body) > settings.ingest_max_body_bytes * 20:
+        return _json({"error": "payload too large"}, 413)
+
     try:
-        body = orjson.loads(await request.body())
+        body = orjson.loads(raw_body)
     except Exception:
         return _json({"error": "invalid JSON"}, 400)
 
@@ -3547,6 +3554,13 @@ def get_routes() -> list[Route]:
     llm_delete_limited = limiter.limit(RATE_MUTATION)(route_delete_llm_provider)
     ingest_limited = limiter.limit(RATE_INGEST)(route_ingest)
     sessions_ingest_limited = limiter.limit(RATE_INGEST)(route_sessions_ingest)
+    # Stop hook lives in the hot path now that v0.3.34 made it cross-platform —
+    # bound it to the same per-IP budget ingest gets so a misbehaving hook
+    # can't pin the box with retries.
+    sessions_analyze_limited = limiter.limit(RATE_INGEST)(route_analyze_session)
+    # /install/{code} is the credential-exchange route. Cap brute-force
+    # attempts even though codes carry 128 bits of entropy + 10 min TTL.
+    install_limited = limiter.limit(RATE_DEVICE)(route_install)
     chat_limited = limiter.limit(RATE_CHAT)(route_chat)
     admin_approve_limited = limiter.limit(RATE_ADMIN)(route_admin_approve_user)
     admin_reject_limited = limiter.limit(RATE_ADMIN)(route_admin_reject_user)
@@ -3615,13 +3629,13 @@ def get_routes() -> list[Route]:
         Route("/api/memories/{id}", route_update_memory, methods=["PATCH"]),
         Route("/api/memories/{id}", route_delete_memory, methods=["DELETE"]),
         Route("/api/memories/clear", route_clear_memories, methods=["POST"]),
-        Route("/api/sessions/analyze", route_analyze_session, methods=["POST"]),
+        Route("/api/sessions/analyze", sessions_analyze_limited, methods=["POST"]),
         Route("/api/sessions/ingest", sessions_ingest_limited, methods=["POST"]),
         Route("/api/hook/script", route_hook_script, methods=["GET"]),
         Route("/api/hook/stop-script", route_hook_stop_script, methods=["GET"]),
         Route("/api/hook/codex-stop-script", route_hook_codex_stop_script, methods=["GET"]),
         Route("/api/hook/opencode-plugin", route_opencode_plugin, methods=["GET"]),
-        Route("/install/{code}", route_install, methods=["GET"]),
+        Route("/install/{code}", install_limited, methods=["GET"]),
         Route("/auth/device/code", device_code_limited, methods=["POST"]),
         Route("/auth/device/info", route_device_info, methods=["GET"]),
         Route("/auth/device/poll", device_poll_limited, methods=["POST"]),
