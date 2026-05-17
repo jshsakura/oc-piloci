@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from piloci.curator.profile import (
+    _PROFILE_MAX_LINES,
+    _PROFILE_PROMPT_CHAR_BUDGET,
     _normalize_profile_payload,
+    _render_memory_lines,
     _summarize,
     get_profile,
     run_profile_worker,
@@ -51,6 +54,60 @@ def test_normalize_non_list_values():
 def test_normalize_converts_items_to_strings():
     result = _normalize_profile_payload({"static": [123, None, True], "dynamic": []})
     assert result["static"] == ["123", "None", "True"]
+
+
+# ---------------------------------------------------------------------------
+# _render_memory_lines — graceful truncation under Gemma's ctx ceiling
+# ---------------------------------------------------------------------------
+
+
+def test_render_memory_lines_respects_line_cap():
+    """200 short memories: hard cap at _PROFILE_MAX_LINES."""
+    memories = [{"content": f"m{i}", "tags": []} for i in range(200)]
+    out = _render_memory_lines(memories)
+    assert out.count("\n") + 1 == _PROFILE_MAX_LINES
+
+
+def test_render_memory_lines_respects_char_budget():
+    """Each memory is large — char budget should trip before the line cap.
+
+    With 400-char inline clip × N lines we approach the 8000-char budget
+    well before 80 lines, so the returned body stays under budget.
+    """
+    memories = [{"content": "x" * 800, "tags": []} for _ in range(80)]
+    out = _render_memory_lines(memories)
+    assert len(out) <= _PROFILE_PROMPT_CHAR_BUDGET
+    # Each rendered line is "- " + 400 chars (clipped) → 402 chars. 8000/402
+    # ≈ 19. Must produce some lines but well below the 80-line cap.
+    assert 0 < out.count("\n") + 1 < _PROFILE_MAX_LINES
+
+
+def test_render_memory_lines_clips_overlong_single_memory():
+    """One giant memory: clipped inline so a single blob can't blow the budget."""
+    memories = [{"content": "x" * 2000, "tags": []}]
+    out = _render_memory_lines(memories)
+    assert "..." in out
+    # 400-char clip + "- " prefix → ~402 chars total.
+    assert len(out) < 500
+
+
+def test_render_memory_lines_keeps_at_least_one_line_even_if_over_budget():
+    """Edge case: first line itself exceeds budget — keep it (clipped) anyway
+    rather than returning an empty prompt that produces a useless summary."""
+    memories = [{"content": "x" * 50_000, "tags": []}]
+    out = _render_memory_lines(memories)
+    assert out  # non-empty
+    # Inline 400-char clip keeps the budget enforced even on a 50K memory.
+    assert len(out) < 500
+
+
+def test_render_memory_lines_empty_input():
+    assert _render_memory_lines([]) == ""
+
+
+def test_render_memory_lines_includes_tags():
+    out = _render_memory_lines([{"content": "uses argon2", "tags": ["security", "auth"]}])
+    assert "- uses argon2 [security,auth]" in out
 
 
 @pytest.mark.asyncio

@@ -61,21 +61,51 @@ def _normalize_profile_payload(payload: object) -> dict[str, list[str]]:
     return {"static": static, "dynamic": dynamic}
 
 
+# Pi-side Gemma runs with a 4096-token ctx. After the system prompt and the
+# 1500-token output budget we have ~2200 tokens for the rendered memory list.
+# 4 chars/token (Korean+English mixed) → ~8000 chars is the safe ceiling.
+# Going past that surfaces as `400 Bad Request: input is larger than the max
+# context size` from llama-server, which is what the worker hit on users with
+# 150+ accumulated memories.
+_PROFILE_PROMPT_CHAR_BUDGET = 8000
+
+# Even with the char budget, cap line count so an unusually short-memory user
+# doesn't get a 200-line wall of one-word entries that drowns the LLM.
+_PROFILE_MAX_LINES = 80
+
+
+def _render_memory_lines(memories: list[dict[str, object]]) -> str:
+    """Build the prompt body, truncating gracefully on both lines and chars.
+
+    Lines are added in order (caller pre-sorts most-recent-first); whichever
+    of the two budgets trips first wins. Single overlong memories are clipped
+    inline so one long blob can't blow the budget on its own.
+    """
+    rendered: list[str] = []
+    used = 0
+    for m in memories[:_PROFILE_MAX_LINES]:
+        content_raw = m.get("content", "")
+        content = content_raw if isinstance(content_raw, str) else str(content_raw)
+        # 400-char inline clip — preserves the shape (still readable) while
+        # bounding the worst case per line.
+        if len(content) > 400:
+            content = content[:397] + "..."
+        tags_raw = m.get("tags")
+        tags = [str(tag) for tag in tags_raw] if isinstance(tags_raw, list) else []
+        tag_str = f" [{','.join(tags)}]" if tags else ""
+        line = f"- {content}{tag_str}"
+        if used + len(line) + 1 > _PROFILE_PROMPT_CHAR_BUDGET and rendered:
+            break
+        rendered.append(line)
+        used += len(line) + 1
+    return "\n".join(rendered)
+
+
 async def _summarize(memories: list[dict[str, object]], settings: Settings) -> dict[str, list[str]]:
     if not memories:
         return {"static": [], "dynamic": []}
 
-    # Render most recent first, truncate to reasonable size
-    lines = []
-    for m in memories:
-        content_raw = m.get("content", "")
-        content = content_raw if isinstance(content_raw, str) else str(content_raw)
-        tags_raw = m.get("tags")
-        tags = [str(tag) for tag in tags_raw] if isinstance(tags_raw, list) else []
-        tag_str = f" [{','.join(tags)}]" if tags else ""
-        lines.append(f"- {content}{tag_str}")
-    text = "\n".join(lines[:200])  # cap at 200 memories
-
+    text = _render_memory_lines(memories)
     messages = [
         {"role": "system", "content": _PROFILE_SYSTEM},
         {"role": "user", "content": _PROFILE_USER_TEMPLATE.format(memories=text)},
