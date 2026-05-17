@@ -1337,7 +1337,7 @@ wheels = [
 
 [[package]]
 name = "oc-piloci"
-version = "0.3.43"
+version = "0.3.44"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },

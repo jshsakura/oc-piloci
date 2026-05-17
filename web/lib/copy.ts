@@ -879,6 +879,19 @@ const ko = {
         attempt: '시도',
         noProject: '프로젝트 미지정',
         openProject: '프로젝트 열기',
+        errorReasons: {
+          empty_extraction: 'LLM이 추출한 결과가 비어있음 (Gemma 응답 형식 거부)',
+          worker_exception: '워커 처리 중 예외 발생',
+          unknown: '원인 불명',
+        },
+        filterReasons: {
+          backlog_overflow: '백로그가 가득 차서 자동 보관됨',
+          empty: '대화 내용이 비어있음',
+          too_short: '대화가 너무 짧음',
+          no_assistant_content: 'AI 응답이 포함되지 않음',
+          low_diversity: '내용 다양성이 낮음 (반복 위주)',
+          unknown: '필터 휴리스틱에 의해 제외',
+        },
       },
     },
     projects: {
@@ -1946,6 +1959,19 @@ const en: CopyShape = {
         attempt: 'Attempt',
         noProject: 'No project',
         openProject: 'Open project',
+        errorReasons: {
+          empty_extraction: 'LLM returned an empty result (Gemma rejected the response format)',
+          worker_exception: 'Worker crashed while processing',
+          unknown: 'Unknown error',
+        },
+        filterReasons: {
+          backlog_overflow: 'Auto-archived because the backlog was full',
+          empty: 'Empty transcript',
+          too_short: 'Transcript too short',
+          no_assistant_content: 'No AI assistant content',
+          low_diversity: 'Low content diversity (mostly repetitive)',
+          unknown: 'Skipped by filter heuristic',
+        },
       },
     },
     projects: {

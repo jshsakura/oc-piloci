@@ -76,6 +76,24 @@ export function RecentSessionsCard() {
   );
 }
 
+type ReasonMap = Record<string, string>;
+
+function lookupReason(code: string | null | undefined, map: ReasonMap): {
+  text: string;
+  isUnknown: boolean;
+} {
+  if (!code) {
+    return { text: map.unknown ?? "—", isUnknown: true };
+  }
+  const known = map[code];
+  if (known) {
+    return { text: known, isUnknown: false };
+  }
+  // Unknown code path — surface the raw string so devs can still triage,
+  // but flag it so the UI can render the friendly "unknown" prefix.
+  return { text: code, isUnknown: true };
+}
+
 function SessionRow({
   session,
   locale,
@@ -90,6 +108,8 @@ function SessionRow({
     attempt: string;
     noProject: string;
     openProject: string;
+    errorReasons: ReasonMap;
+    filterReasons: ReasonMap;
   };
 }) {
   const stateBadge = renderStateBadge(session.state);
@@ -140,14 +160,33 @@ function SessionRow({
           copy.extractedCounts
             .replace("{memories}", String(session.memories_extracted))
             .replace("{instincts}", String(session.instincts_extracted))}
-        {session.state === "failed" && (
-          <span className="text-destructive">⚠ {session.error || "unknown error"}</span>
-        )}
-        {session.state === "filtered" && (
-          <span className="text-muted-foreground">
-            {session.filter_reason || "filter heuristic"}
-          </span>
-        )}
+        {session.state === "failed" && (() => {
+          const r = lookupReason(session.error, copy.errorReasons);
+          return (
+            <span className="text-destructive">
+              ⚠ {r.text}
+              {r.isUnknown && session.error && (
+                // Raw code kept beside the friendly label so the user can
+                // ping us with something concrete when they hit an
+                // un-translated path.
+                <span className="text-muted-foreground/70 ms-1.5 font-mono text-xs">
+                  ({session.error})
+                </span>
+              )}
+            </span>
+          );
+        })()}
+        {session.state === "filtered" && (() => {
+          const r = lookupReason(session.filter_reason, copy.filterReasons);
+          return (
+            <span className="text-muted-foreground">
+              {r.text}
+              {r.isUnknown && session.filter_reason && (
+                <span className="ms-1.5 font-mono text-xs">({session.filter_reason})</span>
+              )}
+            </span>
+          );
+        })()}
         {session.state === "pending" && (
           <span className="text-muted-foreground">대기 중</span>
         )}
