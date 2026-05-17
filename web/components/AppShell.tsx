@@ -50,9 +50,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
+  // Layout note: switched off the h-screen + main-overflow pattern in
+  // v0.3.43. iOS/Android compute 100vh against the *expanded* viewport
+  // (toolbars hidden), so the footer would sit above the bottom edge and
+  // appear to follow scroll. Using min-h-dvh + body scroll lets the
+  // browser handle the dynamic viewport natively; the header stays put
+  // via `sticky top-0` instead of being trapped in a flex shell.
   return (
-    <div className="bg-background landing-pattern flex h-screen flex-col overflow-hidden">
-      <header className="pi-glass-nav shrink-0 border-b backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+    <div className="bg-background landing-pattern flex min-h-dvh flex-col">
+      <header className="pi-glass-nav sticky top-0 z-30 border-b backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
           <BrandMark />
           <div className="flex shrink-0 items-center gap-1.5">
@@ -119,10 +125,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1">
         <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">{children}</div>
       </main>
-      <footer className="pi-glass-nav shrink-0 border-t [box-shadow:none] backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
+      <footer className="pi-glass-nav border-t [box-shadow:none] backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-11 w-full max-w-7xl items-center justify-between px-4 text-xs text-muted-foreground sm:px-6">
           <p>© piLoci 2026</p>
           <div className="flex items-center gap-4">

@@ -13,7 +13,11 @@ const TabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex h-9 items-center justify-center rounded-lg bg-muted p-1 text-muted-foreground",
+      // bg-muted alone was nearly invisible against the landing-pattern
+      // backdrop on dashboard tabs. Adding bg-card + a border gives the list
+      // a definite edge in both themes; the active trigger still flips to
+      // bg-background via the data-state selector below.
+      "inline-flex h-9 items-center justify-center rounded-lg border bg-card p-1 text-muted-foreground shadow-sm",
       className
     )}
     {...props}
