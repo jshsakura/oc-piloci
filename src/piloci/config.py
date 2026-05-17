@@ -127,6 +127,9 @@ class Settings(BaseSettings):
     telegram_min_duration_sec: int = 300
     telegram_min_memory_ops: int = 3
     telegram_timeout_sec: float = 5.0
+    # Two-way bot (v0.3.39). Off by default so an upgrade doesn't suddenly
+    # open a new outbound long-poll for users who only used outbound alerts.
+    telegram_bot_enabled: bool = False
 
     # Device health monitor — opt-in. Polls Pi 5 vitals + distillation backlog
     # and sends a Telegram alert when sustained breaches occur. Recovery

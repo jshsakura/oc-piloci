@@ -76,6 +76,9 @@ def _settings(**overrides: Any) -> SimpleNamespace:
         "port": 8314,
         "log_level": "INFO",
         "log_format": "text",
+        "telegram_bot_token": None,
+        "telegram_chat_id": None,
+        "telegram_bot_enabled": False,
     }
     defaults.update(overrides)
     return SimpleNamespace(**defaults)

@@ -298,6 +298,12 @@ export interface ProjectWorkspace {
 
 // ----- Lazy distillation pipeline -----
 
+export interface DistillationThroughputWindow {
+  sessions: number;
+  memories: number;
+  instincts: number;
+}
+
 export interface DistillationStatus {
   counts: {
     pending: number;
@@ -309,6 +315,16 @@ export interface DistillationStatus {
   lag: {
     oldest_pending_at: string | null;
     seconds_behind: number | null;
+    // v0.3.39: minutes since the oldest pending row landed — answers
+    // "어제부터 밀려있나?" without log-grepping.
+    sustained_busy_minutes: number | null;
+  };
+  throughput: {
+    last_1h: DistillationThroughputWindow;
+    last_24h: DistillationThroughputWindow;
+    // null when worker is idle (no recent throughput) — the UI shows "—"
+    // instead of "∞ minutes" in that case.
+    eta_drain_minutes: number | null;
   };
   last_distilled_at: string | null;
   processing_path_30d: Record<string, number>;

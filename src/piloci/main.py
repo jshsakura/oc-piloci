@@ -344,6 +344,14 @@ async def _startup(app, store, stop_event, bg_tasks, instincts_store=None) -> No
             )
             logger.info("Weekly digest worker started")
 
+    # Two-way Telegram bot — opt-in (v0.3.39). Independent of curator gates
+    # since it answers status queries even when distillation is paused.
+    if settings.telegram_bot_enabled and settings.telegram_bot_token and settings.telegram_chat_id:
+        from piloci.notify.telegram_bot import run_telegram_bot
+
+        bg_tasks.append(asyncio.create_task(run_telegram_bot(settings, stop_event)))
+        logger.info("Telegram bot (two-way) started")
+
 
 async def _shutdown(store, stop_event, bg_tasks) -> None:
     stop_event.set()

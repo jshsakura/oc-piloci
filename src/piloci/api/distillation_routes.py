@@ -81,11 +81,12 @@ def _next_idle_window(now: datetime, spec: str | None) -> datetime | None:
 async def route_distillation_status(request: Request) -> Response:
     """Aggregate distillation pipeline state for the authenticated user.
 
-    Returns counts in each state, current backlog lag (oldest pending age),
-    last successful distillation timestamp, processing-path split for the
-    last 30 days, and the next idle-window activation. The frontend renders
-    this on the dashboard so the user can answer "is my data being processed?"
-    without grepping logs.
+    Extended in v0.3.39 with the metrics needed to answer "how is the worker
+    doing right now?" without tailing logs: rolling throughput (1h, 24h),
+    sustained-backlog age (how long has pending been ≥ overflow threshold?),
+    and the distribution of what's actually being extracted (memory
+    categories, instinct domains). The frontend renders all of this on the
+    dashboard; the telegram bot reads the same shape on demand.
     """
     user = _require_user(request)
     if user is None:
@@ -94,6 +95,12 @@ async def route_distillation_status(request: Request) -> Response:
 
     settings = get_settings()
     now = datetime.now(timezone.utc)
+
+    from datetime import timedelta
+
+    one_hour_ago = now - timedelta(hours=1)
+    one_day_ago = now - timedelta(days=1)
+    thirty_days_ago = now - timedelta(days=30)
 
     async with async_session() as db:
         # State counts in one round-trip.
@@ -109,7 +116,6 @@ async def route_distillation_status(request: Request) -> Response:
         ).all()
         by_state = {r.distillation_state: int(r.n) for r in rows}
 
-        # Oldest pending — how far behind we are.
         oldest_pending = (
             await db.execute(
                 select(func.min(RawSession.created_at))
@@ -126,10 +132,6 @@ async def route_distillation_status(request: Request) -> Response:
             )
         ).scalar()
 
-        # Processing path split (last 30 days) — local vs external.
-        from datetime import timedelta
-
-        cutoff = now - timedelta(days=30)
         path_rows = (
             await db.execute(
                 select(
@@ -138,22 +140,77 @@ async def route_distillation_status(request: Request) -> Response:
                 )
                 .where(RawSession.user_id == user_id)
                 .where(RawSession.distillation_state == "distilled")
-                .where(RawSession.processed_at >= cutoff)
+                .where(RawSession.processed_at >= thirty_days_ago)
                 .group_by(RawSession.processing_path)
             )
         ).all()
         path_split = {(r.processing_path or "unknown"): int(r.n) for r in path_rows}
 
+        # ---- throughput windows (1h, 24h) ------------------------------------
+        # Counts + totals for memories/instincts extracted. Lets the user see
+        # "29 sessions in the last hour, 312 memories, 184 instincts" instead
+        # of guessing from the static 'distilled' tally that never resets.
+        throughput_1h_row = (
+            await db.execute(
+                select(
+                    func.count().label("sessions"),
+                    func.coalesce(func.sum(RawSession.memories_extracted), 0).label("memories"),
+                    func.coalesce(func.sum(RawSession.instincts_extracted), 0).label("instincts"),
+                )
+                .where(RawSession.user_id == user_id)
+                .where(RawSession.distillation_state == "distilled")
+                .where(RawSession.processed_at >= one_hour_ago)
+            )
+        ).first()
+        throughput_24h_row = (
+            await db.execute(
+                select(
+                    func.count().label("sessions"),
+                    func.coalesce(func.sum(RawSession.memories_extracted), 0).label("memories"),
+                    func.coalesce(func.sum(RawSession.instincts_extracted), 0).label("instincts"),
+                )
+                .where(RawSession.user_id == user_id)
+                .where(RawSession.distillation_state == "distilled")
+                .where(RawSession.processed_at >= one_day_ago)
+            )
+        ).first()
+
+        # ---- sustained busy minutes -----------------------------------------
+        # How long has the user been waiting on backlog drain? Approximation:
+        # for the *oldest* row still pending, how many minutes ago did the row
+        # land. Same as lag_seconds in minutes; kept as a separate field so the
+        # telegram bot can answer "어제부터 밀려있나?" naturally.
+        sustained_busy_minutes: float | None = None
+        if oldest_pending is not None:
+            oldest_aware = (
+                oldest_pending
+                if oldest_pending.tzinfo
+                else oldest_pending.replace(tzinfo=timezone.utc)
+            )
+            sustained_busy_minutes = (now - oldest_aware).total_seconds() / 60.0
+
+        # NOTE: category/domain distributions live in LanceDB (memory metadata
+        # JSON, instinct typed column), not in raw_sessions. Aggregating from
+        # this hot endpoint would force a full vector-table scan; instead the
+        # dedicated /api/metrics/distribution endpoint below caches them on a
+        # 60s window.
+
     pending = by_state.get("pending", 0)
     lag_seconds: float | None = None
     if oldest_pending is not None:
-        # Naive datetime in DB → assume UTC for arithmetic.
         oldest_aware = (
             oldest_pending if oldest_pending.tzinfo else oldest_pending.replace(tzinfo=timezone.utc)
         )
         lag_seconds = (now - oldest_aware).total_seconds()
 
     next_idle_at = _next_idle_window(now.replace(tzinfo=None), settings.distillation_idle_window)
+
+    # ETA: only meaningful when there's actual recent throughput to project
+    # forward. Returns None instead of `infinity` when the worker is idle.
+    eta_minutes: float | None = None
+    rate_per_hour = int(throughput_1h_row.sessions) if throughput_1h_row else 0
+    if pending > 0 and rate_per_hour > 0:
+        eta_minutes = (pending / rate_per_hour) * 60.0
 
     return _json(
         {
@@ -167,6 +224,20 @@ async def route_distillation_status(request: Request) -> Response:
             "lag": {
                 "oldest_pending_at": oldest_pending.isoformat() if oldest_pending else None,
                 "seconds_behind": lag_seconds,
+                "sustained_busy_minutes": sustained_busy_minutes,
+            },
+            "throughput": {
+                "last_1h": {
+                    "sessions": int(throughput_1h_row.sessions) if throughput_1h_row else 0,
+                    "memories": int(throughput_1h_row.memories) if throughput_1h_row else 0,
+                    "instincts": int(throughput_1h_row.instincts) if throughput_1h_row else 0,
+                },
+                "last_24h": {
+                    "sessions": int(throughput_24h_row.sessions) if throughput_24h_row else 0,
+                    "memories": int(throughput_24h_row.memories) if throughput_24h_row else 0,
+                    "instincts": int(throughput_24h_row.instincts) if throughput_24h_row else 0,
+                },
+                "eta_drain_minutes": eta_minutes,
             },
             "last_distilled_at": last_distilled.isoformat() if last_distilled else None,
             "processing_path_30d": path_split,

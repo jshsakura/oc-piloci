@@ -77,8 +77,16 @@ export function DistillationStatusPanel() {
     );
   }
 
-  const { counts, lag, last_distilled_at, processing_path_30d, current, schedule, thresholds } =
-    data;
+  const {
+    counts,
+    lag,
+    throughput,
+    last_distilled_at,
+    processing_path_30d,
+    current,
+    schedule,
+    thresholds,
+  } = data;
 
   const lagHours = lag.seconds_behind ? lag.seconds_behind / 3600 : 0;
   const isHealthy = counts.pending === 0 || lagHours < 1;
@@ -160,6 +168,38 @@ export function DistillationStatusPanel() {
           />
         </div>
 
+        {/* Throughput windows + ETA (v0.3.39 metrics) */}
+        <div className="border-t pt-3">
+          <div className="mb-2 flex items-center justify-between text-xs text-muted-foreground">
+            <span>처리량</span>
+            {lag.sustained_busy_minutes !== null && lag.sustained_busy_minutes >= 60 && (
+              <span className="text-amber-600 dark:text-amber-400">
+                {Math.floor(lag.sustained_busy_minutes / 60)}시간{" "}
+                {Math.round(lag.sustained_busy_minutes % 60)}분째 처리 중
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <ThroughputCell label="최근 1시간" window={throughput.last_1h} />
+            <ThroughputCell label="최근 24시간" window={throughput.last_24h} />
+          </div>
+          {counts.pending > 0 && throughput.eta_drain_minutes !== null && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              현재 속도 기준 백로그{" "}
+              {counts.pending}건 처리에 약{" "}
+              {throughput.eta_drain_minutes >= 60
+                ? `${(throughput.eta_drain_minutes / 60).toFixed(1)}시간`
+                : `${Math.round(throughput.eta_drain_minutes)}분`}{" "}
+              예상
+            </p>
+          )}
+          {counts.pending > 0 && throughput.eta_drain_minutes === null && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              아직 처리 속도를 측정 중입니다. (최근 1시간 처리 0건)
+            </p>
+          )}
+        </div>
+
         {/* Processing path split */}
         {(localCount > 0 || externalCount > 0) && (
           <div className="border-t pt-3">
@@ -214,6 +254,27 @@ export function DistillationStatusPanel() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function ThroughputCell({
+  label,
+  window: w,
+}: {
+  label: string;
+  window: { sessions: number; memories: number; instincts: number };
+}) {
+  return (
+    <div className="bg-muted/30 rounded-md px-2.5 py-2">
+      <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{label}</p>
+      <p className="text-foreground text-base font-semibold tabular-nums">
+        {w.sessions}
+        <span className="text-muted-foreground ms-1 text-xs font-normal">세션</span>
+      </p>
+      <p className="text-muted-foreground text-[11px] tabular-nums">
+        메모리 {w.memories} · 패턴 {w.instincts}
+      </p>
+    </div>
   );
 }
 
