@@ -24,10 +24,16 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 
+// "section" lets the workspace sidebar render just the headline metrics
+// (overview) separately from the longer activity lists. Default "all" keeps
+// the single-block rendering used before the v0.3.42 sidebar split.
+export type SummarySection = "all" | "overview" | "activity";
+
 interface Props {
   totalMemories: number;
   totalKnacks: number;
   projectCount: number;
+  section?: SummarySection;
 }
 
 function StatCard({
@@ -174,7 +180,14 @@ function usePager<T>(items: T[], pageSize: number) {
   };
 }
 
-export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCount }: Props) {
+export function DashboardSummaryPanels({
+  totalMemories,
+  totalKnacks,
+  projectCount,
+  section = "all",
+}: Props) {
+  const showOverview = section === "all" || section === "overview";
+  const showActivity = section === "all" || section === "activity";
   const { t, locale } = useTranslation();
   const summary = t.dashboard.summary;
 
@@ -219,8 +232,8 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
   const sessPager = usePager(sessions, 5);
 
   return (
-    <div className="mt-6 space-y-4">
-      <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
+    <div className={section === "all" ? "mt-6 space-y-4" : "space-y-4"}>
+      {showOverview && <div className="grid grid-cols-3 gap-3 lg:grid-cols-6">
         <StatCard icon={FileText} label={t.dashboard.stats.projects} value={projectCount} />
         <StatCard icon={Brain} label={t.dashboard.stats.totalMemories} value={totalMemories} />
         <StatCard icon={Lightbulb} label={t.dashboard.stats.totalKnacks} value={totalKnacks} />
@@ -243,10 +256,10 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
             )}
           </CardContent>
         </Card>
-      </div>
+      </div>}
 
       {/* Fun stats */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      {showOverview && <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { icon: MessageSquare, label: summary.funStats.today, value: isLoading ? "…" : String(todayCount), color: "text-blue-500", bg: "bg-blue-500/10" },
           { icon: Zap, label: summary.funStats.week, value: isLoading ? "…" : String(weekCount), color: "text-violet-500", bg: "bg-violet-500/10" },
@@ -263,8 +276,9 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
             </div>
           </div>
         ))}
-      </div>
+      </div>}
 
+      {showActivity && <>
       <div className="grid gap-4 lg:grid-cols-2">
         <PanelCard
           icon={Brain}
@@ -440,6 +454,7 @@ export function DashboardSummaryPanels({ totalMemories, totalKnacks, projectCoun
           )}
         </PanelCard>
       </div>
+      </>}
     </div>
   );
 }

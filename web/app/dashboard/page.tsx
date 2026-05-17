@@ -7,6 +7,12 @@ import { FolderKanban, LayoutDashboard, UsersRound } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { DashboardSummaryPanels } from "@/components/DashboardSummaryPanels";
 import { DistillationStatusPanel } from "@/components/DistillationStatusPanel";
+import {
+  DEFAULT_PERSONAL_PANEL,
+  PersonalWorkspaceLayout,
+  isPersonalPanel,
+  type PersonalPanel,
+} from "@/components/PersonalWorkspaceLayout";
 import { ProjectListView } from "@/components/ProjectListView";
 import { RecentSessionsCard } from "@/components/RecentSessionsCard";
 import { TeamMiniPanel } from "@/components/TeamMiniPanel";
@@ -36,6 +42,10 @@ function DashboardContent() {
 
   const viewParam = searchParams.get("view");
   const view: View = isView(viewParam) ? viewParam : DEFAULT_VIEW;
+  const panelParam = searchParams.get("panel");
+  const panel: PersonalPanel = isPersonalPanel(panelParam)
+    ? panelParam
+    : DEFAULT_PERSONAL_PANEL;
 
   const onViewChange = useCallback(
     (next: string) => {
@@ -110,17 +120,41 @@ function DashboardContent() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="personal" className="mt-6 space-y-6">
+        <TabsContent value="personal" className="mt-6">
           {/* The private retrospective belongs to the personal segment only —
-              feedback memories must never surface alongside team material. */}
-          <WeeklyDigestCard />
-          <DashboardSummaryPanels
-            totalMemories={totalMemories}
-            totalKnacks={totalKnacks}
-            projectCount={projectCount}
-          />
-          <DistillationStatusPanel />
-          <RecentSessionsCard />
+              feedback memories must never surface alongside team material.
+              Sidebar splits the (otherwise crowded) personal area into:
+                summary  — weekly retrospective + headline stat cards
+                ops      — distillation pipeline status + recent sessions
+                activity — recent memories / patterns / tags / sessions lists
+          */}
+          <PersonalWorkspaceLayout panel={panel}>
+            {panel === "summary" && (
+              <>
+                <WeeklyDigestCard />
+                <DashboardSummaryPanels
+                  totalMemories={totalMemories}
+                  totalKnacks={totalKnacks}
+                  projectCount={projectCount}
+                  section="overview"
+                />
+              </>
+            )}
+            {panel === "ops" && (
+              <>
+                <DistillationStatusPanel />
+                <RecentSessionsCard />
+              </>
+            )}
+            {panel === "activity" && (
+              <DashboardSummaryPanels
+                totalMemories={totalMemories}
+                totalKnacks={totalKnacks}
+                projectCount={projectCount}
+                section="activity"
+              />
+            )}
+          </PersonalWorkspaceLayout>
         </TabsContent>
 
         <TabsContent value="team" className="mt-6">

@@ -854,6 +854,11 @@ const ko = {
         team: '팀',
         projects: '프로젝트별',
       },
+      personalPanels: {
+        summary: '요약',
+        ops: '운영',
+        activity: '활동',
+      },
       teamMini: {
         empty: '아직 팀이 없습니다.',
         selectPlaceholder: '팀 선택',
@@ -1915,6 +1920,11 @@ const en: CopyShape = {
         personal: 'Personal',
         team: 'Team',
         projects: 'By project',
+      },
+      personalPanels: {
+        summary: 'Summary',
+        ops: 'Pipeline',
+        activity: 'Activity',
       },
       teamMini: {
         empty: 'No teams yet.',
