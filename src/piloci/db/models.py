@@ -4,6 +4,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -325,6 +326,36 @@ class UserPreferences(Base):
     # locks itself out. NULL = no cap.
     external_budget_monthly_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class WeeklyDigest(Base):
+    """Private weekly retrospective per user.
+
+    Generated once per completed week by the lazy digest worker. Aggregates the
+    user's raw_session activity together with the *private* signals that the
+    MCP recall surface intentionally hides — feedback memories and reaction
+    instincts. This is the surface where "이번주에 얼마나 힘들었고 뭔 작업이었는지"
+    lives: never exposed to team workspaces, never returned by recall, only
+    rendered for the owner on their dashboard.
+    """
+
+    __tablename__ = "weekly_digests"
+
+    digest_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    # Monday (UTC) of the week the digest covers — Mon..Sun inclusive.
+    week_start: Mapped[datetime] = mapped_column(Date, nullable=False)
+    summary_text: Mapped[str] = mapped_column(Text, nullable=False)
+    # JSON: { sessions, feedback_count, reaction_count, top_projects, ... }
+    stats_json: Mapped[str] = mapped_column(Text, nullable=False)
+    generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "week_start", name="uq_weekly_digest_user_week"),
+        Index("idx_weekly_digests_user_week", "user_id", "week_start"),
+    )
 
 
 class ExternalLLMUsage(Base):

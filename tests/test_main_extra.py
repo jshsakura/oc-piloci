@@ -320,6 +320,14 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     ):
         await stop_event.wait()
 
+    async def weekly_digest_worker(
+        received_settings: object,
+        received_store: object,
+        received_instincts: object,
+        stop_event: asyncio.Event,
+    ):
+        await stop_event.wait()
+
     def fake_create_task(coro: Coroutine[Any, Any, Any]) -> str:
         nonlocal created_task_count
         created_task_count += 1
@@ -332,6 +340,8 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     profile_module.run_profile_worker = profile_worker
     distillation_module = types.ModuleType("piloci.curator.distillation_worker")
     distillation_module.run_distillation_worker = distillation_worker
+    weekly_module = types.ModuleType("piloci.curator.weekly_digest_worker")
+    weekly_module.run_weekly_digest_worker = weekly_digest_worker
 
     monkeypatch.setattr("piloci.main.get_settings", lambda: settings)
     monkeypatch.setattr("piloci.main.init_db", init_db_mock)
@@ -341,6 +351,7 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
         patch_ctx.setitem(sys.modules, "piloci.ops.maintenance", maintenance_module)
         patch_ctx.setitem(sys.modules, "piloci.curator.profile", profile_module)
         patch_ctx.setitem(sys.modules, "piloci.curator.distillation_worker", distillation_module)
+        patch_ctx.setitem(sys.modules, "piloci.curator.weekly_digest_worker", weekly_module)
 
         stop_event = asyncio.Event()
         bg_tasks: list[object] = []
@@ -350,9 +361,10 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     init_db_mock.assert_awaited_once()
     store.ensure_collection.assert_awaited_once()
     instincts_store.ensure_collection.assert_awaited_once()
-    # maintenance + distillation + profile = 3 tasks (health monitor off by default)
-    assert created_task_count == 3
-    assert bg_tasks == ["task-1", "task-2", "task-3"]
+    # maintenance + distillation + profile + weekly_digest = 4 tasks
+    # (health monitor off by default)
+    assert created_task_count == 4
+    assert bg_tasks == ["task-1", "task-2", "task-3", "task-4"]
 
 
 @pytest.mark.asyncio

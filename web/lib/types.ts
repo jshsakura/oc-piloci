@@ -357,3 +357,25 @@ export interface BudgetUsage {
     cost_usd: number;
   }>;
 }
+
+// Private weekly retrospective. Server scopes the row to the caller — the
+// client never sends a user_id and never sees another user's digest.
+export interface WeeklyDigestStats {
+  sessions: number;
+  feedback_count: number;
+  reaction_count: number;
+  top_projects: Array<{ name: string; sessions: number }>;
+}
+
+export interface WeeklyDigest {
+  digest_id: string;
+  week_start: string; // YYYY-MM-DD (Monday)
+  summary: string;
+  stats: WeeklyDigestStats;
+  generated_at: string;
+}
+
+export interface WeeklyDigestResponse {
+  digest: WeeklyDigest | null;
+  note?: string;
+}

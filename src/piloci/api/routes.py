@@ -3688,5 +3688,16 @@ def get_routes() -> list[Route]:
             distillation_routes.route_patch_preferences,
             methods=["PATCH"],
         ),
+        # Weekly digest — private retrospective surface (Phase B of v0.3.37)
+        Route(
+            "/api/digests/weekly",
+            distillation_routes.route_weekly_digest_get,
+            methods=["GET"],
+        ),
+        Route(
+            "/api/digests/weekly/regenerate",
+            distillation_routes.route_weekly_digest_regenerate,
+            methods=["POST"],
+        ),
         *TEAM_ROUTES,
     ]

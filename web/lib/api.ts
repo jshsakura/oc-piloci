@@ -386,4 +386,16 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(body),
     }),
+
+  // Weekly digest — private retrospective. Server filters by caller id; we
+  // never pass a user_id from the client.
+  getWeeklyDigest: (week?: string) =>
+    request<import("./types").WeeklyDigestResponse>(
+      `/api/digests/weekly${week ? `?week=${encodeURIComponent(week)}` : ""}`,
+    ),
+  regenerateWeeklyDigest: (week?: string) =>
+    request<import("./types").WeeklyDigestResponse>(
+      `/api/digests/weekly/regenerate${week ? `?week=${encodeURIComponent(week)}` : ""}`,
+      { method: "POST" },
+    ),
 };

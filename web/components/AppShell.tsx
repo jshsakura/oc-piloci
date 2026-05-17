@@ -4,13 +4,11 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ClipboardList,
-  FolderKanban,
   LayoutDashboard,
   LogOut,
   MessageSquareText,
   Settings,
   ShieldCheck,
-  UsersRound,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -34,10 +32,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { user, logout } = useAuthStore();
   const { t } = useTranslation();
 
+  // Workspace consolidation: /dashboard absorbs the projects/teams entry points
+  // via inline segments. The deep-link routes (/projects, /teams) still resolve,
+  // but the top nav stays compact — especially important on mobile where the
+  // four-icon row was crowding the brand mark.
   const navItems: { href: string; label: string; icon: typeof LayoutDashboard }[] = [
-    { href: "/dashboard", label: t.appShell.nav.dashboard, icon: LayoutDashboard },
-    { href: "/projects", label: t.appShell.nav.projects, icon: FolderKanban },
-    { href: "/teams", label: t.appShell.nav.teams, icon: UsersRound },
+    { href: "/dashboard", label: t.appShell.nav.workspace, icon: LayoutDashboard },
     { href: "/chat", label: t.appShell.nav.chat, icon: MessageSquareText },
   ];
 

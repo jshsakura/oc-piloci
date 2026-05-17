@@ -331,6 +331,19 @@ async def _startup(app, store, stop_event, bg_tasks, instincts_store=None) -> No
         bg_tasks.append(asyncio.create_task(run_profile_worker(settings, store, stop_event)))
         logger.info("Profile worker started")
 
+        # Weekly digest — private retrospective. Heartbeats hourly but the
+        # body is a no-op outside the regeneration window, so it costs almost
+        # nothing on quiet weeks.
+        if instincts_store is not None:
+            from piloci.curator.weekly_digest_worker import run_weekly_digest_worker
+
+            bg_tasks.append(
+                asyncio.create_task(
+                    run_weekly_digest_worker(settings, store, instincts_store, stop_event)
+                )
+            )
+            logger.info("Weekly digest worker started")
+
 
 async def _shutdown(store, stop_event, bg_tasks) -> None:
     stop_event.set()

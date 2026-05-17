@@ -14,7 +14,7 @@ needs to trust the lazy model (count, lag, classification, freshness)
 plus the local/external split when overflow has been routed.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any
 
 import orjson
@@ -24,13 +24,14 @@ from starlette.responses import JSONResponse, Response
 
 from piloci.config import get_settings
 from piloci.curator import distillation_worker as _worker_mod
+from piloci.curator import weekly_digest_worker as _digest_mod
 from piloci.curator.budget import month_total_usd, remaining_budget_usd
 from piloci.curator.scheduler import (
     parse_idle_window,
     read_cpu_temp_celsius,
     read_load_average_1min,
 )
-from piloci.db.models import ExternalLLMUsage, RawSession, UserPreferences
+from piloci.db.models import ExternalLLMUsage, RawSession, UserPreferences, WeeklyDigest
 from piloci.db.session import async_session
 
 
@@ -451,3 +452,123 @@ async def route_patch_preferences(request: Request) -> Response:
         await db.refresh(prefs)
 
     return _json(_serialize_prefs(prefs))
+
+
+# ---------------------------------------------------------------------------
+# GET / POST /api/digests/weekly — private weekly retrospective
+# ---------------------------------------------------------------------------
+
+
+def _parse_week_query(raw: str | None) -> date | None:
+    """Parse ``?week=YYYY-MM-DD`` → Monday of the requested week.
+
+    Any weekday snaps to that week's Monday so the caller can pass a casual
+    date without knowing the convention.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = date.fromisoformat(raw)
+    except ValueError:
+        return None
+    from datetime import timedelta
+
+    return parsed - timedelta(days=parsed.weekday())
+
+
+def _serialize_digest(row: WeeklyDigest) -> dict[str, Any]:
+    try:
+        stats = orjson.loads(row.stats_json)
+    except (orjson.JSONDecodeError, ValueError):
+        stats = {}
+    return {
+        "digest_id": row.digest_id,
+        "week_start": row.week_start.isoformat(),
+        "summary": row.summary_text,
+        "stats": stats,
+        "generated_at": row.generated_at.isoformat(),
+    }
+
+
+async def route_weekly_digest_get(request: Request) -> Response:
+    """Return the requested user's weekly digest.
+
+    With ``?week=YYYY-MM-DD`` returns that week's row (404 if absent).
+    Without it, returns the most recent existing digest. The handler is
+    strictly user-scoped — never serves another user's row even if asked.
+    """
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "unauthorized"}, 401)
+    user_id = _uid(user)
+
+    week_arg = request.query_params.get("week")
+    requested_week = _parse_week_query(week_arg) if week_arg else None
+    if week_arg and requested_week is None:
+        return _json({"error": "week must be YYYY-MM-DD"}, 400)
+
+    async with async_session() as db:
+        stmt = select(WeeklyDigest).where(WeeklyDigest.user_id == user_id)
+        if requested_week is not None:
+            stmt = stmt.where(WeeklyDigest.week_start == requested_week)
+        stmt = stmt.order_by(WeeklyDigest.week_start.desc()).limit(1)
+        row = (await db.execute(stmt)).scalar_one_or_none()
+
+    if row is None:
+        return _json({"digest": None}, 404 if requested_week is not None else 200)
+    return _json({"digest": _serialize_digest(row)})
+
+
+async def route_weekly_digest_regenerate(request: Request) -> Response:
+    """Force-regenerate the previous completed week's digest for the caller.
+
+    Heavy: runs the Gemma round-trip inline. Should be rate-limited at the
+    routes table. Returns 202 with the freshly-written body on success.
+    """
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "unauthorized"}, 401)
+    user_id = _uid(user)
+
+    week_arg = request.query_params.get("week")
+    requested_week = _parse_week_query(week_arg) if week_arg else None
+    if week_arg and requested_week is None:
+        return _json({"error": "week must be YYYY-MM-DD"}, 400)
+    target_week = requested_week or _digest_mod.previous_week_start(
+        datetime.now(timezone.utc).date()
+    )
+
+    settings = get_settings()
+    memory_store = request.app.state.store
+    instincts_store = request.app.state.instincts_store
+    if memory_store is None or instincts_store is None:
+        return _json({"error": "stores unavailable"}, 503)
+    try:
+        wrote = await _digest_mod.generate_for_user(
+            user_id,
+            target_week,
+            settings,
+            memory_store,
+            instincts_store,
+            force=True,
+        )
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("weekly digest regenerate failed")
+        return _json({"error": "regenerate failed"}, 500)
+
+    if not wrote:
+        return _json({"digest": None, "note": "no activity that week"}, 200)
+
+    async with async_session() as db:
+        row = (
+            await db.execute(
+                select(WeeklyDigest)
+                .where(WeeklyDigest.user_id == user_id)
+                .where(WeeklyDigest.week_start == target_week)
+            )
+        ).scalar_one_or_none()
+    if row is None:
+        return _json({"error": "digest missing after write"}, 500)
+    return _json({"digest": _serialize_digest(row)}, 202)
