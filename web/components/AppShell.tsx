@@ -1,16 +1,15 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ClipboardList,
-  LayoutDashboard,
   LogOut,
-  MessageSquareText,
+  Menu,
   Settings,
   ShieldCheck,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,24 +21,16 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import BrandMark from "@/components/BrandMark";
 import ThemeToggle from "@/components/ThemeToggle";
 import LocaleToggle from "@/components/LocaleToggle";
+import { DesktopSidebar, MobileSidebarDrawer } from "@/components/SidebarNav";
 import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuthStore();
   const { t } = useTranslation();
-
-  // Workspace consolidation: /dashboard absorbs the projects/teams entry points
-  // via inline segments. The deep-link routes (/projects, /teams) still resolve,
-  // but the top nav stays compact — especially important on mobile where the
-  // four-icon row was crowding the brand mark.
-  const navItems: { href: string; label: string; icon: typeof LayoutDashboard }[] = [
-    { href: "/dashboard", label: t.appShell.nav.workspace, icon: LayoutDashboard },
-    { href: "/chat", label: t.appShell.nav.chat, icon: MessageSquareText },
-  ];
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
@@ -50,32 +41,28 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
   };
 
-  // Layout note: switched off the h-screen + main-overflow pattern in
-  // v0.3.43. iOS/Android compute 100vh against the *expanded* viewport
-  // (toolbars hidden), so the footer would sit above the bottom edge and
-  // appear to follow scroll. Using min-h-dvh + body scroll lets the
-  // browser handle the dynamic viewport natively; the header stays put
-  // via `sticky top-0` instead of being trapped in a flex shell.
+  // v0.3.46 IA: flat left sidebar (desktop) + hamburger drawer (mobile).
+  // The top bar shrinks to brand + utility actions; every destination
+  // surfaces inside the sidebar so the user can scan the entire app at
+  // a glance instead of pivoting through workspace > segment > panel.
+  // Sidebar components are wrapped in Suspense because they read
+  // useSearchParams (App Router requirement under static export).
   return (
     <div className="bg-background landing-pattern flex min-h-dvh flex-col">
       <header className="pi-glass-nav sticky top-0 z-30 border-b backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-16 w-full max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
-          <BrandMark />
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-3 sm:h-16 sm:px-6">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              aria-label={t.appShell.sidebar.menuLabel}
+              onClick={() => setMobileOpen(true)}
+              className="hover:bg-muted -ms-1 rounded-md p-2 md:hidden"
+            >
+              <Menu className="size-5" />
+            </button>
+            <BrandMark />
+          </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <nav className="flex items-center gap-1">
-              {navItems.map(({ href, label, icon: Icon }) => {
-                const active = pathname.startsWith(href);
-                return (
-                  <Link key={href} href={href}>
-                    <Button variant={active ? "secondary" : "ghost"} size="sm" className="gap-1.5 text-sm">
-                      <Icon className="size-4" />
-                      <span className="hidden sm:inline">{label}</span>
-                    </Button>
-                  </Link>
-                );
-              })}
-            </nav>
-            <span className="mx-1 hidden h-5 w-px bg-border sm:inline-block" />
             <LocaleToggle />
             <ThemeToggle />
             <DropdownMenu>
@@ -85,12 +72,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   className="ms-1 flex size-9 cursor-pointer items-center justify-center rounded-full border bg-background/60 transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <Avatar className="size-8">
-                    <AvatarFallback className="text-xs">{user?.email?.charAt(0).toUpperCase() ?? "U"}</AvatarFallback>
+                    <AvatarFallback className="text-xs">
+                      {user?.email?.charAt(0).toUpperCase() ?? "U"}
+                    </AvatarFallback>
                   </Avatar>
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <div className="px-2 py-1.5 text-sm text-muted-foreground select-none">{user?.email}</div>
+                <div className="px-2 py-1.5 text-sm text-muted-foreground select-none">
+                  {user?.email}
+                </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link href="/settings">
@@ -125,9 +116,19 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="flex-1">
-        <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:py-8">{children}</div>
-      </main>
+
+      <div className="flex flex-1">
+        <Suspense fallback={null}>
+          <DesktopSidebar />
+        </Suspense>
+        <Suspense fallback={null}>
+          <MobileSidebarDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
+        </Suspense>
+        <main className="min-w-0 flex-1">
+          <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-8">{children}</div>
+        </main>
+      </div>
+
       <footer className="pi-glass-nav border-t [box-shadow:none] backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
         <div className="mx-auto flex h-11 w-full max-w-7xl items-center justify-between px-4 text-xs text-muted-foreground sm:px-6">
           <p>© piLoci 2026</p>
