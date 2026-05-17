@@ -144,7 +144,7 @@ export function DistillationStatusPanel() {
           />
           <CountCell
             icon={<CheckCircle2 className="size-4" />}
-            label="증류됨"
+            label="정리됨"
             value={counts.distilled}
             tone="ok"
           />
@@ -235,7 +235,7 @@ export function DistillationStatusPanel() {
           </div>
           <div className="flex items-center gap-1">
             <Clock className="size-3" />
-            마지막 증류{" "}
+            마지막 정리{" "}
             {last_distilled_at
               ? new Date(last_distilled_at).toLocaleString("ko-KR", {
                   hour: "2-digit",

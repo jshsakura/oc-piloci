@@ -172,7 +172,7 @@ async def _handle_status(settings: Settings) -> str:
     pause_note = " (수동 일시정지 중)" if _paused_runtime else ""
     lines = [
         f"🧠 piLoci 상태{pause_note}",
-        f"대기 {pending} · 증류됨 {counts.get('distilled', 0)} · "
+        f"대기 {pending} · 정리됨 {counts.get('distilled', 0)} · "
         f"실패 {counts.get('failed', 0)} · 필터 {counts.get('filtered', 0)}",
         f"가장 오래된 대기: {_fmt_minutes(sustained)}째",
         f"최근 1시간: 세션 {rate_per_hour} · 메모리 "

@@ -16,7 +16,7 @@ import { Label } from "@/components/ui/label";
  * PATCH /api/preferences guards so we surface errors instantly without a
  * round-trip.
  *
- * Lives in the settings page under its own "증류" tab so it's discoverable
+ * Lives in the settings page under its own distillation tab so it's discoverable
  * without crowding the existing account/security controls.
  */
 export function DistillationSettingsPanel() {
@@ -136,7 +136,7 @@ export function DistillationSettingsPanel() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">증류 설정</CardTitle>
+          <CardTitle className="text-base">정리 설정</CardTitle>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">로딩 중…</CardContent>
       </Card>
@@ -146,7 +146,7 @@ export function DistillationSettingsPanel() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">증류 설정</CardTitle>
+        <CardTitle className="text-base">정리 설정</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-muted-foreground">

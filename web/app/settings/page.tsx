@@ -261,7 +261,7 @@ export default function SettingsPage() {
           <TabsTrigger value="security" className="flex-1">{t.settings.tabs.security}</TabsTrigger>
           <TabsTrigger value="tokens" className="flex-1">{t.settings.tabs.tokens}</TabsTrigger>
           <TabsTrigger value="llm" className="flex-1">{t.settings.tabs.llm}</TabsTrigger>
-          <TabsTrigger value="distillation" className="flex-1">증류</TabsTrigger>
+          <TabsTrigger value="distillation" className="flex-1">{t.settings.tabs.distillation}</TabsTrigger>
           <TabsTrigger value="data" className="flex-1">{t.settings.tabs.data}</TabsTrigger>
           <TabsTrigger value="audit" className="flex-1">{t.settings.tabs.audit}</TabsTrigger>
         </TabsList>

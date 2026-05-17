@@ -238,7 +238,7 @@ const ko = {
         },
         curation: {
           title: '대화가 끝나면 핵심이 정리되어 있습니다',
-          eyebrow: '자동 증류와 분류',
+          eyebrow: '자동 정리와 분류',
           paragraphs: [
             'piLoci는 사용자가 저장 버튼을 누르길 기다리는 메모장이 아닙니다. 로컬 LLM이 대화 원문을 읽고 결정·제약·취향·작업 흔적을 추출합니다.',
             '겹치는 내용은 합치고, 프로젝트 단위로 태그와 노트로 묶어 정리합니다. 나중에 필요할 때 바로 꺼낼 수 있게 해둡니다.',
@@ -360,7 +360,7 @@ const ko = {
           content: '',
           items: [
             'piLoci는 AI 대화 맥락을 프로젝트 단위로 저장·검색·관리하는 자가호스팅 메모리 서비스입니다.',
-            '핵심 기능: 대화 증류(자동 핵심 추출), 시맨틱 검색, 프로젝트 격리 메모리, MCP 도구 인터페이스.',
+            '핵심 기능: 대화 정리(자동 핵심 추출), 시맨틱 검색, 프로젝트 격리 메모리, MCP 도구 인터페이스.',
             '서비스 내용은 기능 개선을 위해 변경될 수 있으며, 주요 변경 시 사전 공지합니다.',
           ],
         },
@@ -396,7 +396,7 @@ const ko = {
           content: '',
           items: [
             '자가호스팅(Self-hosted) 서비스로서, 시스템 운영 및 데이터 백업의 책임은 배포자에게 있습니다.',
-            'AI가 생성하는 증류 결과의 정확성에 대해 보장하지 않습니다.',
+            'AI가 정리한 결과의 정확성에 대해 보장하지 않습니다.',
             '불가항력적 사유로 인한 서비스 중단에 대해서는 책임을 지지 않습니다.',
           ],
         },
@@ -572,7 +572,7 @@ const ko = {
       eyebrow: '컨트롤 센터',
       title: '설정',
       description: '계정 및 보안 설정을 관리합니다',
-      tabs: { account: '계정', security: '보안', tokens: '토큰', llm: 'LLM', data: '데이터', audit: '활동', mcp: 'MCP' },
+      tabs: { account: '계정', security: '보안', tokens: '토큰', llm: 'LLM', data: '데이터', audit: '활동', mcp: 'MCP', distillation: '정리' },
       pending: {
         loadingTitle: '설정 불러오는 중',
         loadingDesc: '세션이 복원되면 계정 및 보안 설정을 이어서 표시합니다.',
@@ -1620,7 +1620,7 @@ const en: CopyShape = {
       eyebrow: 'Control center',
       title: 'Settings',
       description: 'Manage account and security settings',
-      tabs: { account: 'Account', security: 'Security', tokens: 'Tokens', llm: 'LLM', data: 'Data', audit: 'Audit', mcp: 'MCP' },
+      tabs: { account: 'Account', security: 'Security', tokens: 'Tokens', llm: 'LLM', data: 'Data', audit: 'Audit', mcp: 'MCP', distillation: 'Pipeline' },
       pending: {
         loadingTitle: 'Loading settings',
         loadingDesc: 'Account and security settings will appear once your session is restored.',

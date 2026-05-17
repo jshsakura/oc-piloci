@@ -422,7 +422,7 @@ async def _build_heartbeat_message(settings: Settings, now: datetime) -> str:
     return (
         f"📊 piLoci 상태 ({settings.health_periodic_report_interval_min}분 주기)\n"
         f"🌡 SoC {temp_str}  ⚙️ load {load_str}  💾 swap {swap_str}\n"
-        f"📦 증류: {delta_str} (총 {distilled})\n"
+        f"📦 정리: {delta_str} (총 {distilled})\n"
         f"⏳ 대기 {pending}건"
         + (f"  ⚠️ 실패 {failed}" if failed > 0 else "")
         + f"\n🕒 마지막 처리: {last_str}"
