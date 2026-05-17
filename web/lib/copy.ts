@@ -880,7 +880,7 @@ const ko = {
         noProject: '프로젝트 미지정',
         openProject: '프로젝트 열기',
         errorReasons: {
-          empty_extraction: 'LLM이 추출한 결과가 비어있음 (Gemma 응답 형식 거부)',
+          empty_extraction: 'LLM이 빈 결과를 반환했습니다 (응답 형식 거부 또는 추출할 내용 없음)',
           worker_exception: '워커 처리 중 예외 발생',
           unknown: '원인 불명',
         },
@@ -1960,7 +1960,7 @@ const en: CopyShape = {
         noProject: 'No project',
         openProject: 'Open project',
         errorReasons: {
-          empty_extraction: 'LLM returned an empty result (Gemma rejected the response format)',
+          empty_extraction: 'LLM returned an empty result (response rejected or nothing to extract)',
           worker_exception: 'Worker crashed while processing',
           unknown: 'Unknown error',
         },
