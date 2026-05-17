@@ -643,3 +643,101 @@ async def route_weekly_digest_regenerate(request: Request) -> Response:
     if row is None:
         return _json({"error": "digest missing after write"}, 500)
     return _json({"digest": _serialize_digest(row)}, 202)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/raw-sessions — recent session inspector
+# ---------------------------------------------------------------------------
+
+
+_VALID_STATES = frozenset({"pending", "distilled", "filtered", "failed", "archived"})
+_DEFAULT_LIMIT = 20
+_MAX_LIMIT = 100
+
+
+def _serialize_session_row(row: RawSession, project_name: str | None) -> dict[str, Any]:
+    """Compact list-shape row. Excludes transcript_json (huge) — fetched via
+    /api/raw-sessions/{id} when the user clicks in."""
+    return {
+        "ingest_id": row.ingest_id,
+        "project_id": row.project_id,
+        "project_name": project_name,
+        "client": row.client,
+        "state": row.distillation_state,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "processed_at": row.processed_at.isoformat() if row.processed_at else None,
+        "memories_extracted": int(row.memories_extracted or 0),
+        "instincts_extracted": int(row.instincts_extracted or 0),
+        "processing_path": row.processing_path,
+        "attempt_count": int(row.attempt_count or 0),
+        "error": row.error,
+        "filter_reason": row.filter_reason,
+    }
+
+
+async def route_raw_sessions_list(request: Request) -> Response:
+    """Recent raw sessions filtered by ``?state=`` for the dashboard inspector.
+
+    Defaults to all states (excluding pending which the existing backlog card
+    already covers). Hard cap at 100 rows so a misbehaving client can't dump
+    the whole history. Project name is joined in so the UI doesn't need a
+    second round-trip.
+    """
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "unauthorized"}, 401)
+    user_id = _uid(user)
+
+    state_raw = request.query_params.get("state")
+    state: str | None = None
+    if state_raw:
+        if state_raw not in _VALID_STATES:
+            return _json(
+                {"error": f"state must be one of {sorted(_VALID_STATES)}"},
+                400,
+            )
+        state = state_raw
+
+    limit_raw = request.query_params.get("limit")
+    try:
+        limit = int(limit_raw) if limit_raw else _DEFAULT_LIMIT
+    except ValueError:
+        return _json({"error": "limit must be an integer"}, 400)
+    limit = max(1, min(limit, _MAX_LIMIT))
+
+    from piloci.db.models import Project
+
+    async with async_session() as db:
+        stmt = (
+            select(RawSession)
+            .where(RawSession.user_id == user_id)
+            .order_by(
+                # processed_at when known (terminal states), else created_at
+                # — descending so the latest activity surfaces first.
+                func.coalesce(RawSession.processed_at, RawSession.created_at).desc()
+            )
+            .limit(limit)
+        )
+        if state is not None:
+            stmt = stmt.where(RawSession.distillation_state == state)
+        rows = list((await db.execute(stmt)).scalars().all())
+
+        # One-shot project name join.
+        project_ids = {r.project_id for r in rows if r.project_id}
+        name_by_id: dict[str, str] = {}
+        if project_ids:
+            name_rows = (
+                await db.execute(
+                    select(Project.id, Project.name).where(Project.id.in_(project_ids))
+                )
+            ).all()
+            name_by_id = {r[0]: r[1] for r in name_rows}
+
+    return _json(
+        {
+            "state": state or "any",
+            "sessions": [
+                _serialize_session_row(r, name_by_id.get(r.project_id or "")) for r in rows
+            ],
+        }
+    )

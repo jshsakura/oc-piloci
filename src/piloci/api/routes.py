@@ -3688,6 +3688,12 @@ def get_routes() -> list[Route]:
             distillation_routes.route_patch_preferences,
             methods=["PATCH"],
         ),
+        # Recent raw-sessions inspector (v0.3.41)
+        Route(
+            "/api/raw-sessions",
+            distillation_routes.route_raw_sessions_list,
+            methods=["GET"],
+        ),
         # Weekly digest — private retrospective surface (Phase B of v0.3.37)
         Route(
             "/api/digests/weekly",

@@ -387,6 +387,18 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  // Recent raw sessions inspector (v0.3.41). `state` filters; omitting
+  // returns the latest 20 across all states.
+  listRawSessions: (state?: string, limit?: number) => {
+    const qs = new URLSearchParams();
+    if (state) qs.set("state", state);
+    if (limit) qs.set("limit", String(limit));
+    const tail = qs.toString();
+    return request<import("./types").RawSessionsListResponse>(
+      `/api/raw-sessions${tail ? `?${tail}` : ""}`,
+    );
+  },
+
   // Weekly digest — private retrospective. Server filters by caller id; we
   // never pass a user_id from the client.
   getWeeklyDigest: (week?: string) =>

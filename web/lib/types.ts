@@ -345,6 +345,29 @@ export interface DistillationStatus {
   enabled: boolean;
 }
 
+// Raw session inspector row (v0.3.41). Compact list shape — transcript is
+// fetched separately via /api/raw-sessions/{ingest_id}.
+export interface RawSessionListItem {
+  ingest_id: string;
+  project_id: string | null;
+  project_name: string | null;
+  client: string;
+  state: "pending" | "distilled" | "filtered" | "failed" | "archived" | string;
+  created_at: string | null;
+  processed_at: string | null;
+  memories_extracted: number;
+  instincts_extracted: number;
+  processing_path: string | null;
+  attempt_count: number;
+  error: string | null;
+  filter_reason: string | null;
+}
+
+export interface RawSessionsListResponse {
+  state: string;
+  sessions: RawSessionListItem[];
+}
+
 export interface ProjectFreshness {
   project_id: string;
   pending_count: number;

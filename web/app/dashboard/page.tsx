@@ -8,6 +8,7 @@ import AppShell from "@/components/AppShell";
 import { DashboardSummaryPanels } from "@/components/DashboardSummaryPanels";
 import { DistillationStatusPanel } from "@/components/DistillationStatusPanel";
 import { ProjectListView } from "@/components/ProjectListView";
+import { RecentSessionsCard } from "@/components/RecentSessionsCard";
 import { TeamMiniPanel } from "@/components/TeamMiniPanel";
 import { WeeklyDigestCard } from "@/components/WeeklyDigestCard";
 import RoutePending from "@/components/RoutePending";
@@ -119,6 +120,7 @@ function DashboardContent() {
             projectCount={projectCount}
           />
           <DistillationStatusPanel />
+          <RecentSessionsCard />
         </TabsContent>
 
         <TabsContent value="team" className="mt-6">

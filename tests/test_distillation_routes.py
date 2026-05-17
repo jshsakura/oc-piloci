@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from piloci.api import distillation_routes
-from piloci.db.models import User, WeeklyDigest
+from piloci.db.models import Project, RawSession, User, WeeklyDigest
 from piloci.db.session import init_db
 
 
@@ -236,3 +236,184 @@ async def test_weekly_digest_regenerate_reports_no_activity(isolated_db, monkeyp
     body = orjson.loads(resp.body)
     assert body["digest"] is None
     assert "no activity" in body["note"]
+
+
+# ---------------------------------------------------------------------------
+# /api/raw-sessions — recent session inspector
+# ---------------------------------------------------------------------------
+
+
+async def _seed_session(
+    factory,
+    *,
+    user_id: str,
+    project_id: str | None,
+    state: str,
+    created_at: datetime,
+    processed_at: datetime | None = None,
+    error: str | None = None,
+    memories: int = 0,
+    instincts: int = 0,
+    path: str | None = None,
+) -> str:
+    async with factory() as sess:
+        row = RawSession(
+            ingest_id=str(uuid.uuid4()),
+            user_id=user_id,
+            project_id=project_id,
+            client="claude-code",
+            transcript_json="{}",
+            created_at=created_at,
+            processed_at=processed_at,
+            error=error,
+            memories_extracted=memories,
+            instincts_extracted=instincts,
+            distillation_state=state,
+            processing_path=path,
+        )
+        sess.add(row)
+        await sess.commit()
+        return row.ingest_id
+
+
+@pytest.mark.asyncio
+async def test_raw_sessions_requires_auth() -> None:
+    resp = await distillation_routes.route_raw_sessions_list(_request())
+    assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_raw_sessions_returns_empty_list(isolated_db) -> None:
+    user_id = await _seed_user(isolated_db)
+    resp = await distillation_routes.route_raw_sessions_list(_request({"user_id": user_id}))
+    assert resp.status_code == 200
+    body = orjson.loads(resp.body)
+    assert body == {"state": "any", "sessions": []}
+
+
+@pytest.mark.asyncio
+async def test_raw_sessions_filters_by_state(isolated_db) -> None:
+    user_id = await _seed_user(isolated_db)
+    now = datetime.now(timezone.utc)
+    await _seed_session(
+        isolated_db,
+        user_id=user_id,
+        project_id=None,
+        state="failed",
+        created_at=now,
+        processed_at=now,
+        error="empty_extraction",
+    )
+    await _seed_session(
+        isolated_db,
+        user_id=user_id,
+        project_id=None,
+        state="distilled",
+        created_at=now,
+        processed_at=now,
+        memories=8,
+        instincts=3,
+        path="external",
+    )
+
+    resp = await distillation_routes.route_raw_sessions_list(
+        _request({"user_id": user_id}, query={"state": "failed"})
+    )
+    body = orjson.loads(resp.body)
+    assert body["state"] == "failed"
+    assert len(body["sessions"]) == 1
+    assert body["sessions"][0]["state"] == "failed"
+    assert body["sessions"][0]["error"] == "empty_extraction"
+
+
+@pytest.mark.asyncio
+async def test_raw_sessions_rejects_invalid_state() -> None:
+    resp = await distillation_routes.route_raw_sessions_list(
+        _request({"user_id": "u1"}, query={"state": "garbage"})
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_raw_sessions_caps_limit_at_max(isolated_db) -> None:
+    user_id = await _seed_user(isolated_db)
+    now = datetime.now(timezone.utc)
+    # Seed a single row so we can confirm the request shape is accepted.
+    await _seed_session(
+        isolated_db,
+        user_id=user_id,
+        project_id=None,
+        state="distilled",
+        created_at=now,
+        processed_at=now,
+    )
+    resp = await distillation_routes.route_raw_sessions_list(
+        _request({"user_id": user_id}, query={"limit": "9999"})
+    )
+    assert resp.status_code == 200
+    assert orjson.loads(resp.body)["sessions"]  # got at least one row
+
+
+@pytest.mark.asyncio
+async def test_raw_sessions_rejects_non_integer_limit() -> None:
+    resp = await distillation_routes.route_raw_sessions_list(
+        _request({"user_id": "u1"}, query={"limit": "abc"})
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_raw_sessions_joins_project_name(isolated_db) -> None:
+    user_id = await _seed_user(isolated_db)
+    now = datetime.now(timezone.utc)
+
+    async with isolated_db() as sess:
+        proj = Project(
+            id=str(uuid.uuid4()),
+            user_id=user_id,
+            slug="alpha",
+            name="Alpha",
+            created_at=now,
+            updated_at=now,
+        )
+        sess.add(proj)
+        await sess.commit()
+        project_id = proj.id
+
+    await _seed_session(
+        isolated_db,
+        user_id=user_id,
+        project_id=project_id,
+        state="distilled",
+        created_at=now,
+        processed_at=now,
+        memories=5,
+        instincts=2,
+    )
+
+    resp = await distillation_routes.route_raw_sessions_list(_request({"user_id": user_id}))
+    body = orjson.loads(resp.body)
+    assert body["sessions"][0]["project_name"] == "Alpha"
+
+
+@pytest.mark.asyncio
+async def test_raw_sessions_never_leaks_other_users_rows(isolated_db) -> None:
+    """Cross-user gate — list endpoint must scope by caller id."""
+    alice = await _seed_user(isolated_db)
+    bob = await _seed_user(isolated_db)
+    now = datetime.now(timezone.utc)
+    await _seed_session(
+        isolated_db,
+        user_id=alice,
+        project_id=None,
+        state="failed",
+        created_at=now,
+        processed_at=now,
+        error="alice secret",
+    )
+
+    resp = await distillation_routes.route_raw_sessions_list(
+        _request({"user_id": bob}, query={"state": "failed"})
+    )
+    body = orjson.loads(resp.body)
+    assert body["sessions"] == []
