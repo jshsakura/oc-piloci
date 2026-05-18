@@ -61,7 +61,7 @@ function ProjectDetailContent() {
 
   if (!slug) {
     return (
-      <AppShell>
+      <AppShell title={t.appShell.sidebar.projects}>
         <ProjectListView />
       </AppShell>
     );

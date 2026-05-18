@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, FolderKanban, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
+import { ArrowLeft, FolderKanban, Search } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { MemoryGraphPanel } from "@/components/MemoryGraphPanel";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
@@ -45,9 +45,10 @@ function WikiContent() {
   const slug = searchParams.get("slug");
   const noteId = searchParams.get("note");
   const [query, setQuery] = useState("");
-  // Collapsible left list — gives the graph/detail panes the full row
-  // when toggled off. Default open so newcomers see the list first.
-  const [listOpen, setListOpen] = useState(true);
+  // Note list stays open by default; the v0.3.50 collapse toggle was
+  // removed when the wiki switched to a vertical stack — the bottom row
+  // already balances list + detail at a comfortable 240/1fr ratio.
+  const listOpen = true;
 
   useEffect(() => {
     if (hasHydrated && !isBootstrapping && !user) router.replace("/login");
@@ -153,47 +154,35 @@ function WikiContent() {
     );
   }
 
-  // v0.3.53: wiki controls (project picker + list toggle) go into the
-  // AppShell's actions slot so every page reads the same way — single
-  // top bar, no per-page hero. Local heading row is gone.
-  const headerActions = (
-    <>
-      {slug && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="hidden md:inline-flex"
-          onClick={() => setListOpen((v) => !v)}
-          aria-label={listOpen ? copy.collapseList : copy.expandList}
-        >
-          {listOpen ? (
-            <PanelLeftClose className="size-4" />
-          ) : (
-            <PanelLeftOpen className="size-4" />
-          )}
-        </Button>
-      )}
-      <Select value={slug ?? ""} onValueChange={handleSelectProject}>
-        <SelectTrigger className="h-8 w-44 text-xs sm:w-56 sm:text-sm">
-          <FolderKanban className="text-muted-foreground me-1.5 size-3.5" aria-hidden />
-          <SelectValue placeholder={copy.selectProject} />
-        </SelectTrigger>
-        <SelectContent>
-          {projects.map((p) => (
-            <SelectItem key={p.id} value={p.slug}>
-              {p.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </>
-  );
-
+  // v0.3.55: project picker is a page-internal control (what data am I
+  // viewing?), not a global header action — moved out of AppShell.actions
+  // and inlined above the note list where it belongs.
   return (
-    <AppShell title={copy.title} actions={headerActions}>
+    <AppShell title={copy.title}>
+
+      {/* Slim picker row above the wiki body — shown when no project is
+          selected yet, or to provide an obvious switch when the list is
+          collapsed (no other place for it). */}
+      {!slug && (
+        <div className="mb-4 flex flex-wrap items-center gap-2 border-b pb-3">
+          <FolderKanban className="text-muted-foreground size-4" aria-hidden />
+          <Select value={slug ?? ""} onValueChange={handleSelectProject}>
+            <SelectTrigger className="h-8 w-56">
+              <SelectValue placeholder={copy.selectProject} />
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.slug}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {!slug && (
-        <Card className="mt-6 px-6 py-10 text-center text-sm text-muted-foreground">
+        <Card className="px-6 py-10 text-center text-sm text-muted-foreground">
           {copy.pickProjectHint}
         </Card>
       )}

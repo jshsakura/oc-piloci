@@ -63,14 +63,13 @@ export function ProjectListView() {
 
   return (
     <>
-      <div className="pi-page-hero flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="pi-eyebrow">{t.projects.eyebrow}</p>
-          <h1 className="pi-title mt-2">{t.appShell.nav.projects}</h1>
-        </div>
+      {/* v0.3.55: dropped the in-component pi-page-hero — page title
+          now comes from the AppShell top bar. Kept just the "new
+          project" trigger inline above the list. */}
+      <div className="mb-4 flex items-center justify-end">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button size="sm" className="rounded-full">
+            <Button size="sm">
               <FolderPlus className="me-2 size-4" />
               {t.dashboard.newProject}
             </Button>

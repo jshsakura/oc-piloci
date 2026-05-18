@@ -677,7 +677,7 @@ const ko = {
         memory: '메모리',
         activity: '활동',
         ops: '정리 현황',
-        projects: '프로젝트별',
+        projects: '프로젝트',
         teams: '팀',
         chat: '대화',
         menuLabel: '메뉴 열기',
