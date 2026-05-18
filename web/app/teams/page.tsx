@@ -264,11 +264,59 @@ export default function TeamsPage() {
 
         <section className="space-y-4">
           {!selectedTeam ? (
-            <Card>
-              <CardContent className="py-14">
-                <EmptyState icon={UsersRound} text="왼쪽에서 팀을 만들거나 선택하세요." />
-              </CardContent>
-            </Card>
+            // No-team skeleton: previews the same right-pane shape the user
+            // gets once a team is selected (overview / docs / new-doc form),
+            // with the hint centered as a call-to-action.
+            <div className="relative space-y-4">
+              <Card>
+                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-2">
+                    <div className="bg-muted/40 h-5 w-32 animate-pulse rounded" />
+                    <div className="bg-muted/30 h-3 w-20 animate-pulse rounded" />
+                  </div>
+                </CardHeader>
+                <CardContent className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <div className="bg-muted/40 h-3 w-10 animate-pulse rounded" />
+                    <div className="bg-muted/20 h-14 animate-pulse rounded-xl" />
+                    <div className="bg-muted/20 h-14 animate-pulse rounded-xl" />
+                  </div>
+                  <div className="space-y-3 rounded-xl border p-3">
+                    <div className="bg-muted/40 h-3 w-24 animate-pulse rounded" />
+                    <div className="bg-muted/30 h-9 animate-pulse rounded" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
+                <Card>
+                  <CardHeader>
+                    <div className="bg-muted/40 h-4 w-20 animate-pulse rounded" />
+                  </CardHeader>
+                  <CardContent className="space-y-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="bg-muted/20 h-14 animate-pulse rounded-xl" />
+                    ))}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <div className="bg-muted/40 h-4 w-24 animate-pulse rounded" />
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="bg-muted/30 h-9 animate-pulse rounded" />
+                    <div className="bg-muted/20 h-40 animate-pulse rounded" />
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Hint overlay */}
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
+                <div className="bg-background/95 text-muted-foreground rounded-lg border px-5 py-3 text-center text-sm shadow-md backdrop-blur-sm">
+                  왼쪽에서 팀을 만들거나 선택하세요.
+                </div>
+              </div>
+            </div>
           ) : (
             <>
               <Card>

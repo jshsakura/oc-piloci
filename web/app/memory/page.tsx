@@ -178,8 +178,43 @@ function WikiContent() {
       </div>
 
       {!slug && (
-        <div className="bg-card text-muted-foreground rounded-md px-6 py-10 text-center text-sm">
-          {copy.pickProjectHint}
+        // No-slug skeleton: shows the SAME workspace shape the user will see
+        // once they pick a project, so the page doesn't morph from a tiny
+        // hint card into a full layout. Hint sits in a centered overlay so
+        // it stays the call-to-action.
+        <div className="bg-card relative overflow-hidden rounded-lg border">
+          {/* Graph area skeleton */}
+          <div className="relative h-[260px] overflow-hidden border-b sm:h-[380px] lg:h-[440px]">
+            <div className="bg-muted/30 absolute inset-0 animate-pulse" />
+            <div className="absolute inset-0 flex items-center justify-center opacity-40">
+              <div className="grid grid-cols-3 gap-x-16 gap-y-10">
+                {Array.from({ length: 9 }).map((_, i) => (
+                  <div key={i} className="bg-muted size-3 rounded-full" />
+                ))}
+              </div>
+            </div>
+          </div>
+          {/* List + detail skeleton */}
+          <div className="grid h-[460px] items-stretch overflow-hidden md:h-[520px] md:grid-cols-[260px_minmax(0,1fr)]">
+            <div className="hidden flex-col gap-2 p-3 md:flex md:border-e">
+              <div className="bg-muted/40 h-8 animate-pulse rounded" />
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="bg-muted/30 h-9 animate-pulse rounded" />
+              ))}
+            </div>
+            <div className="space-y-3 p-3 md:p-4">
+              <div className="bg-muted/40 h-5 w-2/3 animate-pulse rounded" />
+              <div className="bg-muted/30 h-3 w-full animate-pulse rounded" />
+              <div className="bg-muted/30 h-3 w-11/12 animate-pulse rounded" />
+              <div className="bg-muted/30 h-3 w-3/4 animate-pulse rounded" />
+            </div>
+          </div>
+          {/* Hint overlay — centered call-to-action */}
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
+            <div className="bg-background/95 text-muted-foreground rounded-lg border px-5 py-3 text-center text-sm shadow-md backdrop-blur-sm">
+              {copy.pickProjectHint}
+            </div>
+          </div>
         </div>
       )}
 
