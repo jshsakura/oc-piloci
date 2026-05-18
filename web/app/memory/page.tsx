@@ -206,17 +206,14 @@ function WikiContent() {
             )}
           </div>
 
-          {/* BOTTOM ROW — list + detail, fixed row height, internal scroll */}
-          <div
-            className={cn(
-              "grid h-[500px] items-stretch gap-4",
-              "md:grid-cols-[240px_minmax(0,1fr)]",
-            )}
-          >
+          {/* BOTTOM — single card containing both list and detail with
+              an internal divider. Avoids the "card inside card" feel
+              of having list + detail as separate sibling cards. */}
+          <div className="bg-card grid h-[500px] items-stretch overflow-hidden rounded-md md:grid-cols-[240px_minmax(0,1fr)]">
             {(
               <div
                 className={cn(
-                  "bg-card flex h-full min-h-0 flex-col overflow-hidden rounded-md p-3",
+                  "flex h-full min-h-0 flex-col overflow-hidden border-e p-3",
                   selectedNote && "hidden md:flex",
                 )}
               >
@@ -269,10 +266,11 @@ function WikiContent() {
               </div>
             )}
 
-            {/* Detail pane — selected note body + backlinks */}
+            {/* Detail pane — selected note body + backlinks. Lives
+                inside the same outer card as the list. */}
             <div
               className={cn(
-                "bg-card flex h-full min-h-0 flex-col overflow-hidden rounded-md p-4",
+                "flex h-full min-h-0 flex-col overflow-hidden p-4",
                 !selectedNote && "hidden md:flex",
               )}
             >
