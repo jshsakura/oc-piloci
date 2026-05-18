@@ -172,43 +172,33 @@ export default function ChatClient() {
   const projectOptions = projects ?? [];
   const empty = turns.length === 0;
 
-  return (
-    <AppShell>
-      <div className="flex w-full flex-col gap-4 pb-4">
-        <header className="pi-page-hero flex flex-wrap items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="pi-eyebrow">{t.chat.eyebrow}</p>
-            <h1 className="mt-2 flex items-center gap-2 text-2xl font-semibold tracking-[-0.03em]">
-              <MessageSquareText className="size-5 text-primary" />
-              {t.chat.title}
-            </h1>
-            <p className="pi-subtitle">
-              {t.chat.subtitle}
-            </p>
-          </div>
-          <Select value={projectSlug} onValueChange={setProjectSlug} disabled={busy}>
-            <SelectTrigger
-              className="pi-soft-input h-9 w-auto min-w-36 gap-1.5 px-3 text-xs font-medium text-muted-foreground hover:text-foreground"
-              aria-label={t.chat.projectSelectAria}
-            >
-              <SelectValue placeholder={t.chat.projectPlaceholder} />
-            </SelectTrigger>
-            <SelectContent align="end">
-              {projectOptions.length === 0 ? (
-                <SelectItem value="__empty" disabled>
-                  {t.chat.noProjects}
-                </SelectItem>
-              ) : (
-                projectOptions.map((p) => (
-                  <SelectItem key={p.slug} value={p.slug}>
-                    {p.name}
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-        </header>
+  const projectSelector = (
+    <Select value={projectSlug} onValueChange={setProjectSlug} disabled={busy}>
+      <SelectTrigger
+        className="h-8 w-44 text-xs sm:w-56 sm:text-sm"
+        aria-label={t.chat.projectSelectAria}
+      >
+        <SelectValue placeholder={t.chat.projectPlaceholder} />
+      </SelectTrigger>
+      <SelectContent align="end">
+        {projectOptions.length === 0 ? (
+          <SelectItem value="__empty" disabled>
+            {t.chat.noProjects}
+          </SelectItem>
+        ) : (
+          projectOptions.map((p) => (
+            <SelectItem key={p.slug} value={p.slug}>
+              {p.name}
+            </SelectItem>
+          ))
+        )}
+      </SelectContent>
+    </Select>
+  );
 
+  return (
+    <AppShell title={t.chat.title} actions={projectSelector}>
+      <div className="flex w-full flex-col gap-4 pb-4">
         <div
           ref={transcriptRef}
           className="pi-panel flex min-h-[55vh] flex-1 flex-col gap-5 overflow-y-auto p-5"

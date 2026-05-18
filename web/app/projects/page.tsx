@@ -70,32 +70,27 @@ function ProjectDetailContent() {
   const selectedNote = notes.find((n) => n.memory_id === selectedNoteId) ?? notes[0] ?? null;
   const stats = data?.workspace.stats;
 
+  const backAction = (
+    <Button variant="ghost" size="sm" onClick={() => router.push("/projects")}>
+      <ArrowLeft className="me-1 size-4" /> {t.projects.breadcrumb}
+    </Button>
+  );
+
   return (
-    <AppShell>
-      <header className="pi-page-hero flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="-ms-2 rounded-full" onClick={() => router.push("/projects")}>
-            <ArrowLeft className="me-1 size-4" /> {t.projects.breadcrumb}
-          </Button>
-          <span className="text-sm text-muted-foreground">/</span>
-          <h1 className="truncate text-xl font-semibold tracking-[-0.03em]">
-            {data?.project.name ?? slug}
-          </h1>
-        </div>
-        {data?.project.description && (
-          <p className="text-sm text-muted-foreground">{data.project.description}</p>
-        )}
-        <div className="flex flex-wrap gap-2 pt-1">
-          <StatChip label={t.projects.notes} value={stats?.notes ?? 0} />
-          <StatChip label={t.projects.nodes} value={stats?.nodes ?? 0} />
-          <StatChip label={t.projects.edges} value={stats?.edges ?? 0} />
-          <StatChip label={t.projects.tags} value={stats?.tags ?? 0} />
-        </div>
-      </header>
+    <AppShell title={data?.project.name ?? slug ?? ""} actions={backAction}>
+      {data?.project.description && (
+        <p className="text-muted-foreground mb-3 text-sm">{data.project.description}</p>
+      )}
+      <div className="mb-4 flex flex-wrap gap-2">
+        <StatChip label={t.projects.notes} value={stats?.notes ?? 0} />
+        <StatChip label={t.projects.nodes} value={stats?.nodes ?? 0} />
+        <StatChip label={t.projects.edges} value={stats?.edges ?? 0} />
+        <StatChip label={t.projects.tags} value={stats?.tags ?? 0} />
+      </div>
 
       {/* Inner tabs — keep top-level menu minimal, surface
           memories / patterns / raw sessions inside the project view. */}
-      <Tabs defaultValue="memories" className="mt-6">
+      <Tabs defaultValue="memories">
         <TabsList className="w-full sm:w-auto">
           <TabsTrigger value="memories" className="flex-1 gap-1.5 sm:flex-none">
             <BookOpen className="size-3.5" />

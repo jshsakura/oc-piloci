@@ -153,37 +153,30 @@ export default function TeamsPage() {
     );
   };
 
-  return (
-    <AppShell>
-      <header className="pi-page-hero grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,360px)] lg:items-end">
-        <div>
-          <p className="pi-eyebrow">협업 메모리</p>
-          <h1 className="pi-title mt-2">팀 작업공간</h1>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-            프로젝트는 개인 맥락을 정리하고, 팀은 함께 봐야 하는 문서와 초대를 묶습니다. 팀원은 같은
-            문서 목록을 보고 충돌 없이 갱신할 수 있습니다.
-          </p>
-        </div>
-        <form
-          className="flex gap-2 rounded-2xl border bg-background/70 p-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!teamName.trim()) return setNotice({ tone: "error", text: "팀 이름을 입력하세요." });
-            createTeamMutation.mutate();
-          }}
-        >
-          <Input
-            value={teamName}
-            onChange={(event) => setTeamName(event.target.value)}
-            placeholder="새 팀 이름"
-            aria-label="새 팀 이름"
-          />
-          <Button type="submit" disabled={createTeamMutation.isPending}>
-            만들기
-          </Button>
-        </form>
-      </header>
+  const createTeamForm = (
+    <form
+      className="flex gap-2"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!teamName.trim()) return setNotice({ tone: "error", text: "팀 이름을 입력하세요." });
+        createTeamMutation.mutate();
+      }}
+    >
+      <Input
+        value={teamName}
+        onChange={(event) => setTeamName(event.target.value)}
+        placeholder="새 팀 이름"
+        aria-label="새 팀 이름"
+        className="h-8 w-40 text-sm"
+      />
+      <Button type="submit" size="sm" disabled={createTeamMutation.isPending}>
+        만들기
+      </Button>
+    </form>
+  );
 
+  return (
+    <AppShell title="팀 작업공간" actions={createTeamForm}>
       {notice && (
         <div
           className={`mt-4 rounded-xl border px-4 py-3 text-sm ${

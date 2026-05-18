@@ -247,14 +247,8 @@ export default function SettingsPage() {
   };
 
   return (
-    <AppShell>
+    <AppShell title={t.settings.title}>
       <div className="pi-page">
-        <section className="pi-page-hero">
-          <p className="pi-eyebrow">{t.settings.eyebrow}</p>
-          <h1 className="pi-title mt-2">{t.settings.title}</h1>
-          <p className="pi-subtitle">{t.settings.description}</p>
-        </section>
-
       <Tabs defaultValue="account">
         <TabsList className="pi-panel h-auto w-full flex-wrap justify-start gap-1 p-1">
           <TabsTrigger value="account" className="flex-1">{t.settings.tabs.account}</TabsTrigger>

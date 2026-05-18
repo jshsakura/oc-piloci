@@ -116,14 +116,8 @@ export default function AuditPage() {
   const hasNext = (logs?.length ?? 0) === LIMIT;
 
   return (
-    <AppShell>
+    <AppShell title={t.audit.title}>
       <div className="pi-page">
-        <section className="pi-page-hero">
-          <p className="pi-eyebrow">{t.audit.eyebrow}</p>
-          <h1 className="pi-title mt-2">{t.audit.title}</h1>
-          <p className="pi-subtitle">{t.audit.subtitle}</p>
-        </section>
-
         <Card>
           <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
             <div>

@@ -147,14 +147,8 @@ export default function AdminUsersPage() {
   };
 
   return (
-    <AppShell>
+    <AppShell title={t.admin.title}>
       <div className="pi-page">
-        <div className="pi-page-hero">
-          <p className="pi-eyebrow">{t.admin.eyebrow}</p>
-          <h1 className="pi-title mt-2">{t.admin.title}</h1>
-          <p className="pi-subtitle">{t.admin.description}</p>
-        </div>
-
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[
             { label: t.admin.statsTotal, value: stats.total, icon: Users, color: "text-foreground" },

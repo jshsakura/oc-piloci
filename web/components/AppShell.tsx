@@ -71,9 +71,13 @@ export default function AppShell({ children, title, actions }: AppShellProps) {
           >
             <Menu className="size-5" />
           </button>
-          {/* Brand sits in the header on both mobile and desktop so the
-              chrome reads the same way across viewports. */}
-          <BrandMark />
+          {/* Brand sits in the top header on desktop only — on mobile the
+              hamburger is the obvious entry into the drawer (which carries
+              its own BrandMark), so doubling it up in the header just
+              eats horizontal space. */}
+          <div className="hidden md:block">
+            <BrandMark />
+          </div>
           {/* Vertical separator before the page title, only when we
               actually have a title (some pages opt out). */}
           {title && (
