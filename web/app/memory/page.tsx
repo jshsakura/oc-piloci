@@ -153,13 +153,12 @@ function WikiContent() {
     );
   }
 
-  // v0.3.51 header: dropped the negative-margin "edge-to-edge" trick
-  // (it broke layout under the sidebar). A normal in-flow row inside
-  // the page padding — slim, sticky, with a bottom border — gives the
-  // same "no more giant hero" feel without fighting AppShell's grid.
+  // v0.3.52 header: removed sticky + alpha + backdrop-blur — that stack
+  // kept breaking the wiki layout on real devices. Plain in-flow row,
+  // opaque, no z-index games. Slim enough not to read as a giant hero.
   return (
     <AppShell>
-      <div className="bg-background/85 sticky top-14 z-20 -mt-2 mb-4 flex items-center gap-3 border-b py-2 backdrop-blur">
+      <div className="mb-4 flex items-center gap-3 border-b pb-3">
         <div className="flex min-w-0 items-baseline gap-2">
           <h1 className="text-base font-semibold tracking-tight">{copy.title}</h1>
           <p className="text-muted-foreground hidden truncate text-xs sm:block">

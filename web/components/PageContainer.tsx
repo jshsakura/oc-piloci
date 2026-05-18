@@ -29,24 +29,32 @@ export function PageContainer({
 }
 
 /**
- * Shared hero block — eyebrow / title / subtitle. Pages render their own
- * so the user always knows which page they landed on (the old "every
- * panel shares the same Dashboard hero" bug).
+ * Slim, in-flow page header — matches the memory wiki's topbar so every
+ * page reads the same. v0.3.52 dropped the large "pi-page-hero" block;
+ * the user wanted a single visual idiom across pages, not a one-off
+ * card-like hero per page.
+ *
+ * `eyebrow` is kept on the type for back-compat with callers but is no
+ * longer rendered — the title alone is enough at this size.
  */
 export function PageHero({
-  eyebrow,
   title,
   subtitle,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   subtitle?: string;
 }) {
   return (
-    <div className="pi-page-hero">
-      <p className="pi-eyebrow">{eyebrow}</p>
-      <h1 className="pi-title mt-2">{title}</h1>
-      {subtitle && <p className="pi-subtitle">{subtitle}</p>}
+    <div className="mb-4 flex items-center gap-3 border-b pb-3">
+      <div className="flex min-w-0 items-baseline gap-2">
+        <h1 className="text-base font-semibold tracking-tight">{title}</h1>
+        {subtitle && (
+          <p className="text-muted-foreground hidden truncate text-xs sm:block">
+            {subtitle}
+          </p>
+        )}
+      </div>
     </div>
   );
 }
