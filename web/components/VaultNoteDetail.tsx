@@ -1,60 +1,45 @@
 "use client";
 
-import { FileText } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Clock } from "lucide-react";
 import type { VaultNote } from "@/lib/types";
-import { useTranslation } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
+import { relTimeKr } from "@/lib/time";
 
 interface VaultNoteDetailProps {
   note: VaultNote | null;
 }
 
 export function VaultNoteDetail({ note }: VaultNoteDetailProps) {
-  const { t } = useTranslation();
-  if (!note) {
-    return (
-      <div className="flex h-full min-h-[300px] items-center justify-center text-muted-foreground">
-        <div className="text-center">
-          <FileText className="mx-auto mb-3 size-8" />
-          <p className="text-sm">{t.vaultNote.selectNote}</p>
-        </div>
-      </div>
-    );
-  }
+  if (!note) return null;
 
   return (
-    <div className="min-w-0 p-5">
-      <h2 className="break-words text-lg font-semibold leading-tight">{note.title}</h2>
-      {note.tags.length > 0 && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {note.tags.map((tag) => (
-            <Badge key={tag} variant="secondary" className="break-all">
-              #{tag}
-            </Badge>
-          ))}
+    <article className="min-w-0">
+      <header className="mb-4 space-y-2 border-b pb-3">
+        <h2 className="text-xl font-bold leading-tight break-words">{note.title}</h2>
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span className="inline-flex items-center gap-1">
+            <Clock className="size-3" />
+            {relTimeKr(note.updated_at)} 업데이트
+          </span>
+          <span className="font-mono opacity-60 break-all">{note.path}</span>
         </div>
-      )}
-      <div className="mt-4 break-all rounded-md bg-muted px-3 py-2 font-mono text-xs text-muted-foreground">
-        {note.path}
-      </div>
-      <pre className="mt-3 overflow-x-auto whitespace-pre-wrap break-all rounded-md border bg-muted/50 p-4 text-sm">
-        {note.markdown ?? note.excerpt}
-      </pre>
-
-      {note.links.length > 0 && (
-        <>
-          <Separator className="my-4" />
-          <div>
-            <p className="mb-2 text-sm font-medium text-muted-foreground">{t.vaultNote.linkedNotes}</p>
-            <div className="flex flex-wrap gap-1.5">
-              {note.links.map((link) => (
-                <Badge key={link} variant="outline">{link}</Badge>
-              ))}
-            </div>
+        {note.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {note.tags.map((tag) => (
+              <Badge key={tag} variant="secondary" className="text-[10px]">
+                #{tag}
+              </Badge>
+            ))}
           </div>
-        </>
-      )}
-    </div>
+        )}
+      </header>
+      <div className="pi-prose">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {note.markdown ?? note.excerpt}
+        </ReactMarkdown>
+      </div>
+    </article>
   );
 }

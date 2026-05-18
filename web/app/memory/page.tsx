@@ -20,6 +20,7 @@ import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
+import { relTimeKr } from "@/lib/time";
 import type { GraphNode, VaultNote } from "@/lib/types";
 
 /**
@@ -42,6 +43,7 @@ function WikiContent() {
 
   const slug = searchParams.get("slug");
   const noteId = searchParams.get("note");
+  const tagFilter = searchParams.get("tag");
   const [query, setQuery] = useState("");
 
   useEffect(() => {
@@ -76,16 +78,32 @@ function WikiContent() {
     [workspaceQuery.data?.workspace.graph.edges],
   );
 
+  // Tag chip facets — top-N most-used tags become clickable filters above
+  // the search input. Pure derive from notes so it always stays in sync.
+  const tagCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    notes.forEach((n) => n.tags.forEach((t) => map.set(t, (map.get(t) ?? 0) + 1)));
+    return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
+  }, [notes]);
+
   const filteredNotes = useMemo(() => {
-    if (!query.trim()) return notes;
-    const q = query.toLowerCase();
-    return notes.filter(
-      (n) =>
-        n.title.toLowerCase().includes(q) ||
-        n.excerpt.toLowerCase().includes(q) ||
-        n.tags.some((tag) => tag.toLowerCase().includes(q)),
+    let arr = notes;
+    if (tagFilter) arr = arr.filter((n) => n.tags.includes(tagFilter));
+    if (query.trim()) {
+      const q = query.toLowerCase();
+      arr = arr.filter(
+        (n) =>
+          n.title.toLowerCase().includes(q) ||
+          n.excerpt.toLowerCase().includes(q) ||
+          n.tags.some((tag) => tag.toLowerCase().includes(q)),
+      );
+    }
+    // Sort by recency so the most recently auto-curated memories surface
+    // first — gives the list an "alive" feel rather than a frozen index.
+    return [...arr].sort(
+      (a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at),
     );
-  }, [notes, query]);
+  }, [notes, query, tagFilter]);
 
   // Auto-select the first note ONCE per slug. Tracking by slug (not by
   // mount) matters: without the ref, the effect refired whenever noteId
@@ -255,9 +273,10 @@ function WikiContent() {
               panes; mobile shows one pane at a time and toggles via the
               "목록으로" button in the detail header. */}
           <div className="grid h-[460px] items-stretch overflow-hidden md:h-[520px] md:grid-cols-[260px_minmax(0,1fr)]">
-            {/* List pane — search header on top, scroll viewport extends
-                to the card edges so any overflow clips AT the border, not
-                in a padded strip floating above it. */}
+            {/* List pane — search + tag facet on top; items show tags +
+                relative time so the list reads as an auto-organized index
+                rather than flat titles. Padding lives INSIDE the scroller
+                so long lists clip at the card border. */}
             {(
               <div
                 className={cn(
@@ -265,7 +284,7 @@ function WikiContent() {
                   selectedNote && "hidden md:flex",
                 )}
               >
-                <div className="px-3 pt-3 pb-2">
+                <div className="space-y-2 px-3 pt-3 pb-2">
                   <div className="relative">
                     <Search
                       className="text-muted-foreground absolute start-2 top-1/2 size-3.5 -translate-y-1/2"
@@ -278,12 +297,48 @@ function WikiContent() {
                       className="h-8 ps-7 text-sm"
                     />
                   </div>
+                  {tagCounts.length > 0 && (
+                    <div className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-0.5">
+                      <button
+                        type="button"
+                        onClick={() => pushParams(router, searchParams, { tag: null })}
+                        className={cn(
+                          "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
+                          !tagFilter
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted text-muted-foreground hover:bg-muted/70",
+                        )}
+                      >
+                        전체 {notes.length}
+                      </button>
+                      {tagCounts.slice(0, 12).map(([tag, count]) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() =>
+                            pushParams(router, searchParams, {
+                              tag: tagFilter === tag ? null : tag,
+                            })
+                          }
+                          className={cn(
+                            "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors",
+                            tagFilter === tag
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-muted text-muted-foreground hover:bg-muted/70",
+                          )}
+                        >
+                          #{tag}
+                          <span className="ms-1 opacity-60">{count}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <ul className="min-h-0 flex-1 overflow-y-auto px-3">
+                <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2">
                   {workspaceQuery.isLoading ? (
                     <li className="space-y-1.5 py-1">
                       {Array.from({ length: 6 }).map((_, i) => (
-                        <div key={i} className="bg-muted/40 h-9 animate-pulse rounded" />
+                        <div key={i} className="bg-muted/40 h-12 animate-pulse rounded" />
                       ))}
                     </li>
                   ) : filteredNotes.length === 0 ? (
@@ -299,14 +354,30 @@ function WikiContent() {
                             type="button"
                             onClick={() => handleSelectNote(n.memory_id)}
                             className={cn(
-                              "w-full rounded-md px-2 py-1.5 text-start text-xs transition-colors",
+                              "w-full rounded-md px-2 py-2 text-start text-xs transition-colors",
                               active
                                 ? "bg-primary/10 text-foreground"
                                 : "text-muted-foreground hover:bg-muted/50",
                             )}
                           >
-                            <p className="line-clamp-1 font-medium">{n.title}</p>
-                            <p className="line-clamp-1 text-[10px]">{n.excerpt}</p>
+                            <p className="line-clamp-1 text-foreground font-medium">{n.title}</p>
+                            <p className="text-muted-foreground line-clamp-1 mt-0.5 text-[10px]">
+                              {n.excerpt}
+                            </p>
+                            <div className="text-muted-foreground/80 mt-1 flex items-center gap-1.5 text-[10px]">
+                              <span>{relTimeKr(n.updated_at)}</span>
+                              {n.tags.slice(0, 2).map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="bg-muted/70 rounded px-1 py-px font-medium"
+                                >
+                                  #{tag}
+                                </span>
+                              ))}
+                              {n.tags.length > 2 && (
+                                <span className="opacity-70">+{n.tags.length - 2}</span>
+                              )}
+                            </div>
                           </button>
                         </li>
                       );
