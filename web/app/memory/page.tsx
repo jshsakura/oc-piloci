@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, FolderKanban, Search } from "lucide-react";
+import { ArrowLeft, FolderKanban, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { MemoryGraphPanel } from "@/components/MemoryGraphPanel";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
@@ -45,6 +45,9 @@ function WikiContent() {
   const slug = searchParams.get("slug");
   const noteId = searchParams.get("note");
   const [query, setQuery] = useState("");
+  // Collapsible left list — gives the graph/detail panes the full row
+  // when toggled off. Default open so newcomers see the list first.
+  const [listOpen, setListOpen] = useState(true);
 
   useEffect(() => {
     if (hasHydrated && !isBootstrapping && !user) router.replace("/login");
@@ -158,11 +161,28 @@ function WikiContent() {
   return (
     <AppShell>
       <div className="flex flex-col gap-2 border-b pb-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
-            {copy.eyebrow}
-          </p>
-          <h1 className="text-lg font-semibold tracking-tight sm:text-xl">{copy.title}</h1>
+        <div className="flex items-center gap-2">
+          {slug && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden md:inline-flex"
+              onClick={() => setListOpen((v) => !v)}
+              aria-label={listOpen ? copy.collapseList : copy.expandList}
+            >
+              {listOpen ? (
+                <PanelLeftClose className="size-4" />
+              ) : (
+                <PanelLeftOpen className="size-4" />
+              )}
+            </Button>
+          )}
+          <div>
+            <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+              {copy.eyebrow}
+            </p>
+            <h1 className="text-lg font-semibold tracking-tight sm:text-xl">{copy.title}</h1>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <FolderKanban className="text-muted-foreground size-4" aria-hidden />
@@ -188,83 +208,96 @@ function WikiContent() {
       )}
 
       {slug && (
-        // Re-balanced from [260, 1fr, 320] → [220, 1.4fr, 1.6fr] so the
-        // detail pane (right) gets meaningful room for body + backlinks
-        // and the graph (center) is no longer squeezed by a wide list.
-        <div className="mt-4 grid gap-4 lg:grid-cols-[220px_minmax(0,1.4fr)_minmax(0,1.6fr)]">
-          {/* LEFT — note list */}
-          <Card
-            className={cn(
-              "flex max-h-[calc(100vh-12rem)] flex-col overflow-hidden p-3",
-              selectedNote && "hidden lg:flex",
-            )}
-          >
-            <div className="relative mb-2">
-              <Search className="text-muted-foreground absolute start-2 top-1/2 size-3.5 -translate-y-1/2" aria-hidden />
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={copy.searchPlaceholder}
-                className="h-8 ps-7 text-sm"
-              />
-            </div>
-            <ul className="flex-1 overflow-y-auto">
-              {filteredNotes.length === 0 ? (
-                <li className="text-muted-foreground px-2 py-4 text-center text-xs">
-                  {workspaceQuery.isLoading ? "…" : copy.empty}
-                </li>
-              ) : (
-                filteredNotes.map((n) => {
-                  const active = n.memory_id === noteId;
-                  return (
-                    <li key={n.memory_id}>
-                      <button
-                        type="button"
-                        onClick={() => handleSelectNote(n.memory_id)}
-                        className={cn(
-                          "w-full rounded-md px-2 py-1.5 text-start text-xs transition-colors",
-                          active
-                            ? "bg-primary/10 text-foreground"
-                            : "text-muted-foreground hover:bg-muted/50",
-                        )}
-                      >
-                        <p className="line-clamp-1 font-medium">{n.title}</p>
-                        <p className="line-clamp-1 text-[10px]">{n.excerpt}</p>
-                      </button>
-                    </li>
-                  );
-                })
+        // Three-pane layout with two affordances added in v0.3.48:
+        // 1) The left list is collapsible — when closed, graph + detail
+        //    each get half the row and stop feeling cramped.
+        // 2) All three cards share a single height anchored to dvh so
+        //    they line up perfectly regardless of their content length
+        //    (the user noticed mismatched heights in v0.3.47).
+        // grid-cols-template is built dynamically so the closed-list
+        // case isn't just hidden — it actually frees the column.
+        <div
+          className={cn(
+            "mt-4 grid h-[calc(100dvh-11rem)] items-stretch gap-4",
+            listOpen
+              ? "md:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]"
+              : "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]",
+          )}
+        >
+          {/* LEFT — note list (collapsible on desktop, hidden on mobile
+              when a note is selected so the detail can use full width). */}
+          {listOpen && (
+            <Card
+              className={cn(
+                "flex h-full min-h-0 flex-col overflow-hidden p-3",
+                selectedNote && "hidden md:flex",
               )}
-            </ul>
-          </Card>
-
-          {/* CENTER — graph (hidden on small screens to focus on detail) */}
-          <Card
-            className={cn(
-              "flex max-h-[calc(100vh-12rem)] flex-col p-3",
-              "hidden lg:flex",
-            )}
-          >
-            {graphNodes.length === 0 ? (
-              <p className="text-muted-foreground py-10 text-center text-sm">
-                {copy.noGraph}
-              </p>
-            ) : (
-              <div className="min-h-0 flex-1">
-                <MemoryGraphPanel
-                  nodes={graphNodes}
-                  edges={graphEdges}
-                  onNodeClick={handleGraphNode}
+            >
+              <div className="relative mb-2">
+                <Search className="text-muted-foreground absolute start-2 top-1/2 size-3.5 -translate-y-1/2" aria-hidden />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={copy.searchPlaceholder}
+                  className="h-8 ps-7 text-sm"
                 />
               </div>
-            )}
+              <ul className="min-h-0 flex-1 overflow-y-auto">
+                {filteredNotes.length === 0 ? (
+                  <li className="text-muted-foreground px-2 py-4 text-center text-xs">
+                    {workspaceQuery.isLoading ? copy.loading : copy.empty}
+                  </li>
+                ) : (
+                  filteredNotes.map((n) => {
+                    const active = n.memory_id === noteId;
+                    return (
+                      <li key={n.memory_id}>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectNote(n.memory_id)}
+                          className={cn(
+                            "w-full rounded-md px-2 py-1.5 text-start text-xs transition-colors",
+                            active
+                              ? "bg-primary/10 text-foreground"
+                              : "text-muted-foreground hover:bg-muted/50",
+                          )}
+                        >
+                          <p className="line-clamp-1 font-medium">{n.title}</p>
+                          <p className="line-clamp-1 text-[10px]">{n.excerpt}</p>
+                        </button>
+                      </li>
+                    );
+                  })
+                )}
+              </ul>
+            </Card>
+          )}
+
+          {/* CENTER — graph (md+; hidden on phones to focus on detail). */}
+          <Card className="hidden h-full min-h-0 flex-col p-3 md:flex">
+            <GraphPane
+              isLoading={workspaceQuery.isLoading}
+              error={workspaceQuery.error as Error | null}
+              hasMemories={notes.length > 0}
+              nodeCount={graphNodes.length}
+              loadingText={copy.loading}
+              emptyMemoriesText={copy.noMemories}
+              noGraphText={copy.noGraph}
+              errorText={copy.loadError}
+            >
+              <MemoryGraphPanel
+                nodes={graphNodes}
+                edges={graphEdges}
+                onNodeClick={handleGraphNode}
+              />
+            </GraphPane>
           </Card>
 
           {/* RIGHT — selected note detail + backlinks */}
           <Card
             className={cn(
-              "flex max-h-[calc(100vh-12rem)] flex-col overflow-hidden p-4",
-              !selectedNote && "hidden lg:flex",
+              "flex h-full min-h-0 flex-col overflow-hidden p-4",
+              !selectedNote && "hidden md:flex",
             )}
           >
             {selectedNote ? (
@@ -319,6 +352,64 @@ function WikiContent() {
       )}
     </AppShell>
   );
+}
+
+/**
+ * Wraps the memory graph with an explicit set of empty / loading / error
+ * states. v0.3.47 had a single "noGraph" fallback that conflated "no data
+ * yet" with "data exists but no relationships" — the user couldn't tell
+ * whether something was broken or just empty.
+ */
+function GraphPane({
+  isLoading,
+  error,
+  hasMemories,
+  nodeCount,
+  loadingText,
+  emptyMemoriesText,
+  noGraphText,
+  errorText,
+  children,
+}: {
+  isLoading: boolean;
+  error: Error | null;
+  hasMemories: boolean;
+  nodeCount: number;
+  loadingText: string;
+  emptyMemoriesText: string;
+  noGraphText: string;
+  errorText: string;
+  children: React.ReactNode;
+}) {
+  if (isLoading) {
+    return (
+      <div className="text-muted-foreground flex flex-1 items-center justify-center text-sm">
+        {loadingText}
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="text-destructive flex flex-1 items-center justify-center text-sm">
+        {errorText}
+      </div>
+    );
+  }
+  if (!hasMemories) {
+    return (
+      <div className="text-muted-foreground flex flex-1 items-center justify-center text-center text-sm">
+        <p className="max-w-xs px-4">{emptyMemoriesText}</p>
+      </div>
+    );
+  }
+  if (nodeCount === 0) {
+    return (
+      <div className="text-muted-foreground flex flex-1 items-center justify-center text-center text-sm">
+        <p className="max-w-xs px-4">{noGraphText}</p>
+      </div>
+    );
+  }
+  return <div className="min-h-0 flex-1">{children}</div>;
 }
 
 function pushParams(
