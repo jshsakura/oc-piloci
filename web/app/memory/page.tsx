@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, FolderKanban, Search } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { MemoryGraphPanel } from "@/components/MemoryGraphPanel";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
@@ -58,9 +58,7 @@ function WikiContent() {
     enabled: Boolean(slug),
   });
 
-  // projectsQuery kept warm for the picker on /projects landing; not
-  // consumed by the wiki itself any more (v0.3.57).
-  void projectsQuery;
+  const projects = projectsQuery.data ?? [];
   const notes = useMemo(
     () => workspaceQuery.data?.workspace.notes ?? [],
     [workspaceQuery.data?.workspace.notes],
@@ -144,18 +142,48 @@ function WikiContent() {
     );
   }
 
-  // v0.3.57: wiki has no project picker — that lives on /projects. The
-  // wiki only renders for ?slug=... and bounces the user to /projects
-  // (with a helper card) when no slug is present.
+  // v0.3.58: wiki picks the project in-page via a card grid (no slug =
+  // pick a project from the grid). No header actions — page-level
+  // controls stay inside the page so the AppShell top bar stays stable
+  // and predictable across routes.
   return (
     <AppShell title={copy.title}>
       {!slug && (
-        <div className="border-border/60 mt-4 flex flex-col items-center gap-3 rounded-md border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
-          <p>{copy.pickProjectHint}</p>
-          <Button variant="secondary" size="sm" onClick={() => router.push("/projects")}>
-            <FolderKanban className="me-1.5 size-4" />
-            {t.appShell.sidebar.projects}
-          </Button>
+        // v0.3.58: replace the "go to /projects" dead-end with a real
+        // entry point — list every project as a clickable card that
+        // jumps straight into the wiki for that slug.
+        <div className="mt-4">
+          <p className="text-muted-foreground mb-3 text-sm">{copy.pickProjectHint}</p>
+          {projectsQuery.isLoading ? (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div
+                  key={i}
+                  className="border-border/60 h-20 animate-pulse rounded-md border bg-muted/30"
+                />
+              ))}
+            </div>
+          ) : projects.length === 0 ? (
+            <div className="border-border/60 rounded-md border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
+              아직 프로젝트가 없습니다.
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+              {projects.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => pushParams(router, searchParams, { slug: p.slug, note: null })}
+                  className="border-border/60 hover:border-primary/50 hover:bg-accent/30 flex flex-col items-start gap-1 rounded-md border p-3 text-start transition-colors"
+                >
+                  <span className="line-clamp-1 text-sm font-medium">{p.name}</span>
+                  <span className="text-muted-foreground text-[10px]">
+                    메모리 {p.memory_count} · 패턴 {p.instinct_count ?? 0}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

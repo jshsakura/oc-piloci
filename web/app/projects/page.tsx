@@ -70,14 +70,14 @@ function ProjectDetailContent() {
   const selectedNote = notes.find((n) => n.memory_id === selectedNoteId) ?? notes[0] ?? null;
   const stats = data?.workspace.stats;
 
-  const backAction = (
-    <Button variant="ghost" size="sm" onClick={() => router.push("/projects")}>
-      <ArrowLeft className="me-1 size-4" /> {t.projects.breadcrumb}
-    </Button>
-  );
-
   return (
-    <AppShell title={data?.project.name ?? slug ?? ""} actions={backAction}>
+    <AppShell title={data?.project.name ?? slug ?? ""}>
+      {/* v0.3.58: back link inline so the header stays stable across routes. */}
+      <div className="mb-2">
+        <Button variant="ghost" size="sm" className="-ms-2" onClick={() => router.push("/projects")}>
+          <ArrowLeft className="me-1 size-4" /> {t.projects.breadcrumb}
+        </Button>
+      </div>
       {data?.project.description && (
         <p className="text-muted-foreground mb-3 text-sm">{data.project.description}</p>
       )}

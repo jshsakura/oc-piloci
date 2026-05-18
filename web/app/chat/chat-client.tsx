@@ -197,8 +197,12 @@ export default function ChatClient() {
   );
 
   return (
-    <AppShell title={t.chat.title} actions={projectSelector}>
+    <AppShell title={t.chat.title}>
       <div className="flex w-full flex-col gap-4 pb-4">
+        {/* v0.3.58: project selector inline at the top of the chat body
+            instead of in the AppShell actions slot — keeps the header
+            stable and predictable. */}
+        <div className="flex items-center justify-end">{projectSelector}</div>
         <div
           ref={transcriptRef}
           className="pi-panel flex min-h-[55vh] flex-1 flex-col gap-5 overflow-y-auto p-5"

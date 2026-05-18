@@ -153,30 +153,31 @@ export default function TeamsPage() {
     );
   };
 
-  const createTeamForm = (
-    <form
-      className="flex gap-2"
-      onSubmit={(event) => {
-        event.preventDefault();
-        if (!teamName.trim()) return setNotice({ tone: "error", text: "팀 이름을 입력하세요." });
-        createTeamMutation.mutate();
-      }}
-    >
-      <Input
-        value={teamName}
-        onChange={(event) => setTeamName(event.target.value)}
-        placeholder="새 팀 이름"
-        aria-label="새 팀 이름"
-        className="h-8 w-40 text-sm"
-      />
-      <Button type="submit" size="sm" disabled={createTeamMutation.isPending}>
-        만들기
-      </Button>
-    </form>
-  );
-
   return (
-    <AppShell title="팀 작업공간" actions={createTeamForm}>
+    <AppShell title="팀 작업공간">
+      {/* v0.3.58: create-team form moved out of header actions into a
+          slim row inline at the top of the page body. */}
+      <div className="mb-3 flex items-center justify-end">
+        <form
+          className="flex gap-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!teamName.trim()) return setNotice({ tone: "error", text: "팀 이름을 입력하세요." });
+            createTeamMutation.mutate();
+          }}
+        >
+          <Input
+            value={teamName}
+            onChange={(event) => setTeamName(event.target.value)}
+            placeholder="새 팀 이름"
+            aria-label="새 팀 이름"
+            className="h-8 w-40 text-sm"
+          />
+          <Button type="submit" size="sm" disabled={createTeamMutation.isPending}>
+            만들기
+          </Button>
+        </form>
+      </div>
       {notice && (
         <div
           className={`mt-4 rounded-xl border px-4 py-3 text-sm ${
@@ -187,7 +188,10 @@ export default function TeamsPage() {
         </div>
       )}
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+      {/* items-start: side stack and main pane line up at the top instead
+          of stretching to match each other (v0.3.58 — the user noticed
+          uneven internal heights). */}
+      <div className="mt-4 grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="space-y-4">
           <Card>
             <CardHeader>
