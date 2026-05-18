@@ -112,6 +112,20 @@ export function MemoryGraphPanel({
     graphRef.current?.refresh?.();
   }, [selectedNodeId]);
 
+  // Auto-fit ONCE per graph dataset. Without this guard, any later engine
+  // restart (e.g. when react-force-graph reheats the sim) would yank the
+  // camera back to a "fit all" view, undoing whatever pan/zoom the user
+  // had just done — which is what made clicks feel like a position reset.
+  const hasAutoFitRef = useRef(false);
+  useEffect(() => {
+    hasAutoFitRef.current = false;
+  }, [graphData]);
+  const handleEngineStop = useCallback(() => {
+    if (hasAutoFitRef.current) return;
+    hasAutoFitRef.current = true;
+    graphRef.current?.zoomToFit(400, 40);
+  }, []);
+
   // onNodeHover fires on every mouse-move while the cursor is over the canvas,
   // not just on enter/leave. Short-circuit when the node id hasn't changed —
   // otherwise a single hover triggers a setState per frame and React re-renders
@@ -206,7 +220,7 @@ export function MemoryGraphPanel({
         onNodeHover={handleNodeHover}
         nodeCanvasObjectMode={nodeCanvasObjectMode}
         nodeCanvasObject={nodeCanvasObject}
-        onEngineStop={() => graphRef.current?.zoomToFit(400, 40)}
+        onEngineStop={handleEngineStop}
         cooldownTicks={120}
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.35}

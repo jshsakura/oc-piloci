@@ -414,7 +414,11 @@ function pushParams(
     else params.set(k, v);
   }
   const qs = params.toString();
-  router.replace(qs ? `/memory?${qs}` : "/memory");
+  // scroll: false — clicking a graph node updates ?note=, and Next.js's
+  // default replace() behavior scrolls the page to the top. That made the
+  // map "reset" on every click: the user's scroll position jumped above
+  // the workspace and the graph appeared to snap back to its anchor.
+  router.replace(qs ? `/memory?${qs}` : "/memory", { scroll: false });
 }
 
 export default function MemoryWikiPage() {
