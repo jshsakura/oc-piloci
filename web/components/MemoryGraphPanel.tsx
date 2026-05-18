@@ -121,7 +121,10 @@ export function MemoryGraphPanel({
   const handleEngineStop = useCallback(() => {
     if (hasAutoFitRef.current) return;
     hasAutoFitRef.current = true;
-    graphRef.current?.zoomToFit(400, 40);
+    // 20px padding fits tighter on narrow mobile canvases — the previous 40
+    // squeezed nodes to ~1px on small viewports, which combined with the
+    // pre-cooldown jitter looked like the graph was "flying around".
+    graphRef.current?.zoomToFit(400, 20);
   }, []);
 
   // onNodeHover fires on every mouse-move while the cursor is over the canvas,
@@ -171,7 +174,7 @@ export function MemoryGraphPanel({
           size="icon"
           variant="outline"
           className="size-8 bg-background/80 backdrop-blur"
-          onClick={() => graphRef.current?.zoomToFit(400, 40)}
+          onClick={() => graphRef.current?.zoomToFit(400, 20)}
         >
           <Maximize2 className="size-4" />
         </Button>
@@ -219,9 +222,15 @@ export function MemoryGraphPanel({
         nodeCanvasObjectMode={nodeCanvasObjectMode}
         nodeCanvasObject={nodeCanvasObject}
         onEngineStop={handleEngineStop}
-        cooldownTicks={120}
-        d3AlphaDecay={0.02}
-        d3VelocityDecay={0.35}
+        // warmupTicks runs the d3 sim off-screen before frame 0 — by the
+        // time the user sees the graph it's already at near-final positions.
+        // cooldownTicks then trims the visible-settling window from ~6s to
+        // under a second so the map doesn't appear to "fly around" on mount,
+        // especially on mobile where small movements look exaggerated.
+        warmupTicks={150}
+        cooldownTicks={30}
+        d3AlphaDecay={0.05}
+        d3VelocityDecay={0.4}
         backgroundColor="transparent"
       />
     </div>
