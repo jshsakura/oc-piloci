@@ -156,7 +156,9 @@ function ProjectDetailContent() {
               맥락 지도 불러오는 중…
             </div>
           ) : (
-            <MemoryGraphPanel nodes={graphNodes} edges={graphEdges} />
+            <div className="h-[520px] overflow-hidden rounded-xl border bg-card">
+              <MemoryGraphPanel nodes={graphNodes} edges={graphEdges} />
+            </div>
           )}
         </TabsContent>
       </Tabs>

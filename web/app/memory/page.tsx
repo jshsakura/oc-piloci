@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, FolderKanban, Search } from "lucide-react";
@@ -88,13 +88,22 @@ function WikiContent() {
     );
   }, [notes, query]);
 
-  // Auto-select the first note on first load so the detail pane is never
-  // empty when the user lands fresh — but respect an explicit ?note= so
-  // deep links stay sticky.
+  // Auto-select the first note ONCE per slug. Tracking by slug (not by
+  // mount) matters: without the ref, the effect refired whenever noteId
+  // became empty — e.g. when the mobile "목록으로" button cleared it — so
+  // back-to-list immediately bounced into the just-cleared note, making
+  // the button look dead. We arm auto-select per project and disarm it as
+  // soon as either a note is selected or the user explicitly deselects.
+  const autoSelectedSlugRef = useRef<string | null>(null);
   useEffect(() => {
     if (!slug || !workspaceQuery.data) return;
-    if (noteId) return;
+    if (autoSelectedSlugRef.current === slug) return;
+    if (noteId) {
+      autoSelectedSlugRef.current = slug;
+      return;
+    }
     if (notes.length === 0) return;
+    autoSelectedSlugRef.current = slug;
     pushParams(router, searchParams, { slug, note: notes[0].memory_id });
   }, [slug, noteId, notes, workspaceQuery.data, router, searchParams]);
 
@@ -176,16 +185,17 @@ function WikiContent() {
       )}
 
       {slug && (
-        // v0.3.61 layout: simple block flow. Each panel is a solid
-        // bg-card surface (no border — borders were stacking visually
-        // with the inner cards). Graph is a fixed 400px so it can't
-        // overflow into the row below; list / detail share a
-        // 500px-min row underneath with their own scroll.
-        <div className="space-y-4">
-          {/* TOP — context map (solid card, fixed height) */}
-          <div className="bg-card h-[400px] overflow-hidden rounded-md p-2">
+        // v0.3.63 layout: ONE workspace card divided by internal borders,
+        // not two stacked cards with a gap. The graph is the top section,
+        // list+detail share the bottom — both sized per breakpoint so the
+        // page isn't crushed on mobile nor barren on desktop.
+        <div className="bg-card overflow-hidden rounded-lg border">
+          {/* Graph section — flex column so GraphPane's flex-1 states fill
+              and center; relative so the loading skeleton can absolutely
+              cover the area without doing card-in-card chrome. */}
+          <div className="relative flex h-[260px] flex-col overflow-hidden border-b sm:h-[380px] lg:h-[440px]">
             {workspaceQuery.isLoading ? (
-              <div className="bg-muted/40 h-full w-full animate-pulse rounded" />
+              <div className="bg-muted/40 absolute inset-0 animate-pulse" />
             ) : (
               <GraphPane
                 isLoading={false}
@@ -201,19 +211,20 @@ function WikiContent() {
                   nodes={graphNodes}
                   edges={graphEdges}
                   onNodeClick={handleGraphNode}
+                  selectedNodeId={noteId}
                 />
               </GraphPane>
             )}
           </div>
 
-          {/* BOTTOM — single card containing both list and detail with
-              an internal divider. Avoids the "card inside card" feel
-              of having list + detail as separate sibling cards. */}
-          <div className="bg-card grid h-[500px] items-stretch overflow-hidden rounded-md md:grid-cols-[240px_minmax(0,1fr)]">
+          {/* List + Detail — single grid row. md-only divider between the
+              panes; mobile shows one pane at a time and toggles via the
+              "목록으로" button in the detail header. */}
+          <div className="grid h-[460px] items-stretch overflow-hidden md:h-[520px] md:grid-cols-[260px_minmax(0,1fr)]">
             {(
               <div
                 className={cn(
-                  "flex h-full min-h-0 flex-col overflow-hidden border-e p-3",
+                  "flex h-full min-h-0 flex-col overflow-hidden p-3 md:border-e",
                   selectedNote && "hidden md:flex",
                 )}
               >
@@ -283,7 +294,7 @@ function WikiContent() {
               </div>
             ) : selectedNote ? (
               <>
-                <div className="mb-3 flex items-center gap-2 lg:hidden">
+                <div className="mb-3 flex items-center gap-2 md:hidden">
                   <Button
                     variant="ghost"
                     size="sm"
