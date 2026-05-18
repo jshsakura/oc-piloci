@@ -221,10 +221,30 @@ export function DashboardSummaryPanels({
     }
     return s;
   })();
-  const ANGER_KW = ['화', '화남', '분노', '짜증', '불만', '답답', '열받', '멘붕', '빡침', 'angry', 'frustrated', 'annoyed', 'upset'];
-  const angryCount = data?.top_tags
-    ?.filter((t) => ANGER_KW.some((k) => t.tag.toLowerCase().includes(k)))
-    .reduce((s, t) => s + t.count, 0) ?? 0;
+  // v0.3.51: "화난 순간" was tag-keyword based — tags are usually work
+  // categories (architecture, ui, security) so the count was almost
+  // always 0 even when feedback memories / reaction instincts clearly
+  // captured frustration. Rebuilt to match against the actual carriers:
+  //   1. top_instincts where domain === "reaction" — every one counts
+  //      as an emotional reaction (positive or negative).
+  //   2. recent_memories that the curator tagged as feedback (we don't
+  //      get category from this endpoint directly, so fall back to
+  //      keyword sniffing the content).
+  // Label flipped to "감정 반응" so users don't expect strictly-anger.
+  const NEG_KW = ['화', '분노', '짜증', '불만', '답답', '열받', '멘붕', '빡침', 'angry', 'frustrated', 'annoyed', 'upset'];
+  const matchesEmotion = (text: string): boolean => {
+    const lower = text.toLowerCase();
+    return NEG_KW.some((k) => lower.includes(k));
+  };
+  const reactionInstinctCount = (data?.top_instincts ?? []).filter(
+    (i) => i.domain === 'reaction',
+  ).reduce((sum, i) => sum + (i.instinct_count || 1), 0);
+  const feedbackContentMatches = (data?.recent_memories ?? []).filter((m) =>
+    matchesEmotion(m.content || ''),
+  ).length;
+  // Sum the two signals; instincts capture repeated patterns, memories
+  // capture single sharp moments.
+  const angryCount = reactionInstinctCount + feedbackContentMatches;
 
   const memPager = usePager(memories, 4);
   const instPager = usePager(instincts, 4);

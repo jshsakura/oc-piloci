@@ -153,13 +153,13 @@ function WikiContent() {
     );
   }
 
-  // v0.3.50 header: replaced the heavyweight PageHero with a single
-  // sticky topbar row aligned to the sidebar's 14px brand band. Title +
-  // project selector + list toggle all live in one line so the page
-  // doesn't feel "card-on-card-on-card" anymore.
+  // v0.3.51 header: dropped the negative-margin "edge-to-edge" trick
+  // (it broke layout under the sidebar). A normal in-flow row inside
+  // the page padding — slim, sticky, with a bottom border — gives the
+  // same "no more giant hero" feel without fighting AppShell's grid.
   return (
     <AppShell>
-      <div className="bg-background/80 -mx-4 -mt-6 mb-4 flex h-12 items-center gap-3 border-b px-4 backdrop-blur sm:-mx-6 sm:px-6">
+      <div className="bg-background/85 sticky top-14 z-20 -mt-2 mb-4 flex items-center gap-3 border-b py-2 backdrop-blur">
         <div className="flex min-w-0 items-baseline gap-2">
           <h1 className="text-base font-semibold tracking-tight">{copy.title}</h1>
           <p className="text-muted-foreground hidden truncate text-xs sm:block">

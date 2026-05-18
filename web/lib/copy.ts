@@ -868,9 +868,9 @@ const ko = {
           week: '이번 주',
           streak: '연속 기록',
           streakUnit: '일',
-          anger: '화난 순간',
+          anger: '감정 반응',
           angerNone: '없음',
-          angerUnit: '번',
+          angerUnit: '건',
         },
         cols: {
           memory: '메모리',
@@ -2004,9 +2004,9 @@ const en: CopyShape = {
           week: 'This week',
           streak: 'Streak',
           streakUnit: 'd',
-          anger: 'Angry moments',
+          anger: 'Emotional reactions',
           angerNone: 'none',
-          angerUnit: 'x',
+          angerUnit: '',
         },
         cols: {
           memory: 'Memory',
