@@ -44,10 +44,6 @@ function WikiContent() {
   const slug = searchParams.get("slug");
   const noteId = searchParams.get("note");
   const [query, setQuery] = useState("");
-  // Note list stays open by default; the v0.3.50 collapse toggle was
-  // removed when the wiki switched to a vertical stack — the bottom row
-  // already balances list + detail at a comfortable 240/1fr ratio.
-  const listOpen = true;
 
   useEffect(() => {
     if (hasHydrated && !isBootstrapping && !user) router.replace("/login");
@@ -174,51 +170,53 @@ function WikiContent() {
       </div>
 
       {!slug && (
-        <div className="border-border/60 mt-2 rounded-md border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
+        <div className="bg-card text-muted-foreground rounded-md px-6 py-10 text-center text-sm">
           {copy.pickProjectHint}
         </div>
       )}
 
       {slug && (
-        // v0.3.60 layout: explicit heights instead of fr-rows. dvh-based
-        // row grids stacked their content on each other when content
-        // grew. flex column + fixed graph height keeps panels separate.
-        <div className="flex flex-col gap-3">
-          {/* TOP — context map, fixed-ish height so it can't squeeze
-              the body underneath. */}
-          <div className="border-border/60 flex h-[50vh] min-h-[280px] flex-col rounded-md border p-2">
-            <GraphPane
-              isLoading={workspaceQuery.isLoading}
-              error={workspaceQuery.error as Error | null}
-              hasMemories={notes.length > 0}
-              nodeCount={graphNodes.length}
-              loadingText={copy.loading}
-              emptyMemoriesText={copy.noMemories}
-              noGraphText={copy.noGraph}
-              errorText={copy.loadError}
-            >
-              <MemoryGraphPanel
-                nodes={graphNodes}
-                edges={graphEdges}
-                onNodeClick={handleGraphNode}
-              />
-            </GraphPane>
+        // v0.3.61 layout: simple block flow. Each panel is a solid
+        // bg-card surface (no border — borders were stacking visually
+        // with the inner cards). Graph is a fixed 400px so it can't
+        // overflow into the row below; list / detail share a
+        // 500px-min row underneath with their own scroll.
+        <div className="space-y-4">
+          {/* TOP — context map (solid card, fixed height) */}
+          <div className="bg-card h-[400px] overflow-hidden rounded-md p-2">
+            {workspaceQuery.isLoading ? (
+              <div className="bg-muted/40 h-full w-full animate-pulse rounded" />
+            ) : (
+              <GraphPane
+                isLoading={false}
+                error={workspaceQuery.error as Error | null}
+                hasMemories={notes.length > 0}
+                nodeCount={graphNodes.length}
+                loadingText={copy.loading}
+                emptyMemoriesText={copy.noMemories}
+                noGraphText={copy.noGraph}
+                errorText={copy.loadError}
+              >
+                <MemoryGraphPanel
+                  nodes={graphNodes}
+                  edges={graphEdges}
+                  onNodeClick={handleGraphNode}
+                />
+              </GraphPane>
+            )}
           </div>
 
-          {/* BOTTOM ROW — list + detail with their own fixed height so
-              the row never overlaps the graph above. */}
+          {/* BOTTOM ROW — list + detail, fixed row height, internal scroll */}
           <div
             className={cn(
-              "grid h-[50vh] min-h-[280px] items-stretch gap-3",
-              listOpen
-                ? "md:grid-cols-[240px_minmax(0,1fr)]"
-                : "md:grid-cols-[minmax(0,1fr)]",
+              "grid h-[500px] items-stretch gap-4",
+              "md:grid-cols-[240px_minmax(0,1fr)]",
             )}
           >
-            {listOpen && (
+            {(
               <div
                 className={cn(
-                  "border-border/60 flex h-full min-h-0 flex-col overflow-hidden rounded-md border p-2",
+                  "bg-card flex h-full min-h-0 flex-col overflow-hidden rounded-md p-3",
                   selectedNote && "hidden md:flex",
                 )}
               >
@@ -235,9 +233,15 @@ function WikiContent() {
                   />
                 </div>
                 <ul className="min-h-0 flex-1 overflow-y-auto">
-                  {filteredNotes.length === 0 ? (
+                  {workspaceQuery.isLoading ? (
+                    <li className="space-y-1.5 px-1 py-1">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <div key={i} className="bg-muted/40 h-9 animate-pulse rounded" />
+                      ))}
+                    </li>
+                  ) : filteredNotes.length === 0 ? (
                     <li className="text-muted-foreground px-2 py-4 text-center text-xs">
-                      {workspaceQuery.isLoading ? copy.loading : copy.empty}
+                      {copy.empty}
                     </li>
                   ) : (
                     filteredNotes.map((n) => {
@@ -268,11 +272,18 @@ function WikiContent() {
             {/* Detail pane — selected note body + backlinks */}
             <div
               className={cn(
-                "border-border/60 flex h-full min-h-0 flex-col overflow-hidden rounded-md border p-3",
+                "bg-card flex h-full min-h-0 flex-col overflow-hidden rounded-md p-4",
                 !selectedNote && "hidden md:flex",
               )}
             >
-            {selectedNote ? (
+            {workspaceQuery.isLoading ? (
+              <div className="space-y-3">
+                <div className="bg-muted/40 h-5 w-3/4 animate-pulse rounded" />
+                <div className="bg-muted/40 h-3 w-full animate-pulse rounded" />
+                <div className="bg-muted/40 h-3 w-5/6 animate-pulse rounded" />
+                <div className="bg-muted/40 h-3 w-2/3 animate-pulse rounded" />
+              </div>
+            ) : selectedNote ? (
               <>
                 <div className="mb-3 flex items-center gap-2 lg:hidden">
                   <Button
