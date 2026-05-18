@@ -438,38 +438,38 @@ export default function LandingPage() {
                 >
                   <circle cx="50" cy="37.5" r="16" className="fill-primary/[0.04]" />
                   <circle cx="50" cy="37.5" r="9" className="fill-primary/[0.07]" />
-                  <path d="M 16 14 Q 30 24 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20" strokeDasharray="1 1.5" />
+                  <path d="M 16 14 Q 30 24 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20 pi-flow-line" strokeDasharray="1 1.5" />
                   <circle cx="16" cy="14" r="0.9" className="fill-primary/30" />
-                  <path d="M 84 14 Q 68 24 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20" strokeDasharray="1 1.5" />
+                  <path d="M 84 14 Q 68 24 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20 pi-flow-line" strokeDasharray="1 1.5" style={{ animationDelay: "0.6s" }} />
                   <circle cx="84" cy="14" r="0.9" className="fill-primary/30" />
-                  <path d="M 16 62 Q 30 52 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20" strokeDasharray="1 1.5" />
+                  <path d="M 16 62 Q 30 52 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20 pi-flow-line" strokeDasharray="1 1.5" style={{ animationDelay: "1.2s" }} />
                   <circle cx="16" cy="62" r="0.9" className="fill-primary/30" />
-                  <path d="M 84 62 Q 68 52 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20" strokeDasharray="1 1.5" />
+                  <path d="M 84 62 Q 68 52 50 37.5" stroke="currentColor" strokeWidth="0.2" className="text-primary/20 pi-flow-line" strokeDasharray="1 1.5" style={{ animationDelay: "1.8s" }} />
                   <circle cx="84" cy="62" r="0.9" className="fill-primary/30" />
                 </svg>
 
                 {/* Project — top-left */}
-                <div className="absolute left-[5%] top-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm">
+                <div className="pi-float-node absolute left-[5%] top-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm">
                   <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider text-primary">{curation.graphNodes.project.label}</p>
                   <p className="text-xs sm:text-sm font-medium">{curation.graphNodes.project.value}</p>
                 </div>
                 {/* Decision — top-right */}
-                <div className="absolute right-[5%] top-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm">
+                <div className="pi-float-node absolute right-[5%] top-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm" style={{ animationDelay: "0.8s" }}>
                   <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider text-primary">{curation.graphNodes.decision.label}</p>
                   <p className="text-xs sm:text-sm font-medium">{curation.graphNodes.decision.value}</p>
                 </div>
                 {/* Curated — center hub */}
-                <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl sm:rounded-2xl border border-primary/30 bg-primary px-3 py-2 sm:px-5 sm:py-4 text-primary-foreground shadow-lg">
+                <div className="pi-hub-node absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-xl sm:rounded-2xl border border-primary/30 bg-primary px-3 py-2 sm:px-5 sm:py-4 text-primary-foreground shadow-lg">
                   <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider opacity-80">{curation.graphNodes.curated.label}</p>
                   <p className="text-xs sm:text-sm font-semibold">{curation.graphNodes.curated.value}</p>
                 </div>
                 {/* Constraint — bottom-left */}
-                <div className="absolute left-[5%] bottom-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm">
+                <div className="pi-float-node absolute left-[5%] bottom-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm" style={{ animationDelay: "1.6s" }}>
                   <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider text-primary">{curation.graphNodes.constraint.label}</p>
                   <p className="text-xs sm:text-sm font-medium">{curation.graphNodes.constraint.value}</p>
                 </div>
                 {/* Preference — bottom-right */}
-                <div className="absolute right-[5%] bottom-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm">
+                <div className="pi-float-node absolute right-[5%] bottom-[5%] rounded-lg sm:rounded-xl border bg-background/95 px-2 py-1 sm:px-3 sm:py-2 shadow-sm backdrop-blur-sm" style={{ animationDelay: "2.4s" }}>
                   <p className="text-[8px] sm:text-[10px] font-semibold uppercase tracking-wider text-primary">{curation.graphNodes.preference.label}</p>
                   <p className="text-xs sm:text-sm font-medium">{curation.graphNodes.preference.value}</p>
                 </div>

@@ -252,9 +252,9 @@ const ko = {
           graphDesc: '프로젝트의 결정, 제약, 취향, 작업 흔적이 하나의 별자리처럼 연결됩니다.',
           graphNodes: {
             project: { label: '프로젝트', value: 'piLoci' },
-            decision: { label: '결정', value: '로컬 퍼스트' },
+            decision: { label: '결정', value: '로컬 LLM' },
             curated: { label: '선별된 기억', value: '알아서 정리한 맥락' },
-            constraint: { label: '제약', value: 'Pi 5 예산' },
+            constraint: { label: '제약', value: 'Pi 5 맞춤 성능' },
             preference: { label: '취향', value: '클라우드 유출 없음' },
           },
         },
@@ -1390,9 +1390,9 @@ const en: CopyShape = {
           graphDesc: 'Decisions, constraints, preferences, and work traces become a constellation of project memory.',
           graphNodes: {
             project: { label: 'Project', value: 'piLoci' },
-            decision: { label: 'Decision', value: 'local first' },
+            decision: { label: 'Decision', value: 'local LLM' },
             curated: { label: 'Curated Memory', value: 'quiet context' },
-            constraint: { label: 'Constraint', value: 'Pi 5 budget' },
+            constraint: { label: 'Constraint', value: 'tuned for Pi 5' },
             preference: { label: 'Preference', value: 'no cloud leak' },
           },
         },

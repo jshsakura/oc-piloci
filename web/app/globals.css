@@ -291,3 +291,29 @@ button {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+
+/* Landing-page curation graph: dashes flowing inward along each connection
+   line, satellite cards drifting gently, the center "선별된 기억" hub pulsing
+   like a sonar ping. The diagram had no motion before — it looked like a
+   static diagram instead of an active, ambient process. */
+@keyframes pi-flow-in {
+  to { stroke-dashoffset: -2.5; }
+}
+
+@keyframes pi-float-y {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes pi-hub-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.5); }
+  50% { box-shadow: 0 0 0 14px hsl(var(--primary) / 0); }
+}
+
+.pi-flow-line { animation: pi-flow-in 4s linear infinite; }
+.pi-float-node { animation: pi-float-y 4s ease-in-out infinite; }
+.pi-hub-node { animation: pi-hub-pulse 2.4s ease-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .pi-flow-line, .pi-float-node, .pi-hub-node { animation: none !important; }
+}
