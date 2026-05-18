@@ -173,12 +173,20 @@ function WikiContent() {
         </Select>
       </div>
 
+      {!slug && (
+        <div className="border-border/60 mt-2 rounded-md border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
+          {copy.pickProjectHint}
+        </div>
+      )}
+
       {slug && (
-        // Border-only panels (no bg) — the three regions stay visually
-        // distinct without piling card chrome on card chrome.
-        <div className="grid h-[calc(100dvh-12rem)] grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)] gap-3">
-          {/* TOP — context map full width */}
-          <div className="border-border/60 flex min-h-0 flex-col rounded-md border p-2">
+        // v0.3.60 layout: explicit heights instead of fr-rows. dvh-based
+        // row grids stacked their content on each other when content
+        // grew. flex column + fixed graph height keeps panels separate.
+        <div className="flex flex-col gap-3">
+          {/* TOP — context map, fixed-ish height so it can't squeeze
+              the body underneath. */}
+          <div className="border-border/60 flex h-[50vh] min-h-[280px] flex-col rounded-md border p-2">
             <GraphPane
               isLoading={workspaceQuery.isLoading}
               error={workspaceQuery.error as Error | null}
@@ -197,10 +205,11 @@ function WikiContent() {
             </GraphPane>
           </div>
 
-          {/* BOTTOM ROW — list + detail, border-divided columns */}
+          {/* BOTTOM ROW — list + detail with their own fixed height so
+              the row never overlaps the graph above. */}
           <div
             className={cn(
-              "grid min-h-0 items-stretch gap-3",
+              "grid h-[50vh] min-h-[280px] items-stretch gap-3",
               listOpen
                 ? "md:grid-cols-[240px_minmax(0,1fr)]"
                 : "md:grid-cols-[minmax(0,1fr)]",
