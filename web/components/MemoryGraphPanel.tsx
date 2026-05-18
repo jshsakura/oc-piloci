@@ -110,22 +110,59 @@ export function MemoryGraphPanel({
     graphRef.current?.refresh?.();
   }, [selectedNodeId]);
 
-  // Auto-fit ONCE per graph dataset. Without this guard, any later engine
-  // restart (e.g. when react-force-graph reheats the sim) would yank the
-  // camera back to a "fit all" view, undoing whatever pan/zoom the user
-  // had just done — which is what made clicks feel like a position reset.
+  // Measure the panel container ourselves and pass the size to ForceGraph2D
+  // as explicit pixels. Without this, react-force-graph defaults to window
+  // dimensions when width/height are undefined — on mobile that produced a
+  // canvas larger than the actual panel viewport, so half the graph was
+  // clipped on mount. ResizeObserver also keeps the canvas in sync with
+  // orientation / viewport changes after mount.
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const [size, setSize] = useState<{ width: number; height: number }>({
+    width: 0,
+    height: 0,
+  });
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setSize((prev) =>
+        prev.width === rect.width && prev.height === rect.height
+          ? prev
+          : { width: rect.width, height: rect.height },
+      );
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Auto-fit ONCE per graph dataset, but only after BOTH the engine has
+  // stopped AND the container has been measured — otherwise zoomToFit runs
+  // against a 0x0 (or stale window-sized) canvas and produces a useless
+  // camera. The two-condition gate is what cleans up the mobile "half
+  // clipped" symptom.
   const hasAutoFitRef = useRef(false);
+  const engineStoppedRef = useRef(false);
   useEffect(() => {
     hasAutoFitRef.current = false;
+    engineStoppedRef.current = false;
   }, [graphData]);
-  const handleEngineStop = useCallback(() => {
+  const tryAutoFit = useCallback(() => {
     if (hasAutoFitRef.current) return;
+    if (!engineStoppedRef.current) return;
+    if (size.width < 10 || size.height < 10) return;
     hasAutoFitRef.current = true;
-    // 20px padding fits tighter on narrow mobile canvases — the previous 40
-    // squeezed nodes to ~1px on small viewports, which combined with the
-    // pre-cooldown jitter looked like the graph was "flying around".
     graphRef.current?.zoomToFit(400, 20);
-  }, []);
+  }, [size.width, size.height]);
+  useEffect(() => {
+    tryAutoFit();
+  }, [tryAutoFit]);
+  const handleEngineStop = useCallback(() => {
+    engineStoppedRef.current = true;
+    tryAutoFit();
+  }, [tryAutoFit]);
 
   // onNodeHover fires on every mouse-move while the cursor is over the canvas,
   // not just on enter/leave. Short-circuit when the node id hasn't changed —
@@ -151,7 +188,7 @@ export function MemoryGraphPanel({
   // bg). v0.3.62: the wiki page wraps the graph in its own card; rendering
   // another card here produced a clipped, card-inside-card top section.
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden">
       {/* Controls */}
       <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5">
         <Button
@@ -232,6 +269,8 @@ export function MemoryGraphPanel({
         d3AlphaDecay={0.05}
         d3VelocityDecay={0.4}
         backgroundColor="transparent"
+        width={size.width || undefined}
+        height={size.height || undefined}
       />
     </div>
   );

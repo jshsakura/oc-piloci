@@ -255,28 +255,33 @@ function WikiContent() {
               panes; mobile shows one pane at a time and toggles via the
               "목록으로" button in the detail header. */}
           <div className="grid h-[460px] items-stretch overflow-hidden md:h-[520px] md:grid-cols-[260px_minmax(0,1fr)]">
+            {/* List pane — search header on top, scroll viewport extends
+                to the card edges so any overflow clips AT the border, not
+                in a padded strip floating above it. */}
             {(
               <div
                 className={cn(
-                  "flex h-full min-h-0 flex-col overflow-hidden p-3 md:border-e",
+                  "flex h-full min-h-0 flex-col overflow-hidden md:border-e",
                   selectedNote && "hidden md:flex",
                 )}
               >
-                <div className="relative mb-2">
-                  <Search
-                    className="text-muted-foreground absolute start-2 top-1/2 size-3.5 -translate-y-1/2"
-                    aria-hidden
-                  />
-                  <Input
-                    value={query}
-                    onChange={(e) => setQuery(e.target.value)}
-                    placeholder={copy.searchPlaceholder}
-                    className="h-8 ps-7 text-sm"
-                  />
+                <div className="px-3 pt-3 pb-2">
+                  <div className="relative">
+                    <Search
+                      className="text-muted-foreground absolute start-2 top-1/2 size-3.5 -translate-y-1/2"
+                      aria-hidden
+                    />
+                    <Input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      placeholder={copy.searchPlaceholder}
+                      className="h-8 ps-7 text-sm"
+                    />
+                  </div>
                 </div>
-                <ul className="min-h-0 flex-1 overflow-y-auto">
+                <ul className="min-h-0 flex-1 overflow-y-auto px-3">
                   {workspaceQuery.isLoading ? (
-                    <li className="space-y-1.5 px-1 py-1">
+                    <li className="space-y-1.5 py-1">
                       {Array.from({ length: 6 }).map((_, i) => (
                         <div key={i} className="bg-muted/40 h-9 animate-pulse rounded" />
                       ))}
@@ -311,17 +316,17 @@ function WikiContent() {
               </div>
             )}
 
-            {/* Detail pane — selected note body + backlinks. Lives
-                inside the same outer card as the list. Mobile uses
-                tighter padding so notes get more reading width. */}
+            {/* Detail pane — selected note body + backlinks. Same edge-to-
+                edge pattern as the list: padding moves INSIDE the scroll
+                viewport so long content clips at the card border. */}
             <div
               className={cn(
-                "flex h-full min-h-0 flex-col overflow-hidden p-3 md:p-4",
+                "flex h-full min-h-0 flex-col overflow-hidden",
                 !selectedNote && "hidden md:flex",
               )}
             >
             {workspaceQuery.isLoading ? (
-              <div className="space-y-3">
+              <div className="space-y-3 p-3 md:p-4">
                 <div className="bg-muted/40 h-5 w-3/4 animate-pulse rounded" />
                 <div className="bg-muted/40 h-3 w-full animate-pulse rounded" />
                 <div className="bg-muted/40 h-3 w-5/6 animate-pulse rounded" />
@@ -332,12 +337,12 @@ function WikiContent() {
                 <button
                   type="button"
                   onClick={() => handleSelectNote("")}
-                  className="text-muted-foreground hover:text-foreground -ms-1 mb-2 inline-flex items-center gap-1 self-start text-xs md:hidden"
+                  className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 self-start px-3 pt-3 text-xs md:hidden"
                 >
                   <ArrowLeft className="size-3.5" />
                   {copy.backToList}
                 </button>
-                <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 md:px-4 md:pt-4">
                   <VaultNoteDetail note={selectedNote} />
                   {linkedNotes.length > 0 && (
                     <div className="mt-6 border-t pt-4">
@@ -368,7 +373,7 @@ function WikiContent() {
                 </div>
               </>
             ) : (
-              <p className="text-muted-foreground py-10 text-center text-sm">
+              <p className="text-muted-foreground p-10 text-center text-sm">
                 {copy.pickNoteHint}
               </p>
             )}
