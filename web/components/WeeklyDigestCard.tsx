@@ -5,6 +5,7 @@ import { CalendarDays, Lock, RefreshCcw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ColoredStat } from "@/components/ui/colored-stat";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
@@ -126,15 +127,15 @@ export function WeeklyDigestCard() {
             </p>
 
             {stats && (
-              // v0.3.53: 4 stats, mobile lays them out 2×2 so the row no
-              // longer feels under-used. Emerald slot picks up the
-              // active-project count from top_projects (already returned
-              // by the digest worker — no backend change needed).
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <Stat label={copy.statSessions} value={stats.sessions} tone="blue" />
-                <Stat label={copy.statFeedback} value={stats.feedback_count} tone="rose" />
-                <Stat label={copy.statReactions} value={stats.reaction_count} tone="violet" />
-                <Stat
+                <ColoredStat label={copy.statSessions} value={stats.sessions} tone="blue" />
+                <ColoredStat label={copy.statFeedback} value={stats.feedback_count} tone="rose" />
+                <ColoredStat
+                  label={copy.statReactions}
+                  value={stats.reaction_count}
+                  tone="violet"
+                />
+                <ColoredStat
                   label={copy.statProjects}
                   value={stats.top_projects?.length ?? 0}
                   tone="emerald"
@@ -159,32 +160,5 @@ export function WeeklyDigestCard() {
         )}
       </CardContent>
     </Card>
-  );
-}
-
-// v0.3.49: stat boxes were nearly invisible in dark mode (bg-muted/40
-// against a similarly-muted card background). Use category-coloured
-// backgrounds so the three counts are visually distinct and pop in
-// both themes without needing a border.
-function Stat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "blue" | "rose" | "violet" | "emerald";
-}) {
-  const toneClass = {
-    blue: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
-    rose: "bg-rose-500/15 text-rose-700 dark:text-rose-300",
-    violet: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
-    emerald: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
-  }[tone];
-  return (
-    <div className={`rounded-md px-3 py-2 ${toneClass}`}>
-      <p className="text-[10px] uppercase tracking-wide opacity-80">{label}</p>
-      <p className="text-lg font-semibold tabular-nums">{value}</p>
-    </div>
   );
 }
