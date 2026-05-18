@@ -7,6 +7,7 @@ import { ExternalLink, FileText, UsersRound } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -50,7 +51,20 @@ export function TeamMiniPanel() {
   });
 
   if (teamsQuery.isLoading) {
-    return <Card><CardContent className="py-6 text-muted-foreground text-sm">···</CardContent></Card>;
+    return (
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-8 w-44" />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex gap-2">
+            <Skeleton className="h-6 w-20" />
+            <Skeleton className="h-6 w-20" />
+          </div>
+          <Skeleton className="h-32 w-full" />
+        </CardContent>
+      </Card>
+    );
   }
 
   if (teams.length === 0) {

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CheckCircle2, Clock, ExternalLink, Filter, History, XCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
@@ -57,7 +58,16 @@ export function RecentSessionsCard() {
         </Tabs>
       </CardHeader>
       <CardContent>
-        {isLoading && <p className="text-muted-foreground text-sm">···</p>}
+        {isLoading && (
+          <ul className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <li key={i} className="space-y-1.5">
+                <Skeleton className="h-4 w-1/3" />
+                <Skeleton className="h-3 w-3/4" />
+              </li>
+            ))}
+          </ul>
+        )}
         {error && !isLoading && (
           <p className="text-destructive text-sm">{(error as Error).message}</p>
         )}

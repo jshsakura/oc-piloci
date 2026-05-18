@@ -714,8 +714,8 @@ const ko = {
     },
     memoryWiki: {
       eyebrow: '메모리 위키',
-      title: '메모리를 펼쳐보기',
-      subtitle: '그래프 노드를 누르거나 좌측에서 검색해 메모리를 항해합니다. 백링크로 점프할 수 있어요.',
+      title: '메모리 위키',
+      subtitle: '맥락지도에서 노드를 누르거나 목록에서 검색해 관련 메모리로 점프합니다.',
       selectProject: '프로젝트 선택',
       searchPlaceholder: '제목·내용·태그 검색',
       empty: '표시할 메모리가 없습니다.',
@@ -1850,8 +1850,8 @@ const en: CopyShape = {
     },
     memoryWiki: {
       eyebrow: 'Memory wiki',
-      title: 'Browse your memories',
-      subtitle: 'Click a graph node or search on the left to navigate. Backlinks let you jump between related memories.',
+      title: 'Memory wiki',
+      subtitle: 'Click a node on the context map or search the list to jump between related memories.',
       selectProject: 'Select project',
       searchPlaceholder: 'Search title / content / tags',
       empty: 'No memories to show.',

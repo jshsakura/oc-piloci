@@ -18,6 +18,7 @@ import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 
 /**
  * Distillation pipeline status panel for the dashboard.
@@ -50,6 +51,10 @@ export function DistillationStatusPanel() {
   });
 
   if (isLoading) {
+    // Skeleton roughly mirrors the loaded shape: header row + 5-cell
+    // counts grid + 2-cell throughput grid. Keeps the page from
+    // collapsing/expanding when data lands (the "덜컥거림" the user
+    // flagged in v0.3.49).
     return (
       <Card>
         <CardHeader>
@@ -58,7 +63,18 @@ export function DistillationStatusPanel() {
             기억 정리 현황
           </CardTitle>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">로딩 중…</CardContent>
+        <CardContent className="space-y-4">
+          <Skeleton className="h-5 w-24" />
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-16" />
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <Skeleton className="h-16" />
+            <Skeleton className="h-16" />
+          </div>
+        </CardContent>
       </Card>
     );
   }

@@ -5,6 +5,7 @@ import { CalendarDays, Lock, RefreshCcw, Sparkles } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { useTranslation } from "@/lib/i18n";
 
@@ -70,7 +71,15 @@ export function WeeklyDigestCard() {
 
       <CardContent className="space-y-4">
         {isLoading && (
-          <div className="text-muted-foreground bg-muted/30 h-20 animate-pulse rounded" />
+          <div className="space-y-3">
+            <Skeleton className="h-3 w-40" />
+            <Skeleton className="h-16 w-full" />
+            <div className="grid grid-cols-3 gap-2">
+              <Skeleton className="h-14" />
+              <Skeleton className="h-14" />
+              <Skeleton className="h-14" />
+            </div>
+          </div>
         )}
 
         {error && !isLoading && (
@@ -118,9 +127,9 @@ export function WeeklyDigestCard() {
 
             {stats && (
               <div className="grid grid-cols-3 gap-2">
-                <Stat label={copy.statSessions} value={stats.sessions} />
-                <Stat label={copy.statFeedback} value={stats.feedback_count} />
-                <Stat label={copy.statReactions} value={stats.reaction_count} />
+                <Stat label={copy.statSessions} value={stats.sessions} tone="blue" />
+                <Stat label={copy.statFeedback} value={stats.feedback_count} tone="rose" />
+                <Stat label={copy.statReactions} value={stats.reaction_count} tone="violet" />
               </div>
             )}
 
@@ -144,11 +153,28 @@ export function WeeklyDigestCard() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+// v0.3.49: stat boxes were nearly invisible in dark mode (bg-muted/40
+// against a similarly-muted card background). Use category-coloured
+// backgrounds so the three counts are visually distinct and pop in
+// both themes without needing a border.
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "blue" | "rose" | "violet";
+}) {
+  const toneClass = {
+    blue: "bg-blue-500/15 text-blue-700 dark:text-blue-300",
+    rose: "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+    violet: "bg-violet-500/15 text-violet-700 dark:text-violet-300",
+  }[tone];
   return (
-    <div className="bg-muted/40 rounded-md px-3 py-2">
-      <p className="text-muted-foreground text-[10px] uppercase tracking-wide">{label}</p>
-      <p className="text-foreground text-lg font-semibold tabular-nums">{value}</p>
+    <div className={`rounded-md px-3 py-2 ${toneClass}`}>
+      <p className="text-[10px] uppercase tracking-wide opacity-80">{label}</p>
+      <p className="text-lg font-semibold tabular-nums">{value}</p>
     </div>
   );
 }

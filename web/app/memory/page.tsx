@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, FolderKanban, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { MemoryGraphPanel } from "@/components/MemoryGraphPanel";
+import { PageHero } from "@/components/PageContainer";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
 import RoutePending from "@/components/RoutePending";
 import { Button } from "@/components/ui/button";
@@ -153,37 +154,22 @@ function WikiContent() {
     );
   }
 
-  // Memory wiki gets a slim hero (title + project selector inline) so the
-  // 3-pane layout below can claim as much vertical room as possible.
-  // Page is intentionally full-bleed — AppShell's `main` stopped capping
-  // width in v0.3.47, so the wiki can spread to the screen edge minus
-  // the sidebar.
+  // v0.3.49 layout: vertical stack so the context map gets the full
+  // page width (the user wanted a "big" map, not a squeezed column).
+  //   ┌─────────────────────────────────────────────┐
+  //   │            Context map (top, ~55dvh)        │
+  //   ├──────────────┬──────────────────────────────┤
+  //   │  Note list   │   Selected memory + links     │
+  //   │  (collapse)  │                               │
+  //   └──────────────┴──────────────────────────────┘
+  // Uses the standard PageHero so the header style matches the rest of
+  // the app, and a single h-[calc(100dvh-N)] anchor keeps the panes
+  // pixel-aligned regardless of content.
   return (
     <AppShell>
-      <div className="flex flex-col gap-2 border-b pb-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          {slug && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="hidden md:inline-flex"
-              onClick={() => setListOpen((v) => !v)}
-              aria-label={listOpen ? copy.collapseList : copy.expandList}
-            >
-              {listOpen ? (
-                <PanelLeftClose className="size-4" />
-              ) : (
-                <PanelLeftOpen className="size-4" />
-              )}
-            </Button>
-          )}
-          <div>
-            <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
-              {copy.eyebrow}
-            </p>
-            <h1 className="text-lg font-semibold tracking-tight sm:text-xl">{copy.title}</h1>
-          </div>
-        </div>
+      <PageHero eyebrow={copy.eyebrow} title={copy.title} subtitle={copy.subtitle} />
+
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <FolderKanban className="text-muted-foreground size-4" aria-hidden />
           <Select value={slug ?? ""} onValueChange={handleSelectProject}>
@@ -199,6 +185,22 @@ function WikiContent() {
             </SelectContent>
           </Select>
         </div>
+        {slug && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="hidden md:inline-flex"
+            onClick={() => setListOpen((v) => !v)}
+            aria-label={listOpen ? copy.collapseList : copy.expandList}
+          >
+            {listOpen ? (
+              <PanelLeftClose className="me-1.5 size-4" />
+            ) : (
+              <PanelLeftOpen className="me-1.5 size-4" />
+            )}
+            {listOpen ? copy.collapseList : copy.expandList}
+          </Button>
+        )}
       </div>
 
       {!slug && (
@@ -208,73 +210,12 @@ function WikiContent() {
       )}
 
       {slug && (
-        // Three-pane layout with two affordances added in v0.3.48:
-        // 1) The left list is collapsible — when closed, graph + detail
-        //    each get half the row and stop feeling cramped.
-        // 2) All three cards share a single height anchored to dvh so
-        //    they line up perfectly regardless of their content length
-        //    (the user noticed mismatched heights in v0.3.47).
-        // grid-cols-template is built dynamically so the closed-list
-        // case isn't just hidden — it actually frees the column.
-        <div
-          className={cn(
-            "mt-4 grid h-[calc(100dvh-11rem)] items-stretch gap-4",
-            listOpen
-              ? "md:grid-cols-[220px_minmax(0,1fr)_minmax(0,1fr)]"
-              : "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]",
-          )}
-        >
-          {/* LEFT — note list (collapsible on desktop, hidden on mobile
-              when a note is selected so the detail can use full width). */}
-          {listOpen && (
-            <Card
-              className={cn(
-                "flex h-full min-h-0 flex-col overflow-hidden p-3",
-                selectedNote && "hidden md:flex",
-              )}
-            >
-              <div className="relative mb-2">
-                <Search className="text-muted-foreground absolute start-2 top-1/2 size-3.5 -translate-y-1/2" aria-hidden />
-                <Input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={copy.searchPlaceholder}
-                  className="h-8 ps-7 text-sm"
-                />
-              </div>
-              <ul className="min-h-0 flex-1 overflow-y-auto">
-                {filteredNotes.length === 0 ? (
-                  <li className="text-muted-foreground px-2 py-4 text-center text-xs">
-                    {workspaceQuery.isLoading ? copy.loading : copy.empty}
-                  </li>
-                ) : (
-                  filteredNotes.map((n) => {
-                    const active = n.memory_id === noteId;
-                    return (
-                      <li key={n.memory_id}>
-                        <button
-                          type="button"
-                          onClick={() => handleSelectNote(n.memory_id)}
-                          className={cn(
-                            "w-full rounded-md px-2 py-1.5 text-start text-xs transition-colors",
-                            active
-                              ? "bg-primary/10 text-foreground"
-                              : "text-muted-foreground hover:bg-muted/50",
-                          )}
-                        >
-                          <p className="line-clamp-1 font-medium">{n.title}</p>
-                          <p className="line-clamp-1 text-[10px]">{n.excerpt}</p>
-                        </button>
-                      </li>
-                    );
-                  })
-                )}
-              </ul>
-            </Card>
-          )}
-
-          {/* CENTER — graph (md+; hidden on phones to focus on detail). */}
-          <Card className="hidden h-full min-h-0 flex-col p-3 md:flex">
+        // Outer grid: graph on top (~55%), list+detail row below (~45%).
+        // Heights are explicit dvh anchors so the two rows always sum to
+        // the visible viewport minus the header/hero.
+        <div className="mt-4 grid h-[calc(100dvh-15rem)] grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)] gap-4">
+          {/* TOP — context map full width */}
+          <Card className="flex min-h-0 flex-col p-3">
             <GraphPane
               isLoading={workspaceQuery.isLoading}
               error={workspaceQuery.error as Error | null}
@@ -293,13 +234,72 @@ function WikiContent() {
             </GraphPane>
           </Card>
 
-          {/* RIGHT — selected note detail + backlinks */}
-          <Card
+          {/* BOTTOM ROW — list (collapsible) + detail */}
+          <div
             className={cn(
-              "flex h-full min-h-0 flex-col overflow-hidden p-4",
-              !selectedNote && "hidden md:flex",
+              "grid min-h-0 items-stretch gap-4",
+              listOpen
+                ? "md:grid-cols-[240px_minmax(0,1fr)]"
+                : "md:grid-cols-[minmax(0,1fr)]",
             )}
           >
+            {listOpen && (
+              <Card
+                className={cn(
+                  "flex h-full min-h-0 flex-col overflow-hidden p-3",
+                  selectedNote && "hidden md:flex",
+                )}
+              >
+                <div className="relative mb-2">
+                  <Search
+                    className="text-muted-foreground absolute start-2 top-1/2 size-3.5 -translate-y-1/2"
+                    aria-hidden
+                  />
+                  <Input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={copy.searchPlaceholder}
+                    className="h-8 ps-7 text-sm"
+                  />
+                </div>
+                <ul className="min-h-0 flex-1 overflow-y-auto">
+                  {filteredNotes.length === 0 ? (
+                    <li className="text-muted-foreground px-2 py-4 text-center text-xs">
+                      {workspaceQuery.isLoading ? copy.loading : copy.empty}
+                    </li>
+                  ) : (
+                    filteredNotes.map((n) => {
+                      const active = n.memory_id === noteId;
+                      return (
+                        <li key={n.memory_id}>
+                          <button
+                            type="button"
+                            onClick={() => handleSelectNote(n.memory_id)}
+                            className={cn(
+                              "w-full rounded-md px-2 py-1.5 text-start text-xs transition-colors",
+                              active
+                                ? "bg-primary/10 text-foreground"
+                                : "text-muted-foreground hover:bg-muted/50",
+                            )}
+                          >
+                            <p className="line-clamp-1 font-medium">{n.title}</p>
+                            <p className="line-clamp-1 text-[10px]">{n.excerpt}</p>
+                          </button>
+                        </li>
+                      );
+                    })
+                  )}
+                </ul>
+              </Card>
+            )}
+
+            {/* Detail pane — selected note body + backlinks */}
+            <Card
+              className={cn(
+                "flex h-full min-h-0 flex-col overflow-hidden p-4",
+                !selectedNote && "hidden md:flex",
+              )}
+            >
             {selectedNote ? (
               <>
                 <div className="mb-3 flex items-center gap-2 lg:hidden">
@@ -348,6 +348,7 @@ function WikiContent() {
               </p>
             )}
           </Card>
+          </div>
         </div>
       )}
     </AppShell>

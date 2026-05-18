@@ -50,7 +50,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="bg-background landing-pattern flex min-h-dvh flex-col">
       <header className="pi-glass-nav sticky top-0 z-30 border-b backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
-        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-3 sm:h-16 sm:px-6">
+        <div className="flex h-14 w-full items-center justify-between gap-3 px-3 sm:px-6">
+          {/* On desktop the brand lives in the sidebar header, so the top
+              bar shows only the hamburger trigger on mobile and stays
+              utility-only on desktop. */}
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -60,7 +63,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             >
               <Menu className="size-5" />
             </button>
-            <BrandMark />
+            <div className="md:hidden">
+              <BrandMark />
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <LocaleToggle />
