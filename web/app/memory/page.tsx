@@ -6,7 +6,6 @@ import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, FolderKanban, PanelLeftClose, PanelLeftOpen, Search } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import { MemoryGraphPanel } from "@/components/MemoryGraphPanel";
-import { PageHero } from "@/components/PageContainer";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
 import RoutePending from "@/components/RoutePending";
 import { Button } from "@/components/ui/button";
@@ -154,26 +153,38 @@ function WikiContent() {
     );
   }
 
-  // v0.3.49 layout: vertical stack so the context map gets the full
-  // page width (the user wanted a "big" map, not a squeezed column).
-  //   ┌─────────────────────────────────────────────┐
-  //   │            Context map (top, ~55dvh)        │
-  //   ├──────────────┬──────────────────────────────┤
-  //   │  Note list   │   Selected memory + links     │
-  //   │  (collapse)  │                               │
-  //   └──────────────┴──────────────────────────────┘
-  // Uses the standard PageHero so the header style matches the rest of
-  // the app, and a single h-[calc(100dvh-N)] anchor keeps the panes
-  // pixel-aligned regardless of content.
+  // v0.3.50 header: replaced the heavyweight PageHero with a single
+  // sticky topbar row aligned to the sidebar's 14px brand band. Title +
+  // project selector + list toggle all live in one line so the page
+  // doesn't feel "card-on-card-on-card" anymore.
   return (
     <AppShell>
-      <PageHero eyebrow={copy.eyebrow} title={copy.title} subtitle={copy.subtitle} />
-
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-2">
-          <FolderKanban className="text-muted-foreground size-4" aria-hidden />
+      <div className="bg-background/80 -mx-4 -mt-6 mb-4 flex h-12 items-center gap-3 border-b px-4 backdrop-blur sm:-mx-6 sm:px-6">
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h1 className="text-base font-semibold tracking-tight">{copy.title}</h1>
+          <p className="text-muted-foreground hidden truncate text-xs sm:block">
+            {copy.subtitle}
+          </p>
+        </div>
+        <div className="ms-auto flex items-center gap-2">
+          {slug && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="hidden md:inline-flex"
+              onClick={() => setListOpen((v) => !v)}
+              aria-label={listOpen ? copy.collapseList : copy.expandList}
+            >
+              {listOpen ? (
+                <PanelLeftClose className="size-4" />
+              ) : (
+                <PanelLeftOpen className="size-4" />
+              )}
+            </Button>
+          )}
           <Select value={slug ?? ""} onValueChange={handleSelectProject}>
-            <SelectTrigger className="w-56">
+            <SelectTrigger className="h-8 w-44 text-xs sm:w-56 sm:text-sm">
+              <FolderKanban className="text-muted-foreground me-1.5 size-3.5" aria-hidden />
               <SelectValue placeholder={copy.selectProject} />
             </SelectTrigger>
             <SelectContent>
@@ -185,22 +196,6 @@ function WikiContent() {
             </SelectContent>
           </Select>
         </div>
-        {slug && (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="hidden md:inline-flex"
-            onClick={() => setListOpen((v) => !v)}
-            aria-label={listOpen ? copy.collapseList : copy.expandList}
-          >
-            {listOpen ? (
-              <PanelLeftClose className="me-1.5 size-4" />
-            ) : (
-              <PanelLeftOpen className="me-1.5 size-4" />
-            )}
-            {listOpen ? copy.collapseList : copy.expandList}
-          </Button>
-        )}
       </div>
 
       {!slug && (
@@ -213,7 +208,11 @@ function WikiContent() {
         // Outer grid: graph on top (~55%), list+detail row below (~45%).
         // Heights are explicit dvh anchors so the two rows always sum to
         // the visible viewport minus the header/hero.
-        <div className="mt-4 grid h-[calc(100dvh-15rem)] grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)] gap-4">
+        // Available height = dvh − (sticky app header 56) − (slim wiki
+        // topbar 48) − (footer ~44) − page padding. 14rem ≈ 224px keeps
+        // some breathing room while letting the graph claim ~55% of the
+        // remaining vertical space.
+        <div className="grid h-[calc(100dvh-14rem)] grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)] gap-4">
           {/* TOP — context map full width */}
           <Card className="flex min-h-0 flex-col p-3">
             <GraphPane
