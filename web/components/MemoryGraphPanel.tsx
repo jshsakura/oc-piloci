@@ -206,6 +206,7 @@ export function MemoryGraphPanel({
         onNodeHover={handleNodeHover}
         nodeCanvasObjectMode={nodeCanvasObjectMode}
         nodeCanvasObject={nodeCanvasObject}
+        onEngineStop={() => graphRef.current?.zoomToFit(400, 40)}
         cooldownTicks={120}
         d3AlphaDecay={0.02}
         d3VelocityDecay={0.35}

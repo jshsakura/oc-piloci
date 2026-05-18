@@ -8,7 +8,6 @@ import AppShell from "@/components/AppShell";
 import { MemoryGraphPanel } from "@/components/MemoryGraphPanel";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
 import RoutePending from "@/components/RoutePending";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -278,10 +277,11 @@ function WikiContent() {
             )}
 
             {/* Detail pane — selected note body + backlinks. Lives
-                inside the same outer card as the list. */}
+                inside the same outer card as the list. Mobile uses
+                tighter padding so notes get more reading width. */}
             <div
               className={cn(
-                "flex h-full min-h-0 flex-col overflow-hidden p-4",
+                "flex h-full min-h-0 flex-col overflow-hidden p-3 md:p-4",
                 !selectedNote && "hidden md:flex",
               )}
             >
@@ -294,16 +294,14 @@ function WikiContent() {
               </div>
             ) : selectedNote ? (
               <>
-                <div className="mb-3 flex items-center gap-2 md:hidden">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="-ms-2"
-                    onClick={() => handleSelectNote("")}
-                  >
-                    <ArrowLeft className="me-1 size-4" /> {copy.backToList}
-                  </Button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSelectNote("")}
+                  className="text-muted-foreground hover:text-foreground -ms-1 mb-2 inline-flex items-center gap-1 self-start text-xs md:hidden"
+                >
+                  <ArrowLeft className="size-3.5" />
+                  {copy.backToList}
+                </button>
                 <div className="min-h-0 flex-1 overflow-y-auto">
                   <VaultNoteDetail note={selectedNote} />
                   {linkedNotes.length > 0 && (
