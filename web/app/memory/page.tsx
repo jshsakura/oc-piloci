@@ -10,13 +10,6 @@ import { VaultNoteDetail } from "@/components/VaultNoteDetail";
 import RoutePending from "@/components/RoutePending";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
@@ -65,7 +58,9 @@ function WikiContent() {
     enabled: Boolean(slug),
   });
 
-  const projects = projectsQuery.data ?? [];
+  // projectsQuery kept warm for the picker on /projects landing; not
+  // consumed by the wiki itself any more (v0.3.57).
+  void projectsQuery;
   const notes = useMemo(
     () => workspaceQuery.data?.workspace.notes ?? [],
     [workspaceQuery.data?.workspace.notes],
@@ -120,10 +115,6 @@ function WikiContent() {
       .slice(0, 12);
   }, [selectedNote, notes]);
 
-  function handleSelectProject(nextSlug: string) {
-    pushParams(router, searchParams, { slug: nextSlug, note: null });
-  }
-
   function handleSelectNote(nextNoteId: string) {
     if (!slug) return;
     pushParams(router, searchParams, { slug, note: nextNoteId });
@@ -153,31 +144,18 @@ function WikiContent() {
     );
   }
 
-  // v0.3.56: project picker is always visible at the top — sticky just
-  // below the app header. No bottom border (the user wanted it gone),
-  // no card chrome. The wiki body uses lighter dividers instead of
-  // full Card backgrounds so panels don't stack into a card pile-up.
+  // v0.3.57: wiki has no project picker — that lives on /projects. The
+  // wiki only renders for ?slug=... and bounces the user to /projects
+  // (with a helper card) when no slug is present.
   return (
     <AppShell title={copy.title}>
-      <div className="bg-background sticky top-14 z-20 -mt-4 mb-3 flex items-center gap-2 py-2 sm:-mt-6">
-        <FolderKanban className="text-muted-foreground size-4 shrink-0" aria-hidden />
-        <Select value={slug ?? ""} onValueChange={handleSelectProject}>
-          <SelectTrigger className="h-8 w-56">
-            <SelectValue placeholder={copy.selectProject} />
-          </SelectTrigger>
-          <SelectContent>
-            {projects.map((p) => (
-              <SelectItem key={p.id} value={p.slug}>
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
       {!slug && (
-        <div className="border-border/60 mt-4 rounded-md border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
-          {copy.pickProjectHint}
+        <div className="border-border/60 mt-4 flex flex-col items-center gap-3 rounded-md border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
+          <p>{copy.pickProjectHint}</p>
+          <Button variant="secondary" size="sm" onClick={() => router.push("/projects")}>
+            <FolderKanban className="me-1.5 size-4" />
+            {t.appShell.sidebar.projects}
+          </Button>
         </div>
       )}
 
