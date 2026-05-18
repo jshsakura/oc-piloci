@@ -685,6 +685,33 @@ const ko = {
       dropdown: { settings: '설정', activity: '활동 기록', admin: '관리자', logout: '로그아웃' },
       footer: { privacy: '개인정보 처리방침', terms: '서비스 약관' },
     },
+    pages: {
+      summary: {
+        eyebrow: '오늘의 piLoci',
+        title: '요약',
+        subtitle: '지난주 회고와 종합 수치를 한눈에.',
+      },
+      activity: {
+        eyebrow: '최근 활동',
+        title: '활동',
+        subtitle: '최근 메모리, 자주 보이는 패턴, 자주 쓰는 태그.',
+      },
+      pipeline: {
+        eyebrow: '백엔드 운영',
+        title: '정리 현황',
+        subtitle: '정리 파이프라인 상태와 최근 세션 결과.',
+      },
+      projects: {
+        eyebrow: '프로젝트 메모리',
+        title: '프로젝트별',
+        subtitle: '프로젝트별로 메모리·패턴·세션을 확인합니다.',
+      },
+      teams: {
+        eyebrow: '협업 공간',
+        title: '팀',
+        subtitle: '팀 문서와 멤버를 관리합니다.',
+      },
+    },
     memoryWiki: {
       eyebrow: '메모리 위키',
       title: '메모리를 펼쳐보기',
@@ -1788,6 +1815,33 @@ const en: CopyShape = {
       },
       dropdown: { settings: 'Settings', activity: 'Activity', admin: 'Admin', logout: 'Log Out' },
       footer: { privacy: 'Privacy Policy', terms: 'Terms of Service' },
+    },
+    pages: {
+      summary: {
+        eyebrow: 'Today on piLoci',
+        title: 'Summary',
+        subtitle: 'Last week\'s retrospective and headline stats.',
+      },
+      activity: {
+        eyebrow: 'Recent activity',
+        title: 'Activity',
+        subtitle: 'Latest memories, common patterns, and frequent tags.',
+      },
+      pipeline: {
+        eyebrow: 'Backend ops',
+        title: 'Pipeline',
+        subtitle: 'Distillation status and recent session outcomes.',
+      },
+      projects: {
+        eyebrow: 'Project memory',
+        title: 'By project',
+        subtitle: 'Browse memories, patterns, and sessions per project.',
+      },
+      teams: {
+        eyebrow: 'Collaboration',
+        title: 'Teams',
+        subtitle: 'Manage team documents and members.',
+      },
     },
     memoryWiki: {
       eyebrow: 'Memory wiki',

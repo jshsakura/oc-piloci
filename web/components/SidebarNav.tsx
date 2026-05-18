@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -47,9 +47,9 @@ function useSidebarItems(): SidebarItem[] {
     {
       key: "summary",
       label: labels.summary,
-      href: "/dashboard",
+      href: "/summary",
       icon: BookOpenCheck,
-      match: { pathname: "/dashboard", search: { panel: "summary" } },
+      match: { pathname: "/summary" },
     },
     {
       key: "memory",
@@ -61,30 +61,30 @@ function useSidebarItems(): SidebarItem[] {
     {
       key: "activity",
       label: labels.activity,
-      href: "/dashboard?panel=activity",
+      href: "/activity",
       icon: Activity,
-      match: { pathname: "/dashboard", search: { panel: "activity" } },
+      match: { pathname: "/activity" },
     },
     {
       key: "ops",
       label: labels.ops,
-      href: "/dashboard?panel=ops",
+      href: "/pipeline",
       icon: GanttChart,
-      match: { pathname: "/dashboard", search: { panel: "ops" } },
+      match: { pathname: "/pipeline" },
     },
     {
       key: "projects",
       label: labels.projects,
-      href: "/dashboard?view=projects",
+      href: "/projects",
       icon: FolderKanban,
-      match: { pathname: "/dashboard", search: { view: "projects" } },
+      match: { pathname: "/projects" },
     },
     {
       key: "teams",
       label: labels.teams,
-      href: "/dashboard?view=team",
+      href: "/teams",
       icon: UsersRound,
-      match: { pathname: "/dashboard", search: { view: "team" } },
+      match: { pathname: "/teams" },
     },
     {
       key: "chat",
@@ -97,28 +97,13 @@ function useSidebarItems(): SidebarItem[] {
 }
 
 function isActive(item: SidebarItem, pathname: string, params: URLSearchParams): boolean {
+  // Pages are now distinct routes after v0.3.47 — pathname match is
+  // enough. The search-key branch is kept (no-op currently) so callers
+  // can still pin sub-state without restructuring the helper.
   if (item.match.pathname !== pathname) return false;
-  if (!item.match.search) {
-    // Pathname-only entries also need to lose to more-specific rows when
-    // /dashboard has a panel/view set — otherwise "Summary" lights up
-    // for /dashboard?view=projects.
-    if (pathname === "/dashboard") {
-      const hasViewOrPanel = params.get("view") || params.get("panel");
-      // The summary row carries an explicit {panel: "summary"} match, so
-      // no pathname-only entry should ever target /dashboard. Defensive.
-      return !hasViewOrPanel;
-    }
-    return true;
-  }
+  if (!item.match.search) return true;
   for (const [k, v] of Object.entries(item.match.search)) {
-    if (params.get(k) !== v) {
-      // Summary is the implicit default — accept the row when panel/view
-      // are absent and the row's expected value matches the default.
-      if (k === "panel" && v === "summary" && !params.get("panel") && !params.get("view")) {
-        continue;
-      }
-      return false;
-    }
+    if (params.get(k) !== v) return false;
   }
   return true;
 }
@@ -162,7 +147,10 @@ export function DesktopSidebar() {
   const params = useSearchParams();
   const items = useSidebarItems();
   return (
-    <aside className="bg-card/40 hidden w-56 shrink-0 flex-col border-r p-3 md:flex">
+    // bg-background (not bg-card/40) so the landing-pattern dot backdrop
+    // doesn't bleed through and make labels hard to read. Border on the
+    // trailing edge gives a clean separator without a heavy shadow.
+    <aside className="bg-background hidden w-56 shrink-0 flex-col border-e p-3 md:flex">
       <NavList items={items} pathname={pathname} params={params || new URLSearchParams()} />
     </aside>
   );

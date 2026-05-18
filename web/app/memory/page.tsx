@@ -150,13 +150,19 @@ function WikiContent() {
     );
   }
 
+  // Memory wiki gets a slim hero (title + project selector inline) so the
+  // 3-pane layout below can claim as much vertical room as possible.
+  // Page is intentionally full-bleed — AppShell's `main` stopped capping
+  // width in v0.3.47, so the wiki can spread to the screen edge minus
+  // the sidebar.
   return (
     <AppShell>
-      <div className="pi-page-hero flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-2 border-b pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="pi-eyebrow">{copy.eyebrow}</p>
-          <h1 className="pi-title mt-2">{copy.title}</h1>
-          <p className="pi-subtitle">{copy.subtitle}</p>
+          <p className="text-muted-foreground text-xs font-medium uppercase tracking-wider">
+            {copy.eyebrow}
+          </p>
+          <h1 className="text-lg font-semibold tracking-tight sm:text-xl">{copy.title}</h1>
         </div>
         <div className="flex items-center gap-2">
           <FolderKanban className="text-muted-foreground size-4" aria-hidden />
@@ -182,7 +188,10 @@ function WikiContent() {
       )}
 
       {slug && (
-        <div className="mt-4 grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)_320px]">
+        // Re-balanced from [260, 1fr, 320] → [220, 1.4fr, 1.6fr] so the
+        // detail pane (right) gets meaningful room for body + backlinks
+        // and the graph (center) is no longer squeezed by a wide list.
+        <div className="mt-4 grid gap-4 lg:grid-cols-[220px_minmax(0,1.4fr)_minmax(0,1.6fr)]">
           {/* LEFT — note list */}
           <Card
             className={cn(

@@ -124,8 +124,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <Suspense fallback={null}>
           <MobileSidebarDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
         </Suspense>
+        {/* main no longer caps width — full-bleed pages (memory wiki) need
+            the room; conventional pages opt back in to a max-w container
+            by wrapping their own children. */}
         <main className="min-w-0 flex-1">
-          <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:py-8">{children}</div>
+          <div className="w-full px-4 py-6 sm:px-6 lg:py-8">{children}</div>
         </main>
       </div>
 

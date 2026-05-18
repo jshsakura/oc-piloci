@@ -146,7 +146,7 @@ export default function SignupPage() {
       const user = (await api.signup(data.email, data.password, data.name)) as User;
       if (((user as unknown) as Record<string, unknown>).approval_status === "approved") {
         setUser(user);
-        router.push("/dashboard");
+        router.push("/summary");
       } else {
         setSignupComplete(true);
       }

@@ -171,7 +171,7 @@ export default function LoginClient({ authProviders: initialProviders }: { authP
     try {
       const user = (await api.login(data.email, data.password)) as User;
       setUser(user);
-      router.push("/dashboard");
+      router.push("/summary");
     } catch (err) {
       setServerError(getErrorMessage(err, t));
     } finally {

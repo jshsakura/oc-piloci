@@ -57,7 +57,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     if (hasHydrated && !isBootstrapping && (!me || !me.is_admin)) {
-      router.replace("/dashboard");
+      router.replace("/summary");
     }
   }, [hasHydrated, isBootstrapping, me, router]);
 
