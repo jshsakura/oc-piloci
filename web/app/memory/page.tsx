@@ -9,7 +9,6 @@ import { MemoryGraphPanel } from "@/components/MemoryGraphPanel";
 import { VaultNoteDetail } from "@/components/VaultNoteDetail";
 import RoutePending from "@/components/RoutePending";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -154,49 +153,40 @@ function WikiContent() {
     );
   }
 
-  // v0.3.55: project picker is a page-internal control (what data am I
-  // viewing?), not a global header action — moved out of AppShell.actions
-  // and inlined above the note list where it belongs.
+  // v0.3.56: project picker is always visible at the top — sticky just
+  // below the app header. No bottom border (the user wanted it gone),
+  // no card chrome. The wiki body uses lighter dividers instead of
+  // full Card backgrounds so panels don't stack into a card pile-up.
   return (
     <AppShell title={copy.title}>
+      <div className="bg-background sticky top-14 z-20 -mt-4 mb-3 flex items-center gap-2 py-2 sm:-mt-6">
+        <FolderKanban className="text-muted-foreground size-4 shrink-0" aria-hidden />
+        <Select value={slug ?? ""} onValueChange={handleSelectProject}>
+          <SelectTrigger className="h-8 w-56">
+            <SelectValue placeholder={copy.selectProject} />
+          </SelectTrigger>
+          <SelectContent>
+            {projects.map((p) => (
+              <SelectItem key={p.id} value={p.slug}>
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
-      {/* Slim picker row above the wiki body — shown when no project is
-          selected yet, or to provide an obvious switch when the list is
-          collapsed (no other place for it). */}
       {!slug && (
-        <div className="mb-4 flex flex-wrap items-center gap-2 border-b pb-3">
-          <FolderKanban className="text-muted-foreground size-4" aria-hidden />
-          <Select value={slug ?? ""} onValueChange={handleSelectProject}>
-            <SelectTrigger className="h-8 w-56">
-              <SelectValue placeholder={copy.selectProject} />
-            </SelectTrigger>
-            <SelectContent>
-              {projects.map((p) => (
-                <SelectItem key={p.id} value={p.slug}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="border-border/60 mt-4 rounded-md border border-dashed px-6 py-10 text-center text-sm text-muted-foreground">
+          {copy.pickProjectHint}
         </div>
       )}
 
-      {!slug && (
-        <Card className="px-6 py-10 text-center text-sm text-muted-foreground">
-          {copy.pickProjectHint}
-        </Card>
-      )}
-
       {slug && (
-        // Outer grid: graph on top (~55%), list+detail row below (~45%).
-        // Heights are explicit dvh anchors so the two rows always sum to
-        // the visible viewport minus the header/hero.
-        // Available height = dvh − (sticky app header 56) − (footer ~44) −
-        // page padding. ~10rem keeps breathing room while letting the
-        // graph claim ~55% of the remaining vertical space.
-        <div className="grid h-[calc(100dvh-10rem)] grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)] gap-4">
+        // Border-only panels (no bg) — the three regions stay visually
+        // distinct without piling card chrome on card chrome.
+        <div className="grid h-[calc(100dvh-12rem)] grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)] gap-3">
           {/* TOP — context map full width */}
-          <Card className="flex min-h-0 flex-col p-3">
+          <div className="border-border/60 flex min-h-0 flex-col rounded-md border p-2">
             <GraphPane
               isLoading={workspaceQuery.isLoading}
               error={workspaceQuery.error as Error | null}
@@ -213,21 +203,21 @@ function WikiContent() {
                 onNodeClick={handleGraphNode}
               />
             </GraphPane>
-          </Card>
+          </div>
 
-          {/* BOTTOM ROW — list (collapsible) + detail */}
+          {/* BOTTOM ROW — list + detail, border-divided columns */}
           <div
             className={cn(
-              "grid min-h-0 items-stretch gap-4",
+              "grid min-h-0 items-stretch gap-3",
               listOpen
                 ? "md:grid-cols-[240px_minmax(0,1fr)]"
                 : "md:grid-cols-[minmax(0,1fr)]",
             )}
           >
             {listOpen && (
-              <Card
+              <div
                 className={cn(
-                  "flex h-full min-h-0 flex-col overflow-hidden p-3",
+                  "border-border/60 flex h-full min-h-0 flex-col overflow-hidden rounded-md border p-2",
                   selectedNote && "hidden md:flex",
                 )}
               >
@@ -271,13 +261,13 @@ function WikiContent() {
                     })
                   )}
                 </ul>
-              </Card>
+              </div>
             )}
 
             {/* Detail pane — selected note body + backlinks */}
-            <Card
+            <div
               className={cn(
-                "flex h-full min-h-0 flex-col overflow-hidden p-4",
+                "border-border/60 flex h-full min-h-0 flex-col overflow-hidden rounded-md border p-3",
                 !selectedNote && "hidden md:flex",
               )}
             >
@@ -328,7 +318,7 @@ function WikiContent() {
                 {copy.pickNoteHint}
               </p>
             )}
-          </Card>
+          </div>
           </div>
         </div>
       )}
