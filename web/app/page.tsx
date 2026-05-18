@@ -9,6 +9,7 @@ import {
   Lock, Plug, ArrowRight, Activity, TrendingDown, Gauge,
   Database, Search, Brain, Heart, Cpu, HardDrive, Microchip,
   MemoryStick, FileJson, LayoutDashboard, LogOut, UserCircle,
+  Infinity as InfinityIcon, Award,
 } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { useAuthStore } from "@/lib/auth";
@@ -96,6 +97,7 @@ export default function LandingPage() {
   const featureIcons = [Fingerprint, Code2, Zap, ShieldCheck, BrainCircuit, Network, Lock, Plug];
   const toolIcons = [Database, Search, Brain];
   const engIcons = [Database, HardDrive, Microchip, MemoryStick, FileJson, Network];
+  const pricingIcons = [InfinityIcon, Award, Lock, Plug, Search, Network, ShieldCheck, Fingerprint, Code2];
 
   return (
     <div className="bg-background landing-pattern">
@@ -515,14 +517,22 @@ export default function LandingPage() {
                     <p key={i} className="text-sm text-muted-foreground">{line}</p>
                   ))}
                 </div>
-                <ul className="space-y-3">
-                  {t.landing.sections.pricing.features.map((f) => (
-                    <li key={f} className="flex items-center gap-3 text-sm">
-                      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs text-primary">✓</span>
-                      {f}
-                    </li>
-                  ))}
-                </ul>
+                <dl className="space-y-4">
+                  {t.landing.sections.pricing.features.map((f, i) => {
+                    const Icon = pricingIcons[i] ?? Heart;
+                    return (
+                      <div key={f.label} className="flex items-start gap-3">
+                        <div className="flex size-6 shrink-0 items-center justify-center rounded-md bg-primary/10">
+                          <Icon className="size-3.5 text-primary" />
+                        </div>
+                        <div>
+                          <dt className="font-mono text-xs font-semibold">{f.label}</dt>
+                          <dd className="text-sm text-muted-foreground">{f.desc}</dd>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </dl>
               </CardContent>
             </Card>
 
