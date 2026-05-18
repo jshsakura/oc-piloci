@@ -26,7 +26,18 @@ import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import { api } from "@/lib/api";
 
-export default function AppShell({ children }: { children: React.ReactNode }) {
+interface AppShellProps {
+  children: React.ReactNode;
+  /** Page name shown in the unified top bar (v0.3.53). Leave undefined
+   *  on auth/landing screens that have their own chrome. */
+  title?: string;
+  /** Optional right-aligned page controls (e.g. project selector on
+   *  the memory wiki). Rendered inside the top bar so each page no
+   *  longer needs its own header row. */
+  actions?: React.ReactNode;
+}
+
+export default function AppShell({ children, title, actions }: AppShellProps) {
   const router = useRouter();
   const { user, logout } = useAuthStore();
   const { t } = useTranslation();
@@ -49,25 +60,34 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   // useSearchParams (App Router requirement under static export).
   return (
     <div className="bg-background landing-pattern flex min-h-dvh flex-col">
-      <header className="pi-glass-nav sticky top-0 z-30 border-b backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
-        <div className="flex h-14 w-full items-center justify-between gap-3 px-3 sm:px-6">
-          {/* On desktop the brand lives in the sidebar header, so the top
-              bar shows only the hamburger trigger on mobile and stays
-              utility-only on desktop. */}
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              aria-label={t.appShell.sidebar.menuLabel}
-              onClick={() => setMobileOpen(true)}
-              className="hover:bg-muted -ms-1 rounded-md p-2 md:hidden"
-            >
-              <Menu className="size-5" />
-            </button>
-            <div className="md:hidden">
-              <BrandMark />
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+      <header className="bg-background sticky top-0 z-30 border-b">
+        <div className="flex h-14 w-full items-center gap-3 px-3 sm:px-6">
+          {/* Mobile-only hamburger — desktop uses the persistent sidebar. */}
+          <button
+            type="button"
+            aria-label={t.appShell.sidebar.menuLabel}
+            onClick={() => setMobileOpen(true)}
+            className="hover:bg-muted -ms-1 rounded-md p-2 md:hidden"
+          >
+            <Menu className="size-5" />
+          </button>
+          {/* Brand sits in the header on both mobile and desktop so the
+              chrome reads the same way across viewports. */}
+          <BrandMark />
+          {/* Vertical separator before the page title, only when we
+              actually have a title (some pages opt out). */}
+          {title && (
+            <>
+              <span className="bg-border hidden h-5 w-px md:inline-block" aria-hidden />
+              <h1 className="truncate text-sm font-semibold tracking-tight">{title}</h1>
+            </>
+          )}
+          {actions && (
+            // ms-auto pushes both actions and the utility row to the
+            // right; utilities sit right after, no extra ms-auto there.
+            <div className="ms-auto flex items-center gap-2">{actions}</div>
+          )}
+          <div className={`${actions ? "" : "ms-auto "}flex shrink-0 items-center gap-1.5`}>
             <LocaleToggle />
             <ThemeToggle />
             <DropdownMenu>

@@ -147,16 +147,10 @@ export function DesktopSidebar() {
   const params = useSearchParams();
   const items = useSidebarItems();
   return (
-    // v0.3.49: brand moves into the sidebar header on desktop so the top
-    // bar can stay utility-only. bg-background keeps the dot-pattern
-    // backdrop from bleeding through.
-    <aside className="bg-background hidden w-56 shrink-0 flex-col border-e md:flex">
-      <div className="flex h-14 items-center border-b px-4">
-        <BrandMark />
-      </div>
-      <div className="p-3">
-        <NavList items={items} pathname={pathname} params={params || new URLSearchParams()} />
-      </div>
+    // v0.3.53: brand is back in the header (consistent across mobile +
+    // desktop), so the sidebar only carries nav items now.
+    <aside className="bg-background hidden w-56 shrink-0 flex-col border-e p-3 md:flex">
+      <NavList items={items} pathname={pathname} params={params || new URLSearchParams()} />
     </aside>
   );
 }

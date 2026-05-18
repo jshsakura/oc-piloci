@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
 import { DashboardSummaryPanels } from "@/components/DashboardSummaryPanels";
-import { PageContainer, PageHero } from "@/components/PageContainer";
+import { PageContainer } from "@/components/PageContainer";
 import RoutePending from "@/components/RoutePending";
 import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
@@ -52,10 +52,9 @@ export default function ActivityPage() {
   const totalKnacks = projects?.reduce((sum, p) => sum + (p.instinct_count ?? 0), 0) ?? 0;
 
   return (
-    <AppShell>
+    <AppShell title={copy.title}>
       <PageContainer>
-        <PageHero eyebrow={copy.eyebrow} title={copy.title} subtitle={copy.subtitle} />
-        <div className="mt-6">
+        <div>
           <DashboardSummaryPanels
             totalMemories={totalMemories}
             totalKnacks={totalKnacks}

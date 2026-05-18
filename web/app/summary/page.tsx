@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import AppShell from "@/components/AppShell";
 import { DashboardSummaryPanels } from "@/components/DashboardSummaryPanels";
-import { PageContainer, PageHero } from "@/components/PageContainer";
+import { PageContainer } from "@/components/PageContainer";
 import { WeeklyDigestCard } from "@/components/WeeklyDigestCard";
 import RoutePending from "@/components/RoutePending";
 import { useAuthStore } from "@/lib/auth";
@@ -54,10 +54,9 @@ export default function SummaryPage() {
   const totalKnacks = projects?.reduce((sum, p) => sum + (p.instinct_count ?? 0), 0) ?? 0;
 
   return (
-    <AppShell>
+    <AppShell title={copy.title}>
       <PageContainer>
-        <PageHero eyebrow={copy.eyebrow} title={copy.title} subtitle={copy.subtitle} />
-        <div className="mt-6 space-y-6">
+        <div className="space-y-6">
           <WeeklyDigestCard />
           <DashboardSummaryPanels
             totalMemories={totalMemories}

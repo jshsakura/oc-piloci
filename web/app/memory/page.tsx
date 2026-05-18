@@ -153,49 +153,44 @@ function WikiContent() {
     );
   }
 
-  // v0.3.52 header: removed sticky + alpha + backdrop-blur — that stack
-  // kept breaking the wiki layout on real devices. Plain in-flow row,
-  // opaque, no z-index games. Slim enough not to read as a giant hero.
-  return (
-    <AppShell>
-      <div className="mb-4 flex items-center gap-3 border-b pb-3">
-        <div className="flex min-w-0 items-baseline gap-2">
-          <h1 className="text-base font-semibold tracking-tight">{copy.title}</h1>
-          <p className="text-muted-foreground hidden truncate text-xs sm:block">
-            {copy.subtitle}
-          </p>
-        </div>
-        <div className="ms-auto flex items-center gap-2">
-          {slug && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="hidden md:inline-flex"
-              onClick={() => setListOpen((v) => !v)}
-              aria-label={listOpen ? copy.collapseList : copy.expandList}
-            >
-              {listOpen ? (
-                <PanelLeftClose className="size-4" />
-              ) : (
-                <PanelLeftOpen className="size-4" />
-              )}
-            </Button>
+  // v0.3.53: wiki controls (project picker + list toggle) go into the
+  // AppShell's actions slot so every page reads the same way — single
+  // top bar, no per-page hero. Local heading row is gone.
+  const headerActions = (
+    <>
+      {slug && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="hidden md:inline-flex"
+          onClick={() => setListOpen((v) => !v)}
+          aria-label={listOpen ? copy.collapseList : copy.expandList}
+        >
+          {listOpen ? (
+            <PanelLeftClose className="size-4" />
+          ) : (
+            <PanelLeftOpen className="size-4" />
           )}
-          <Select value={slug ?? ""} onValueChange={handleSelectProject}>
-            <SelectTrigger className="h-8 w-44 text-xs sm:w-56 sm:text-sm">
-              <FolderKanban className="text-muted-foreground me-1.5 size-3.5" aria-hidden />
-              <SelectValue placeholder={copy.selectProject} />
-            </SelectTrigger>
-            <SelectContent>
-              {projects.map((p) => (
-                <SelectItem key={p.id} value={p.slug}>
-                  {p.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
+        </Button>
+      )}
+      <Select value={slug ?? ""} onValueChange={handleSelectProject}>
+        <SelectTrigger className="h-8 w-44 text-xs sm:w-56 sm:text-sm">
+          <FolderKanban className="text-muted-foreground me-1.5 size-3.5" aria-hidden />
+          <SelectValue placeholder={copy.selectProject} />
+        </SelectTrigger>
+        <SelectContent>
+          {projects.map((p) => (
+            <SelectItem key={p.id} value={p.slug}>
+              {p.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </>
+  );
+
+  return (
+    <AppShell title={copy.title} actions={headerActions}>
 
       {!slug && (
         <Card className="mt-6 px-6 py-10 text-center text-sm text-muted-foreground">
@@ -207,11 +202,10 @@ function WikiContent() {
         // Outer grid: graph on top (~55%), list+detail row below (~45%).
         // Heights are explicit dvh anchors so the two rows always sum to
         // the visible viewport minus the header/hero.
-        // Available height = dvh − (sticky app header 56) − (slim wiki
-        // topbar 48) − (footer ~44) − page padding. 14rem ≈ 224px keeps
-        // some breathing room while letting the graph claim ~55% of the
-        // remaining vertical space.
-        <div className="grid h-[calc(100dvh-14rem)] grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)] gap-4">
+        // Available height = dvh − (sticky app header 56) − (footer ~44) −
+        // page padding. ~10rem keeps breathing room while letting the
+        // graph claim ~55% of the remaining vertical space.
+        <div className="grid h-[calc(100dvh-10rem)] grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)] gap-4">
           {/* TOP — context map full width */}
           <Card className="flex min-h-0 flex-col p-3">
             <GraphPane

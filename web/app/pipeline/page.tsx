@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import AppShell from "@/components/AppShell";
 import { DistillationStatusPanel } from "@/components/DistillationStatusPanel";
-import { PageContainer, PageHero } from "@/components/PageContainer";
+import { PageContainer } from "@/components/PageContainer";
 import { RecentSessionsCard } from "@/components/RecentSessionsCard";
 import RoutePending from "@/components/RoutePending";
 import { useAuthStore } from "@/lib/auth";
@@ -41,10 +41,9 @@ export default function PipelinePage() {
   }
 
   return (
-    <AppShell>
+    <AppShell title={copy.title}>
       <PageContainer>
-        <PageHero eyebrow={copy.eyebrow} title={copy.title} subtitle={copy.subtitle} />
-        <div className="mt-6 space-y-6">
+        <div className="space-y-6">
           <DistillationStatusPanel />
           <RecentSessionsCard />
         </div>
