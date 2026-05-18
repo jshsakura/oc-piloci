@@ -69,17 +69,15 @@ export function MemoryGraphPanel({
 
   const handleNodeClick = useCallback(
     (node: any) => {
-      // Pin the clicked node at its current position. Without this, d3 keeps
-      // ticking and the node drifts under the camera mid-animation, which is
-      // what made the previous click feel "focus-loose" — you'd click a node
-      // and watch it slide away from the center you just panned to.
+      // Pin the clicked node so d3 doesn't drift it after selection.
       node.fx = node.x;
       node.fy = node.y;
       onNodeClick?.(node as GraphNode);
-      // Soft pan only — keep the user's zoom level. Snapping to an absolute
-      // zoom (the old `zoom(2.5)`) yanked the view in/out depending on where
-      // they had zoomed manually, which felt jarring on every click.
-      graphRef.current?.centerAt(node.x, node.y, 450);
+      // No camera movement on click — the selection ring shows which node
+      // is active, and the detail pane shows the content. Panning to the
+      // clicked node pulled the whole map off-center, especially after a
+      // few clicks chained through peripheral nodes. The user can still
+      // re-center the whole map with the Maximize button.
     },
     [onNodeClick],
   );
