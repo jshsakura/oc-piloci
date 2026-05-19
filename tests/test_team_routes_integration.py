@@ -285,3 +285,76 @@ async def test_team_document_single_get_and_raw_download(team_app: Starlette) ->
         assert (
             await client.get(f"/api/teams/{team_id}/documents/{doc['id']}/raw", headers=stranger)
         ).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_team_workspace_and_wiki_routes(team_app: Starlette, tmp_path, monkeypatch) -> None:
+    """workspace builds a cold vault from documents; wiki article routes return
+    rows from team_wiki_articles. Non-members get 404 on both."""
+    from piloci.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "vault_dir", tmp_path / "vaults")
+
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        stranger = _headers("member", "member@example.com")
+
+        team_id = (await client.post("/api/teams", headers=owner, json={"name": "Wiki"})).json()[
+            "id"
+        ]
+        await client.post(
+            f"/api/teams/{team_id}/documents",
+            headers=owner,
+            json={"path": "docs/notes.md", "content": "hello"},
+        )
+
+        workspace = await client.get(f"/api/teams/{team_id}/workspace", headers=owner)
+        assert workspace.status_code == 200
+        body = workspace.json()
+        assert body["team"]["id"] == team_id
+        assert any(n["kind"] == "folder" for n in body["graph"]["nodes"])
+        assert body["wiki_articles"] == []
+
+        empty_list = await client.get(f"/api/teams/{team_id}/wiki/articles", headers=owner)
+        assert empty_list.status_code == 200
+        assert empty_list.json() == []
+        assert (
+            await client.get(f"/api/teams/{team_id}/wiki/articles", headers=stranger)
+        ).status_code == 404
+
+        assert (
+            await client.get(f"/api/teams/{team_id}/wiki/articles/nope", headers=owner)
+        ).status_code == 404
+
+        assert (
+            await client.get(f"/api/teams/{team_id}/workspace", headers=stranger)
+        ).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_team_patch_toggles_auto_wiki_flag(team_app: Starlette) -> None:
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+
+        team_id = (
+            await client.post("/api/teams", headers=owner, json={"name": "AutoWiki"})
+        ).json()["id"]
+
+        patch = await client.patch(
+            f"/api/teams/{team_id}",
+            headers=owner,
+            json={"auto_wiki_enabled": True},
+        )
+        assert patch.status_code == 200
+        assert patch.json()["auto_wiki_enabled"] is True
+        assert patch.json()["last_wiki_built_at"] is None
+
+        off = await client.patch(
+            f"/api/teams/{team_id}",
+            headers=owner,
+            json={"auto_wiki_enabled": False},
+        )
+        assert off.json()["auto_wiki_enabled"] is False
