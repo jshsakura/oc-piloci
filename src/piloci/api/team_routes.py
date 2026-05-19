@@ -1149,6 +1149,129 @@ async def route_team_wiki_article(request: Request) -> Response:
     )
 
 
+async def route_team_export_zip(request: Request) -> Response:
+    """GET /api/teams/{tid}/export.zip — bundle docs + wiki + AGENTS.md.
+
+    What lands on disk after extracting::
+
+        {team_name}/
+            AGENTS.md          # briefing the agent reads first
+            index.md           # flat index with one-line summaries
+            docs/              # team_documents, original paths preserved
+            wiki/              # GLM-distilled articles
+
+    Folder structure under ``docs/`` mirrors what people uploaded, so a user
+    who prefers raw paths gets exactly what they put in. Wiki sits next to
+    it, never replacing — both views ship together so the consumer picks.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    user_id = _uid(user)
+
+    from sqlalchemy import select
+
+    from piloci.curator.team_export import pack_team_zip
+    from piloci.db.models import Team, TeamDocument, TeamMember, TeamWikiArticle, User
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+        team_row = (await db.execute(select(Team).where(Team.id == team_id))).scalar_one_or_none()
+        if team_row is None:
+            return _json({"error": "Not found"}, 404)
+
+        doc_rows = (
+            (
+                await db.execute(
+                    select(TeamDocument).where(
+                        TeamDocument.team_id == team_id,
+                        TeamDocument.is_deleted == False,  # noqa: E712
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        article_rows = (
+            (
+                await db.execute(
+                    select(TeamWikiArticle)
+                    .where(TeamWikiArticle.team_id == team_id)
+                    .order_by(TeamWikiArticle.category, TeamWikiArticle.title)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+        email_rows = (
+            await db.execute(
+                select(User.email)
+                .join(TeamMember, TeamMember.user_id == User.id)
+                .where(TeamMember.team_id == team_id)
+            )
+        ).all()
+
+    team = {
+        "id": team_row.id,
+        "name": team_row.name,
+        "last_wiki_built_at": (
+            team_row.last_wiki_built_at.isoformat() if team_row.last_wiki_built_at else None
+        ),
+    }
+    documents = [
+        {
+            "id": d.id,
+            "path": d.path,
+            "content": d.content,
+            "version": d.version,
+            "updated_at": d.updated_at,
+        }
+        for d in doc_rows
+    ]
+    articles: list[dict[str, Any]] = []
+    for a in article_rows:
+        sources: list[dict[str, Any]] = []
+        if a.sources_json:
+            try:
+                sources = orjson.loads(a.sources_json)
+            except Exception:
+                sources = []
+        articles.append(
+            {
+                "id": a.id,
+                "slug": a.slug,
+                "title": a.title,
+                "summary": a.summary,
+                "content": a.content,
+                "category": a.category,
+                "revision": a.revision,
+                "generated_by": a.generated_by,
+                "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+                "sources": sources,
+            }
+        )
+    member_emails = [row.email for row in email_rows if row.email]
+
+    filename, payload = pack_team_zip(team, documents, articles, member_emails)
+    safe_filename = filename.replace('"', "")
+    return Response(
+        payload,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+            "X-Team-Documents": str(len(documents)),
+            "X-Team-Wiki-Articles": str(len(articles)),
+        },
+    )
+
+
 async def route_team_wiki_build(request: Request) -> Response:
     """POST /api/teams/{tid}/wiki/build — owner-only manual trigger.
 
@@ -1317,4 +1440,5 @@ TEAM_ROUTES = [
         limiter.limit(RATE_MUTATION)(route_team_wiki_build),
         methods=["POST"],
     ),
+    Route("/api/teams/{team_id}/export.zip", route_team_export_zip, methods=["GET"]),
 ]

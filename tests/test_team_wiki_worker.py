@@ -75,7 +75,10 @@ def test_user_prompt_includes_category_label_and_sources() -> None:
     }
     text = _user_prompt(cluster)
     assert "folder/docs" in text
-    assert "[문서 docs/api.md]" in text
+    # New layered prompt: docs come under "1차 출처" with their path as a
+    # `code-spanned` header — replaces the old single-line "[문서 ...]" form.
+    assert "1차 출처" in text
+    assert "docs/api.md" in text
     assert "body" in text
 
 

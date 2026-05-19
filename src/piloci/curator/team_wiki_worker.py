@@ -22,6 +22,26 @@ from piloci.config import get_settings
 from piloci.curator.gemma import ProviderTarget, chat_json
 from piloci.curator.llm_providers import load_user_fallbacks
 from piloci.curator.team_vault import build_team_vault, merge_wiki_articles, save_team_vault
+from piloci.storage.embed import embed_one
+
+
+def _make_embed_fn():
+    """Tiny closure binding settings so the worker can call ``embed_one`` the
+    same way the MCP server does (LRU + executor + concurrency caps)."""
+    settings = get_settings()
+
+    async def _embed(text: str) -> list[float]:
+        return await embed_one(
+            text,
+            model=settings.embed_model,
+            cache_dir=settings.embed_cache_dir,
+            lru_size=settings.embed_lru_size,
+            executor_workers=settings.embed_executor_workers,
+            max_concurrency=settings.embed_max_concurrency,
+        )
+
+    return _embed
+
 
 logger = logging.getLogger(__name__)
 
@@ -107,7 +127,11 @@ def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list
 
 
 # ---------------------------------------------------------------------------
-# Prompt — Korean-first, JSON-output.
+# Prompts — Korean-first, JSON-output. Three roles: draft / critique / revise,
+# plus a judge pass. The flow per cluster is intentionally Karpathy-style:
+# draft → fetch related topics (tool aug) → critique → revise → judge.
+# Hourly cost is negligible (one team builds at most once per dawn window)
+# so we invest in quality over single-shot speed.
 # ---------------------------------------------------------------------------
 
 _WIKI_SYSTEM = (
@@ -122,22 +146,221 @@ _WIKI_SYSTEM = (
     "5) category는 cluster의 폴더/태그 이름을 그대로 사용."
 )
 
+_CRITIQUE_SYSTEM = (
+    "당신은 위키 초안을 검수하는 편집자입니다. 출력은 JSON.\n"
+    '스키마: {"issues": [str], "missing": [str], "style": [str], '
+    '"severity": "low"|"medium"|"high"}\n'
+    "검사 기준: (1) 출처 자료에 없는 사실이 본문에 나오는지, "
+    "(2) 출처에는 있는데 본문에 빠진 핵심이 있는지, "
+    "(3) 문체·표제·요약 일관성이 깨졌는지. 한국어로 짧게 적어주세요."
+)
 
-def _user_prompt(cluster: dict[str, Any]) -> str:
+_REVISE_SYSTEM = (
+    "당신은 위키 초안과 검수 의견을 받아 개정판을 작성합니다. 출력은 초안과 "
+    "동일한 JSON 스키마({title,slug,summary,content,category,linked_topics}). "
+    "초안의 slug는 그대로 유지하고, 검수 의견 중 합리적인 것을 반영해 본문만 "
+    "고쳐주세요. 새 사실을 추가하지 말고, 빠진 출처 사실을 채우는 정도로만."
+)
+
+_JUDGE_SYSTEM = (
+    "당신은 위키 아티클을 0~5점으로 평가합니다. 출력은 JSON.\n"
+    '스키마: {"accuracy": 0-5, "completeness": 0-5, "clarity": 0-5, '
+    '"action": "accept"|"retry"|"review", "reason": str}\n'
+    "기준: accuracy=출처 충실도, completeness=핵심 누락 여부, clarity=한국어 "
+    "독해 난이도. 3점 미만 항목이 하나라도 있으면 action=retry. 모든 항목 "
+    "4점 이상이면 accept. 그 사이면 review."
+)
+
+# Quality threshold for accepting a generated article without retry. We retry
+# at most once per cluster — past that, accept what we have and flag for
+# human review. Karpathy: "set a budget; let humans review the long tail."
+_JUDGE_MIN_AVG = 3.5
+_MAX_RETRIES = 1
+
+
+def _user_prompt(cluster: dict[str, Any], extra_context: list[dict[str, Any]] | None = None) -> str:
+    """Build the draft / revise user prompt.
+
+    Hierarchical memory: docs (semantic, distilled) come first since they're
+    the more authoritative source. Memories (episodic, raw events) follow
+    as supporting context. `extra_context` is what we fetched via tool-aug
+    on linked_topics — appended last so it informs but doesn't dominate.
+    """
     parts = [
         f"카테고리: {cluster['category']}/{cluster['label']}",
         "다음 자료를 종합해 위키 아티클 1개를 작성하세요.",
-        "---",
+        "",
+        "## 1차 출처 (팀 문서 — 정제된 사실)",
+    ]
+    docs = [s for s in cluster["sources"] if s.get("kind") == "doc"]
+    mems = [s for s in cluster["sources"] if s.get("kind") == "memory"]
+    if docs:
+        for source in docs[:8]:
+            parts.append(f"### `{source.get('path')}`")
+            parts.append((source.get("content") or "")[:1500])
+            parts.append("")
+    else:
+        parts.append("_없음_")
+        parts.append("")
+
+    if mems:
+        parts.append("## 2차 출처 (팀 메모리 — 회의·결정·일화)")
+        for source in mems[:6]:
+            tags = ", ".join(source.get("tags") or [])
+            parts.append(f"### 메모 (tags: {tags or '없음'})")
+            parts.append((source.get("content") or "")[:1200])
+            parts.append("")
+
+    if extra_context:
+        parts.append("## 참고 (관련 토픽의 다른 아티클 발췌 — 일관성 확보용)")
+        for ctx in extra_context[:4]:
+            title = ctx.get("title") or ctx.get("slug") or "기타"
+            parts.append(f"### {title}")
+            parts.append((ctx.get("excerpt") or ctx.get("content") or "")[:600])
+            parts.append("")
+
+    return "\n".join(parts)
+
+
+def _critique_prompt(cluster: dict[str, Any], draft: dict[str, Any]) -> str:
+    """Ask the LLM to find issues in the draft against the source material."""
+    parts = [
+        f"## 검수 대상 초안 (제목: {draft.get('title')})",
+        draft.get("content") or "",
+        "",
+        "## 원본 출처",
     ]
     for source in cluster["sources"][:8]:
-        if source["kind"] == "doc":
-            parts.append(f"[문서 {source.get('path')}]")
-        else:
-            tags = ", ".join(source.get("tags") or [])
-            parts.append(f"[메모 tags={tags}]")
-        parts.append((source.get("content") or "")[:1500])
+        kind = source.get("kind")
+        head = f"[문서 {source.get('path')}]" if kind == "doc" else "[메모]"
+        parts.append(head)
+        parts.append((source.get("content") or "")[:1200])
         parts.append("---")
     return "\n".join(parts)
+
+
+def _revise_prompt(
+    cluster: dict[str, Any],
+    draft: dict[str, Any],
+    critique: dict[str, Any],
+) -> str:
+    issues = critique.get("issues") or []
+    missing = critique.get("missing") or []
+    style = critique.get("style") or []
+    parts = [
+        "## 초안",
+        orjson.dumps(draft, option=orjson.OPT_INDENT_2).decode(),
+        "",
+        "## 검수 의견",
+        f"- 사실 오류: {issues or '없음'}",
+        f"- 누락 핵심: {missing or '없음'}",
+        f"- 문체/표제: {style or '없음'}",
+        "",
+        "## 원본 출처 (재확인용)",
+    ]
+    for source in cluster["sources"][:6]:
+        kind = source.get("kind")
+        head = f"[문서 {source.get('path')}]" if kind == "doc" else "[메모]"
+        parts.append(head)
+        parts.append((source.get("content") or "")[:1200])
+        parts.append("---")
+    return "\n".join(parts)
+
+
+def _judge_prompt(article: dict[str, Any], cluster: dict[str, Any]) -> str:
+    parts = [
+        f"## 평가 대상 (제목: {article.get('title')})",
+        article.get("content") or "",
+        "",
+        "## 원본 출처",
+    ]
+    for source in cluster["sources"][:6]:
+        kind = source.get("kind")
+        head = f"[문서 {source.get('path')}]" if kind == "doc" else "[메모]"
+        parts.append(head)
+        parts.append((source.get("content") or "")[:1000])
+        parts.append("---")
+    return "\n".join(parts)
+
+
+async def _fetch_linked_topic_context(
+    team_id: str,
+    store,
+    embed_fn,
+    linked_topics: list[str],
+) -> list[dict[str, Any]]:
+    """Poor-man's tool augmentation: after the draft proposes `[[topics]]`,
+    fetch matching team memories so the revise pass can keep references
+    grounded. Reuses the existing team hybrid search so cost is low.
+    """
+    if not linked_topics:
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for topic in linked_topics[:4]:  # cap fan-out
+        try:
+            vector = await embed_fn(topic)
+            rows = await store.team_hybrid_search(
+                team_id=team_id,
+                query_text=topic,
+                query_vector=vector,
+                top_k=2,
+            )
+        except Exception:
+            continue
+        for row in rows:
+            mid = row.get("id") or row.get("memory_id")
+            if not mid or mid in seen:
+                continue
+            seen.add(mid)
+            out.append(
+                {
+                    "title": topic,
+                    "excerpt": (row.get("content") or "")[:600],
+                }
+            )
+    return out
+
+
+async def _recent_human_edits(team_id: str, limit: int = 3) -> list[dict[str, Any]]:
+    """Look up the most recent human-authored revisions to use as few-shot
+    style hints. We don't compute true diffs — the body itself is the
+    "this is how a human said it should read" signal.
+    """
+    try:
+        from sqlalchemy import select
+
+        from piloci.db.models import TeamWikiRevision
+        from piloci.db.session import async_session
+
+        async with async_session() as db:
+            rows = (
+                (
+                    await db.execute(
+                        select(TeamWikiRevision)
+                        .where(
+                            TeamWikiRevision.team_id == team_id,
+                            TeamWikiRevision.author_kind == "human",
+                        )
+                        .order_by(TeamWikiRevision.created_at.desc())
+                        .limit(limit)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+        return [{"title": r.title, "content": (r.content or "")[:600]} for r in rows]
+    except Exception:
+        return []
+
+
+def _judge_passes(score: dict[str, Any]) -> tuple[bool, float]:
+    """Return (passes_threshold, average_score). Missing scores treated as 0."""
+    a = float(score.get("accuracy") or 0)
+    c = float(score.get("completeness") or 0)
+    cl = float(score.get("clarity") or 0)
+    avg = (a + c + cl) / 3.0
+    return avg >= _JUDGE_MIN_AVG, avg
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +467,23 @@ async def _upsert_article(
         ).scalar_one_or_none()
 
         if existing is not None:
+            # Hash-skip dedup: if the new content is byte-identical to what
+            # we already stored, treat this build as a no-op. Keeps revision
+            # numbers stable across rebuilds when source material hasn't
+            # actually changed — the "증류는 중복 없이" guarantee.
+            if (existing.content or "") == content and (existing.title or "") == title:
+                return {
+                    "id": existing.id,
+                    "slug": existing.slug,
+                    "title": existing.title,
+                    "summary": existing.summary,
+                    "category": existing.category,
+                    "revision": existing.revision,
+                    "generated_by": existing.generated_by,
+                    "sources": sources,
+                    "unchanged": True,
+                }
+
             # Snapshot the old revision first
             db.add(
                 TeamWikiRevision(
@@ -361,46 +601,183 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
 
     articles_built: list[dict[str, Any]] = []
     failures: list[str] = []
+    flagged: list[dict[str, Any]] = []
+    unchanged_count = 0
+
+    # Human-edited revisions function as style hints — the prompt steals
+    # phrasing patterns the team has already approved. Loaded once per
+    # build so all clusters share the same hints.
+    human_hints = await _recent_human_edits(team_id)
+    embed_fn = _make_embed_fn()
 
     for cluster in clusters:
-        messages = [
+        category_label = f"{cluster['category']}/{cluster['label']}"
+
+        # --- Stage 1: draft ------------------------------------------------
+        draft_messages = [
             {"role": "system", "content": _WIKI_SYSTEM},
-            {"role": "user", "content": _user_prompt(cluster)},
         ]
+        if human_hints:
+            draft_messages.append(
+                {
+                    "role": "system",
+                    "content": (
+                        "참고: 이 팀은 과거에 다음과 같은 스타일·표현을 사용했어요. "
+                        "표제·문장 길이를 비슷한 결로 맞춰주세요.\n"
+                        + "\n---\n".join(f"### {h['title']}\n{h['content']}" for h in human_hints)
+                    ),
+                }
+            )
+        draft_messages.append({"role": "user", "content": _user_prompt(cluster)})
         record: list[str] = []
         try:
-            response = await chat_json(
-                messages,
+            draft = await chat_json(
+                draft_messages,
                 temperature=0.2,
                 max_tokens=1800,
-                fallbacks=None if targets else None,
                 targets=targets,
                 record_target=record,
             )
         except Exception as exc:
-            logger.warning("team_wiki cluster %s failed: %s", cluster["label"], exc)
-            failures.append(cluster["label"])
+            logger.warning("team_wiki[%s] draft failed: %s", category_label, exc)
+            failures.append(category_label)
             continue
 
-        # Attach which sources this article was synthesized from so the UI
-        # can show "근거 자료" footers and let users jump back.
-        response["sources"] = [
+        # --- Stage 2: tool-augmented context (poor-man's agent loop) ------
+        extra_context = await _fetch_linked_topic_context(
+            team_id, store, embed_fn, draft.get("linked_topics") or []
+        )
+
+        # --- Stage 3: critique --------------------------------------------
+        critique: dict[str, Any] = {}
+        try:
+            critique = await chat_json(
+                [
+                    {"role": "system", "content": _CRITIQUE_SYSTEM},
+                    {"role": "user", "content": _critique_prompt(cluster, draft)},
+                ],
+                temperature=0.0,
+                max_tokens=600,
+                targets=targets,
+            )
+        except Exception as exc:
+            logger.warning("team_wiki[%s] critique failed: %s", category_label, exc)
+
+        # --- Stage 4: revise ----------------------------------------------
+        revised = draft
+        if critique.get("issues") or critique.get("missing") or critique.get("style"):
+            try:
+                revised = await chat_json(
+                    [
+                        {"role": "system", "content": _REVISE_SYSTEM},
+                        {
+                            "role": "user",
+                            "content": _revise_prompt(cluster, draft, critique)
+                            + (
+                                "\n\n## 참고 토픽 발췌\n"
+                                + "\n---\n".join(
+                                    f"### {c['title']}\n{c['excerpt']}" for c in extra_context
+                                )
+                                if extra_context
+                                else ""
+                            ),
+                        },
+                    ],
+                    temperature=0.15,
+                    max_tokens=1800,
+                    targets=targets,
+                )
+            except Exception as exc:
+                logger.warning("team_wiki[%s] revise failed: %s", category_label, exc)
+                revised = draft  # fall back to the draft
+
+        # --- Stage 5: judge → optional retry ------------------------------
+        score: dict[str, Any] = {}
+        try:
+            score = await chat_json(
+                [
+                    {"role": "system", "content": _JUDGE_SYSTEM},
+                    {"role": "user", "content": _judge_prompt(revised, cluster)},
+                ],
+                temperature=0.0,
+                max_tokens=300,
+                targets=targets,
+            )
+        except Exception as exc:
+            logger.warning("team_wiki[%s] judge failed: %s", category_label, exc)
+
+        passes, avg = _judge_passes(score)
+        retries = 0
+        while not passes and retries < _MAX_RETRIES:
+            retries += 1
+            logger.info(
+                "team_wiki[%s] judge avg=%.2f, retrying (%d/%d)",
+                category_label,
+                avg,
+                retries,
+                _MAX_RETRIES,
+            )
+            try:
+                revised = await chat_json(
+                    [
+                        {"role": "system", "content": _REVISE_SYSTEM},
+                        {
+                            "role": "user",
+                            "content": (
+                                f"이전 평가: {orjson.dumps(score).decode()}\n\n"
+                                + _revise_prompt(cluster, revised, critique)
+                            ),
+                        },
+                    ],
+                    temperature=0.2,
+                    max_tokens=1800,
+                    targets=targets,
+                )
+                score = await chat_json(
+                    [
+                        {"role": "system", "content": _JUDGE_SYSTEM},
+                        {"role": "user", "content": _judge_prompt(revised, cluster)},
+                    ],
+                    temperature=0.0,
+                    max_tokens=300,
+                    targets=targets,
+                )
+                passes, avg = _judge_passes(score)
+            except Exception as exc:
+                logger.warning("team_wiki[%s] retry failed: %s", category_label, exc)
+                break
+
+        # Always attach sources + category, even when we fall back to draft.
+        revised["sources"] = [
             {"kind": s["kind"], "id": s["id"], "title": s.get("title") or s.get("path")}
             for s in cluster["sources"]
         ]
-        # Override LLM-suggested category with cluster label to keep the
-        # taxonomy stable across runs.
-        response.setdefault("category", f"{cluster['category']}/{cluster['label']}")
+        revised.setdefault("category", category_label)
+
         try:
             persisted = await _upsert_article(
                 team_id,
-                response,
+                revised,
                 generated_by=record[-1] if record else "gemma_local",
             )
-            articles_built.append(persisted)
         except Exception:
-            logger.exception("team_wiki upsert failed for cluster %s", cluster["label"])
-            failures.append(cluster["label"])
+            logger.exception("team_wiki[%s] upsert failed", category_label)
+            failures.append(category_label)
+            continue
+
+        # Surface judge metadata on the persisted dict so the dashboard /
+        # daily report can flag "이 아티클은 사람 검토 필요" rows.
+        persisted["judge"] = {
+            "average": round(avg, 2),
+            "action": score.get("action"),
+            "reason": score.get("reason"),
+            "retries": retries,
+        }
+        if persisted.get("unchanged"):
+            unchanged_count += 1
+        elif not passes:
+            flagged.append(persisted)
+        articles_built.append(persisted)
 
     # Push the freshly-built article list into the cached vault so frontend
     # `/api/teams/{tid}/workspace` can render it without an extra DB hop.
@@ -427,6 +804,8 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
         "team_id": team_id,
         "articles_built": len(articles_built),
         "clusters": len(clusters),
+        "unchanged": unchanged_count,
+        "flagged_for_review": [a["slug"] for a in flagged],
         "failures": failures,
         "generated_by": (articles_built[0]["generated_by"] if articles_built else None),
     }
