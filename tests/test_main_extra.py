@@ -480,3 +480,397 @@ def test_run_sse_builds_app_when_reload_disabled(monkeypatch) -> None:
         log_level="debug",
         factory=False,
     )
+
+
+class _ScalarOneOrNoneResult:
+    def __init__(self, value: object) -> None:
+        self._value: object = value
+
+    def scalar_one_or_none(self) -> object:
+        return self._value
+
+    def scalar_one(self) -> object:
+        if self._value is None:
+            raise RuntimeError("no row")
+        return self._value
+
+    def execution_options(self, *args: Any, **kwargs: Any) -> "_ScalarOneOrNoneResult":
+        return self
+
+
+class _DBSessionStub:
+    """Per-test fake AsyncSession that records add/commit calls.
+
+    Each instance is a fresh context manager so successive ``async with
+    async_session() as db`` blocks see independent commit outcomes. ``execute``
+    answers from a queue of pre-built result objects, and ``commit`` either
+    succeeds, raises ``IntegrityError`` once, or raises a custom exception."""
+
+    def __init__(
+        self,
+        execute_results: list[object] | None = None,
+        commit_side_effects: list[object] | None = None,
+    ) -> None:
+        self.added: list[object] = []
+        self.commits = 0
+        self.rollbacks = 0
+        self._execute_queue: list[object] = list(execute_results or [])
+        self._commit_queue: list[object] = list(commit_side_effects or [])
+
+    def add(self, obj: object) -> None:
+        self.added.append(obj)
+
+    async def execute(self, *args: Any, **kwargs: Any) -> object:
+        if not self._execute_queue:
+            return _ScalarOneOrNoneResult(None)
+        return self._execute_queue.pop(0)
+
+    async def commit(self) -> None:
+        self.commits += 1
+        if not self._commit_queue:
+            return
+        outcome = self._commit_queue.pop(0)
+        if isinstance(outcome, BaseException):
+            raise outcome
+
+    async def rollback(self) -> None:
+        self.rollbacks += 1
+
+
+class _SessionFactory:
+    """Hands out a pre-built ``_DBSessionStub`` per ``async_session()`` call."""
+
+    def __init__(self, sessions: list[_DBSessionStub]) -> None:
+        self._sessions: list[_DBSessionStub] = list(sessions)
+        self.handed_out: list[_DBSessionStub] = []
+
+    def __call__(self) -> _AsyncSessionContext:
+        if not self._sessions:
+            raise AssertionError("async_session called more times than expected")
+        db = self._sessions.pop(0)
+        self.handed_out.append(db)
+        return _AsyncSessionContext(db)
+
+
+def _capture_create_project_fn(monkeypatch, factory: _SessionFactory) -> Callable[..., Any]:
+    """Build the MCP with mocked async_session and return ``create_project_fn``."""
+    from piloci import main as main_mod
+
+    settings = _settings()
+    store = AsyncMock()
+    captured: dict[str, Any] = {}
+
+    def fake_create_mcp_server(received_settings, received_store, **kwargs):
+        captured.update(kwargs)
+        return "server"
+
+    monkeypatch.setattr("piloci.db.session.async_session", factory)
+    monkeypatch.setattr(main_mod, "create_mcp_server", fake_create_mcp_server)
+
+    main_mod._build_mcp(settings, store, instincts_store=MagicMock())
+    return cast(Callable[..., Any], captured["create_project_fn"])
+
+
+@pytest.mark.asyncio
+async def test_create_project_fn_fresh_insert_returns_new_row(monkeypatch) -> None:
+    db_ok = _DBSessionStub()
+    factory = _SessionFactory([db_ok])
+    create_project_fn = _capture_create_project_fn(monkeypatch, factory)
+
+    result = await create_project_fn("user-1", "Alpha", "alpha", cwd="/tmp/alpha")
+
+    assert result["slug"] == "alpha"
+    assert result["name"] == "Alpha"
+    assert result["cwd"] == "/tmp/alpha"
+    assert db_ok.commits == 1
+    assert db_ok.rollbacks == 0
+    assert len(db_ok.added) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_project_fn_idempotent_same_cwd(monkeypatch) -> None:
+    """Slug collides with a row that has the same cwd → claim and return."""
+    from sqlalchemy.exc import IntegrityError
+
+    existing = SimpleNamespace(id="p-existing", slug="alpha", name="Alpha", cwd="/tmp/alpha")
+    insert_db = _DBSessionStub(
+        commit_side_effects=[IntegrityError("INSERT", {}, Exception("uniq"))]
+    )
+    lookup_db = _DBSessionStub(execute_results=[_ScalarOneOrNoneResult(existing)])
+    factory = _SessionFactory([insert_db, lookup_db])
+
+    create_project_fn = _capture_create_project_fn(monkeypatch, factory)
+
+    result = await create_project_fn("user-1", "Alpha", "alpha", cwd="/tmp/alpha")
+
+    assert result == {"id": "p-existing", "slug": "alpha", "name": "Alpha", "cwd": "/tmp/alpha"}
+    assert insert_db.rollbacks == 1
+    # No claim write needed when cwd matches.
+    assert lookup_db.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_create_project_fn_claims_legacy_row_without_cwd(monkeypatch) -> None:
+    """Slug collides with a legacy row whose cwd is NULL → stamp the new cwd."""
+    from sqlalchemy.exc import IntegrityError
+
+    legacy = SimpleNamespace(id="p-legacy", slug="alpha", name="Alpha", cwd=None)
+    live = SimpleNamespace(id="p-legacy", slug="alpha", name="Alpha", cwd=None)
+    insert_db = _DBSessionStub(
+        commit_side_effects=[IntegrityError("INSERT", {}, Exception("uniq"))]
+    )
+    lookup_db = _DBSessionStub(execute_results=[_ScalarOneOrNoneResult(legacy)])
+    claim_db = _DBSessionStub(
+        execute_results=[_ScalarOneOrNoneResult(live), _ScalarOneOrNoneResult(live)],
+    )
+    factory = _SessionFactory([insert_db, lookup_db, claim_db])
+
+    create_project_fn = _capture_create_project_fn(monkeypatch, factory)
+
+    result = await create_project_fn("user-1", "Alpha", "alpha", cwd="/tmp/new-cwd")
+
+    assert result["id"] == "p-legacy"
+    assert result["cwd"] == "/tmp/new-cwd"
+    # Claim path stamps the cwd onto the live row and commits.
+    assert live.cwd == "/tmp/new-cwd"
+    assert claim_db.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_create_project_fn_disambiguates_on_different_cwd(monkeypatch) -> None:
+    """Slug collides with a row using a *different* cwd → suffix-disambiguated insert."""
+    from sqlalchemy.exc import IntegrityError
+
+    existing = SimpleNamespace(id="p-other", slug="alpha", name="Alpha", cwd="/tmp/other")
+    insert_db = _DBSessionStub(
+        commit_side_effects=[IntegrityError("INSERT", {}, Exception("uniq"))]
+    )
+    lookup_db = _DBSessionStub(execute_results=[_ScalarOneOrNoneResult(existing)])
+    disambig_db = _DBSessionStub()
+    factory = _SessionFactory([insert_db, lookup_db, disambig_db])
+
+    create_project_fn = _capture_create_project_fn(monkeypatch, factory)
+
+    result = await create_project_fn("user-1", "Alpha", "alpha", cwd="/tmp/mine")
+
+    assert result["slug"].startswith("alpha-")
+    assert len(result["slug"]) <= 50
+    assert result["cwd"] == "/tmp/mine"
+    assert disambig_db.commits == 1
+    # The disambiguation row was the project added to the third session.
+    inserted = disambig_db.added[0]
+    assert inserted.cwd == "/tmp/mine"  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_create_project_fn_no_existing_row_falls_through_and_raises(monkeypatch) -> None:
+    """Slug collides but lookup finds nothing → fallthrough re-insert raises RuntimeError.
+
+    Both inserts are forced to succeed via empty commit queues so the function
+    reaches the final ``raise RuntimeError`` guard.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    insert_db = _DBSessionStub(
+        commit_side_effects=[IntegrityError("INSERT", {}, Exception("uniq"))]
+    )
+    lookup_db = _DBSessionStub(execute_results=[_ScalarOneOrNoneResult(None)])
+    fallthrough_db = _DBSessionStub()
+    factory = _SessionFactory([insert_db, lookup_db, fallthrough_db])
+
+    create_project_fn = _capture_create_project_fn(monkeypatch, factory)
+
+    with pytest.raises(RuntimeError, match="unreachable"):
+        await create_project_fn("user-1", "Alpha", "alpha", cwd=None)
+
+    # The fallthrough block re-added a row before raising.
+    assert len(fallthrough_db.added) == 1
+
+
+@pytest.mark.asyncio
+async def test_create_app_lifespan_invokes_startup_and_shutdown(monkeypatch) -> None:
+    """Drive ``create_app``'s lifespan ctx so the inline startup/shutdown body runs."""
+    settings = _settings(curator_enabled=False)
+    store = object()
+    instincts_store = object()
+    startup_mock = AsyncMock()
+    shutdown_mock = AsyncMock()
+
+    monkeypatch.setattr("piloci.main.get_settings", lambda: settings)
+    monkeypatch.setattr("piloci.main.configure_logging", MagicMock())
+    monkeypatch.setattr("piloci.main.MemoryStore", lambda received: store)
+    monkeypatch.setattr("piloci.main.InstinctsStore", lambda received: instincts_store)
+    monkeypatch.setattr("piloci.main._build_mcp", lambda *args: "mcp-server")
+    monkeypatch.setattr("piloci.main.create_sse_app", lambda *args, **kwargs: Starlette())
+    monkeypatch.setattr(
+        "piloci.main.create_streamable_http_app", lambda *args, **kwargs: Starlette()
+    )
+    monkeypatch.setattr("piloci.main.get_routes", lambda: [])
+    monkeypatch.setattr("piloci.main.get_static_app", lambda: None)
+    monkeypatch.setattr("piloci.main.setup_ratelimit", MagicMock())
+    monkeypatch.setattr("piloci.main._startup", startup_mock)
+    monkeypatch.setattr("piloci.main._shutdown", shutdown_mock)
+
+    app = create_app()
+    lifespan_ctx = app.router.lifespan_context(app)
+
+    await lifespan_ctx.__aenter__()
+    await lifespan_ctx.__aexit__(None, None, None)
+
+    startup_mock.assert_awaited_once()
+    shutdown_mock.assert_awaited_once()
+    # Stop event + bg task list are shared across startup/shutdown.
+    startup_args = startup_mock.await_args.args
+    shutdown_args = shutdown_mock.await_args.args
+    assert startup_args[2] is shutdown_args[1]  # stop_event
+    assert startup_args[3] is shutdown_args[2]  # bg_tasks list
+
+
+@pytest.mark.asyncio
+async def test_startup_runs_health_monitor_when_enabled(monkeypatch) -> None:
+    """``health_monitor_enabled=True`` adds the health monitor task to bg_tasks."""
+    settings = _settings(curator_enabled=False, health_monitor_enabled=True)
+    init_db_mock = AsyncMock()
+    store = AsyncMock()
+    health_invocations: list[tuple[object, object]] = []
+    created_tasks = 0
+
+    async def maintenance_worker(received_settings: object, stop_event: asyncio.Event):
+        await stop_event.wait()
+
+    async def health_monitor(received_settings: object, stop_event: asyncio.Event):
+        health_invocations.append((received_settings, stop_event))
+        await stop_event.wait()
+
+    def fake_create_task(coro: Coroutine[Any, Any, Any]) -> str:
+        nonlocal created_tasks
+        created_tasks += 1
+        # Drive the coroutine just enough to enter its body so we can prove
+        # which worker was wrapped, then close it so no real task lingers.
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+        coro.close()
+        return f"task-{created_tasks}"
+
+    maintenance_module = types.ModuleType("piloci.ops.maintenance")
+    maintenance_module.run_maintenance_worker = maintenance_worker
+    health_module = types.ModuleType("piloci.notify.health")
+    health_module.run_health_monitor = health_monitor
+
+    monkeypatch.setattr("piloci.main.get_settings", lambda: settings)
+    monkeypatch.setattr("piloci.main.init_db", init_db_mock)
+    monkeypatch.setattr("piloci.main.asyncio.create_task", fake_create_task)
+
+    with pytest.MonkeyPatch.context() as patch_ctx:
+        patch_ctx.setitem(sys.modules, "piloci.ops.maintenance", maintenance_module)
+        patch_ctx.setitem(sys.modules, "piloci.notify.health", health_module)
+
+        stop_event = asyncio.Event()
+        bg_tasks: list[object] = []
+
+        await _startup(Starlette(), store, stop_event, bg_tasks, instincts_store=None)
+
+    assert created_tasks == 2
+    assert len(bg_tasks) == 2
+    assert len(health_invocations) == 1
+    assert health_invocations[0][0] is settings
+    assert health_invocations[0][1] is stop_event
+
+
+@pytest.mark.asyncio
+async def test_startup_runs_telegram_bot_when_token_and_chat_id_present(monkeypatch) -> None:
+    """Telegram bot section requires bot_enabled + token + chat_id all set."""
+    settings = _settings(
+        curator_enabled=False,
+        telegram_bot_enabled=True,
+        telegram_bot_token="bot-token",
+        telegram_chat_id="chat-123",
+    )
+    init_db_mock = AsyncMock()
+    store = AsyncMock()
+    telegram_invocations: list[tuple[object, object]] = []
+    created_tasks = 0
+
+    async def maintenance_worker(received_settings: object, stop_event: asyncio.Event):
+        await stop_event.wait()
+
+    async def telegram_bot(received_settings: object, stop_event: asyncio.Event):
+        telegram_invocations.append((received_settings, stop_event))
+        await stop_event.wait()
+
+    def fake_create_task(coro: Coroutine[Any, Any, Any]) -> str:
+        nonlocal created_tasks
+        created_tasks += 1
+        try:
+            coro.send(None)
+        except StopIteration:
+            pass
+        coro.close()
+        return f"task-{created_tasks}"
+
+    maintenance_module = types.ModuleType("piloci.ops.maintenance")
+    maintenance_module.run_maintenance_worker = maintenance_worker
+    telegram_module = types.ModuleType("piloci.notify.telegram_bot")
+    telegram_module.run_telegram_bot = telegram_bot
+
+    monkeypatch.setattr("piloci.main.get_settings", lambda: settings)
+    monkeypatch.setattr("piloci.main.init_db", init_db_mock)
+    monkeypatch.setattr("piloci.main.asyncio.create_task", fake_create_task)
+
+    with pytest.MonkeyPatch.context() as patch_ctx:
+        patch_ctx.setitem(sys.modules, "piloci.ops.maintenance", maintenance_module)
+        patch_ctx.setitem(sys.modules, "piloci.notify.telegram_bot", telegram_module)
+
+        stop_event = asyncio.Event()
+        bg_tasks: list[object] = []
+
+        await _startup(Starlette(), store, stop_event, bg_tasks, instincts_store=None)
+
+    assert created_tasks == 2
+    assert len(bg_tasks) == 2
+    assert len(telegram_invocations) == 1
+    assert telegram_invocations[0][0] is settings
+    assert telegram_invocations[0][1] is stop_event
+
+
+@pytest.mark.asyncio
+async def test_startup_skips_telegram_when_token_missing(monkeypatch) -> None:
+    """Telegram block is gated on bot_enabled AND token AND chat_id."""
+    settings = _settings(
+        curator_enabled=False,
+        telegram_bot_enabled=True,
+        telegram_bot_token=None,
+        telegram_chat_id="chat-123",
+    )
+    init_db_mock = AsyncMock()
+    store = AsyncMock()
+    task_count = 0
+
+    async def maintenance_worker(received_settings: object, stop_event: asyncio.Event):
+        await stop_event.wait()
+
+    def fake_create_task(coro: Coroutine[Any, Any, Any]) -> str:
+        nonlocal task_count
+        task_count += 1
+        coro.close()
+        return f"task-{task_count}"
+
+    maintenance_module = types.ModuleType("piloci.ops.maintenance")
+    maintenance_module.run_maintenance_worker = maintenance_worker
+
+    monkeypatch.setattr("piloci.main.get_settings", lambda: settings)
+    monkeypatch.setattr("piloci.main.init_db", init_db_mock)
+    monkeypatch.setattr("piloci.main.asyncio.create_task", fake_create_task)
+
+    with pytest.MonkeyPatch.context() as patch_ctx:
+        patch_ctx.setitem(sys.modules, "piloci.ops.maintenance", maintenance_module)
+
+        stop_event = asyncio.Event()
+        bg_tasks: list[object] = []
+
+        await _startup(Starlette(), store, stop_event, bg_tasks, instincts_store=None)
+
+    # Only the maintenance worker — telegram path is gated off.
+    assert task_count == 1
