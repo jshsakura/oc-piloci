@@ -10,7 +10,7 @@ function readCookie(name: string): string | null {
   return match ? decodeURIComponent(match.slice(prefix.length)) : null;
 }
 
-function csrfHeaders(method?: string): Record<string, string> {
+export function csrfHeaders(method?: string): Record<string, string> {
   const normalized = (method ?? "GET").toUpperCase();
   if (["GET", "HEAD", "OPTIONS", "TRACE"].includes(normalized)) return {};
   const token = readCookie("piloci_csrf");
@@ -340,7 +340,7 @@ export const api = {
     const res = await fetch(`${BASE}/api/data/import${qs}`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/zip" },
+      headers: { "Content-Type": "application/zip", ...csrfHeaders("POST") },
       body: file,
     });
     if (!res.ok) {

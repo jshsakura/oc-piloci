@@ -9,6 +9,7 @@ import RoutePending from "@/components/RoutePending";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { csrfHeaders } from "@/lib/api";
 import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 
@@ -119,7 +120,7 @@ export default function DeviceClient() {
       }
       const res = await fetch("/api/device/approve", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...csrfHeaders("POST") },
         credentials: "include",
         body: JSON.stringify(body),
       });

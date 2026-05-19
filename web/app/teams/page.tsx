@@ -313,7 +313,7 @@ export default function TeamsPage() {
               {/* Hint overlay */}
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
                 <div className="bg-background/95 text-muted-foreground rounded-lg border px-5 py-3 text-center text-sm shadow-md backdrop-blur-sm">
-                  왼쪽에서 팀을 만들거나 선택하세요.
+                  먼저 팀을 만들거나 선택해주세요.
                 </div>
               </div>
             </div>
@@ -340,51 +340,75 @@ export default function TeamsPage() {
                     <RefreshCcw className="me-2 size-4" /> 새로고침
                   </Button>
                 </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
+                <CardContent className="grid gap-4 md:grid-cols-2 md:items-stretch">
+                  <div className="flex flex-col gap-2">
                     <Label>멤버</Label>
-                    <div className="space-y-2">
+                    <div className="flex h-full flex-col gap-2 rounded-xl border p-3">
                       {teamQuery.data?.members.map((member) => (
-                        <div key={member.user_id} className="flex items-center justify-between rounded-xl border p-3">
-                          <div>
-                            <p className="text-sm font-medium">{member.email}</p>
-                            <p className="text-xs text-muted-foreground">{member.user_id}</p>
+                        <div
+                          key={member.user_id}
+                          className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{member.email}</p>
+                            <p className="truncate text-xs text-muted-foreground">{member.user_id}</p>
                           </div>
-                          <Badge variant={member.role === "owner" ? "default" : "secondary"}>{member.role}</Badge>
+                          <Badge variant={member.role === "owner" ? "default" : "secondary"}>
+                            {member.role}
+                          </Badge>
                         </div>
-                      )) ?? <Skeleton className="h-16 rounded-xl" />}
+                      )) ?? <Skeleton className="h-12 rounded-lg" />}
                     </div>
                   </div>
-                  <form
-                    className="space-y-3 rounded-xl border p-3"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (!inviteEmail.trim()) return setNotice({ tone: "error", text: "초대할 이메일을 입력하세요." });
-                      inviteMutation.mutate();
-                    }}
-                  >
+
+                  <div className="flex flex-col gap-2">
                     <Label htmlFor="team-invite">이메일로 초대</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        id="team-invite"
-                        type="email"
-                        value={inviteEmail}
-                        onChange={(event) => setInviteEmail(event.target.value)}
-                        placeholder="teammate@example.com"
-                      />
-                      <Button type="submit" disabled={inviteMutation.isPending}>
-                        <MailPlus className="size-4" />
-                      </Button>
-                    </div>
-                    <div className="space-y-2 pt-2">
-                      {(invitesQuery.data ?? []).slice(0, 4).map((invite) => (
-                        <div key={invite.id} className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>{invite.invitee_email}</span>
-                          <Badge variant="outline">{invite.status}</Badge>
+                    <form
+                      className="flex h-full flex-col gap-3 rounded-xl border p-3"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        if (!inviteEmail.trim())
+                          return setNotice({ tone: "error", text: "초대할 이메일을 입력하세요." });
+                        inviteMutation.mutate();
+                      }}
+                    >
+                      <div className="flex gap-2">
+                        <Input
+                          id="team-invite"
+                          type="email"
+                          value={inviteEmail}
+                          onChange={(event) => setInviteEmail(event.target.value)}
+                          placeholder="teammate@example.com"
+                        />
+                        <Button type="submit" disabled={inviteMutation.isPending}>
+                          <MailPlus className="size-4" />
+                        </Button>
+                      </div>
+
+                      {(invitesQuery.data ?? []).length > 0 ? (
+                        <div className="flex flex-1 flex-col gap-1.5 overflow-hidden">
+                          <p className="text-xs font-medium text-muted-foreground">보낸 초대</p>
+                          <div className="flex flex-col gap-1.5">
+                            {(invitesQuery.data ?? []).slice(0, 4).map((invite) => (
+                              <div
+                                key={invite.id}
+                                className="flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-1.5 text-xs"
+                              >
+                                <span className="truncate text-muted-foreground">{invite.invitee_email}</span>
+                                <Badge variant="outline" className="shrink-0">
+                                  {invite.status}
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </form>
+                      ) : (
+                        <p className="flex flex-1 items-center text-xs text-muted-foreground">
+                          아직 보낸 초대가 없습니다.
+                        </p>
+                      )}
+                    </form>
+                  </div>
                 </CardContent>
               </Card>
 
