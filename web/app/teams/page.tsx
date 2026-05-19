@@ -352,17 +352,22 @@ export default function TeamsPage() {
                 <CardContent className="grid gap-4 md:grid-cols-2 md:items-stretch">
                   <div className="flex flex-col gap-2">
                     <Label>멤버</Label>
-                    <div className="flex h-full flex-col gap-2 rounded-xl border p-3">
+                    <div className="flex flex-1 flex-col gap-1.5 rounded-xl border p-3">
                       {teamQuery.data?.members.map((member) => (
                         <div
                           key={member.user_id}
-                          className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-2"
+                          className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-1.5"
                         >
                           <div className="min-w-0">
                             <p className="truncate text-sm font-medium">{member.email}</p>
-                            <p className="truncate text-xs text-muted-foreground">{member.user_id}</p>
+                            <p className="truncate text-[10px] text-muted-foreground">
+                              {member.user_id}
+                            </p>
                           </div>
-                          <Badge variant={member.role === "owner" ? "default" : "secondary"}>
+                          <Badge
+                            variant={member.role === "owner" ? "default" : "secondary"}
+                            className="shrink-0"
+                          >
                             {member.role}
                           </Badge>
                         </div>
@@ -373,7 +378,7 @@ export default function TeamsPage() {
                   <div className="flex flex-col gap-2">
                     <Label htmlFor="team-invite">이메일로 초대</Label>
                     <form
-                      className="flex h-full flex-col gap-3 rounded-xl border p-3"
+                      className="flex flex-1 flex-col gap-3 rounded-xl border p-3"
                       onSubmit={(event) => {
                         event.preventDefault();
                         if (!inviteEmail.trim())
@@ -394,28 +399,28 @@ export default function TeamsPage() {
                         </Button>
                       </div>
 
-                      {(invitesQuery.data ?? []).length > 0 ? (
-                        <div className="flex flex-1 flex-col gap-1.5 overflow-hidden">
-                          <p className="text-xs font-medium text-muted-foreground">보낸 초대</p>
+                      <div className="flex flex-1 flex-col gap-1.5 overflow-hidden">
+                        <p className="text-xs font-medium text-muted-foreground">보낸 초대</p>
+                        {(invitesQuery.data ?? []).length > 0 ? (
                           <div className="flex flex-col gap-1.5">
                             {(invitesQuery.data ?? []).slice(0, 4).map((invite) => (
                               <div
                                 key={invite.id}
-                                className="flex items-center justify-between gap-2 rounded-lg bg-muted/30 px-3 py-1.5 text-xs"
+                                className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-1.5"
                               >
-                                <span className="truncate text-muted-foreground">{invite.invitee_email}</span>
+                                <span className="truncate text-sm text-muted-foreground">
+                                  {invite.invitee_email}
+                                </span>
                                 <Badge variant="outline" className="shrink-0">
                                   {invite.status}
                                 </Badge>
                               </div>
                             ))}
                           </div>
-                        </div>
-                      ) : (
-                        <p className="flex flex-1 items-center text-xs text-muted-foreground">
-                          아직 보낸 초대가 없습니다.
-                        </p>
-                      )}
+                        ) : (
+                          <p className="text-xs text-muted-foreground">아직 보낸 초대가 없습니다.</p>
+                        )}
+                      </div>
                     </form>
                   </div>
                 </CardContent>

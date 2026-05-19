@@ -74,7 +74,7 @@ export default function LandingPage() {
   }, [typed, totalChars, terminal.examples.length, ex]);
 
   const copySetup = () => {
-    navigator.clipboard.writeText("pip install -U oc-piloci && python -m piloci setup");
+    navigator.clipboard.writeText("uv tool install oc-piloci && piloci setup");
     setCopiedSetup(true);
     setTimeout(() => setCopiedSetup(false), 2000);
   };
@@ -312,7 +312,7 @@ export default function LandingPage() {
                   >
                     <span className="flex items-center gap-2 min-w-0">
                       <span className="select-none text-primary/50">$</span>
-                      <span className="truncate">pip install -U oc-piloci && python -m piloci setup</span>
+                      <span className="truncate">uv tool install oc-piloci && piloci setup</span>
                     </span>
                     <span className="shrink-0 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
                       {copiedSetup ? t.common.copied : t.common.copy}
