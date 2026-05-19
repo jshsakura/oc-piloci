@@ -148,10 +148,33 @@ function WikiContent() {
   }
 
   function handleGraphNode(node: GraphNode) {
-    // Graph node ids match memory_id for "note" kinds; the curator emits
-    // synthetic "tag"/"topic" nodes that have no direct memory — ignore
-    // those clicks rather than jumping into a 404 state.
-    if (node.kind === "note") handleSelectNote(node.id);
+    // Backend prefixes graph node ids with their kind ("note:<memory_id>",
+    // "tag:<slug>", "topic:<slug>"). Previously this handler passed node.id
+    // straight into ?note=, which put e.g. "note:abc" there and silently
+    // matched nothing — so every node click looked dead.
+    if (node.kind === "note") {
+      const memoryId = node.id.startsWith("note:")
+        ? node.id.slice("note:".length)
+        : node.id;
+      handleSelectNote(memoryId);
+      return;
+    }
+    if (node.kind === "tag") {
+      // The tag node's label is the raw tag string, which is exactly what
+      // the list facet filter (?tag=) compares against. Clear ?note= so the
+      // detail pane doesn't keep a stale selection underneath the filter.
+      if (!slug) return;
+      pushParams(router, searchParams, { slug, tag: node.label, note: null });
+      return;
+    }
+    if (node.kind === "topic") {
+      // Topic = inline [[link]] reference. Try to resolve it to an in-project
+      // note by title; if no match, no-op rather than navigating to a 404.
+      const match = notes.find((n) => n.title === node.label || n.path === node.label);
+      if (match) handleSelectNote(match.memory_id);
+      return;
+    }
+    // project node: graph is already centered on it. No-op.
   }
 
   if (!hasHydrated || isBootstrapping) {
@@ -263,7 +286,10 @@ function WikiContent() {
                   nodes={graphNodes}
                   edges={graphEdges}
                   onNodeClick={handleGraphNode}
-                  selectedNodeId={noteId}
+                  // Graph node ids are prefixed with kind ("note:<memory_id>");
+                  // the ring overlay compares strict-equal to node.id, so we
+                  // mirror the prefix here. Without this the ring never showed.
+                  selectedNodeId={noteId ? `note:${noteId}` : null}
                 />
               </GraphPane>
             )}
