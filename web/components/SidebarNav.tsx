@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Activity,
+  BookOpen,
   BookOpenCheck,
   FolderKanban,
   GanttChart,
@@ -40,58 +41,89 @@ export interface SidebarItem {
   match: SidebarMatch;
 }
 
-function useSidebarItems(): SidebarItem[] {
+export interface SidebarGroup {
+  key: string;
+  label: string;
+  items: SidebarItem[];
+}
+
+function useSidebarGroups(): SidebarGroup[] {
   const { t } = useTranslation();
   const labels = t.appShell.sidebar;
   return [
     {
-      key: "summary",
-      label: labels.summary,
-      href: "/summary",
-      icon: BookOpenCheck,
-      match: { pathname: "/summary" },
+      key: "personal",
+      label: labels.groupPersonal,
+      items: [
+        {
+          key: "summary",
+          label: labels.summary,
+          href: "/summary",
+          icon: BookOpenCheck,
+          match: { pathname: "/summary" },
+        },
+        {
+          key: "memory",
+          label: labels.memory,
+          href: "/memory",
+          icon: Network,
+          match: { pathname: "/memory" },
+        },
+        {
+          key: "activity",
+          label: labels.activity,
+          href: "/activity",
+          icon: Activity,
+          match: { pathname: "/activity" },
+        },
+        {
+          key: "chat",
+          label: labels.chat,
+          href: "/chat",
+          icon: MessageSquareText,
+          match: { pathname: "/chat" },
+        },
+      ],
     },
     {
-      key: "memory",
-      label: labels.memory,
-      href: "/memory",
-      icon: Network,
-      match: { pathname: "/memory" },
+      key: "team",
+      label: labels.groupTeam,
+      items: [
+        {
+          key: "teams",
+          label: labels.teams,
+          href: "/teams",
+          icon: UsersRound,
+          match: { pathname: "/teams" },
+        },
+        {
+          key: "team-wiki",
+          label: labels.teamWiki,
+          href: "/teams/wiki",
+          icon: BookOpen,
+          match: { pathname: "/teams/wiki" },
+        },
+      ],
     },
     {
-      key: "activity",
-      label: labels.activity,
-      href: "/activity",
-      icon: Activity,
-      match: { pathname: "/activity" },
-    },
-    {
-      key: "ops",
-      label: labels.ops,
-      href: "/pipeline",
-      icon: GanttChart,
-      match: { pathname: "/pipeline" },
-    },
-    {
-      key: "projects",
-      label: labels.projects,
-      href: "/projects",
-      icon: FolderKanban,
-      match: { pathname: "/projects" },
-    },
-    {
-      key: "teams",
-      label: labels.teams,
-      href: "/teams",
-      icon: UsersRound,
-      match: { pathname: "/teams" },
-    },
-    {
-      key: "chat",
-      label: labels.chat,
-      href: "/chat",
-      icon: MessageSquareText,
-      match: { pathname: "/chat" },
+      key: "system",
+      label: labels.groupSystem,
+      items: [
+        {
+          key: "projects",
+          label: labels.projects,
+          href: "/projects",
+          icon: FolderKanban,
+          match: { pathname: "/projects" },
+        },
+        {
+          key: "ops",
+          label: labels.ops,
+          href: "/pipeline",
+          icon: GanttChart,
+          match: { pathname: "/pipeline" },
+        },
+      ],
     },
   ];
 }
@@ -109,35 +141,46 @@ function isActive(item: SidebarItem, pathname: string, params: URLSearchParams):
 }
 
 interface NavListProps {
-  items: SidebarItem[];
+  groups: SidebarGroup[];
   pathname: string;
   params: URLSearchParams;
   onNavigate?: () => void;
 }
 
-function NavList({ items, pathname, params, onNavigate }: NavListProps) {
+function NavList({ groups, pathname, params, onNavigate }: NavListProps) {
   return (
-    <nav className="flex flex-col gap-0.5">
-      {items.map((item) => {
-        const Icon = item.icon;
-        const active = isActive(item, pathname, params);
-        return (
-          <Link
-            key={item.key}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-muted text-foreground"
-                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
-            )}
-          >
-            <Icon className="size-4 shrink-0" aria-hidden />
-            <span className="truncate">{item.label}</span>
-          </Link>
-        );
-      })}
+    <nav className="flex flex-col gap-3">
+      {groups.map((group, idx) => (
+        <div key={group.key} className="flex flex-col gap-0.5">
+          {/* Section label — small uppercase wash so groups read as steps,
+              not as another row of clickable items. First group skips a
+              divider; later groups get a hairline above. */}
+          {idx > 0 && <div className="my-1 border-t border-border/40" />}
+          <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">
+            {group.label}
+          </div>
+          {group.items.map((item) => {
+            const Icon = item.icon;
+            const active = isActive(item, pathname, params);
+            return (
+              <Link
+                key={item.key}
+                href={item.href}
+                onClick={onNavigate}
+                className={cn(
+                  "inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-muted text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                )}
+              >
+                <Icon className="size-4 shrink-0" aria-hidden />
+                <span className="truncate">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      ))}
     </nav>
   );
 }
@@ -145,12 +188,12 @@ function NavList({ items, pathname, params, onNavigate }: NavListProps) {
 export function DesktopSidebar() {
   const pathname = usePathname() || "/";
   const params = useSearchParams();
-  const items = useSidebarItems();
+  const groups = useSidebarGroups();
   return (
     // v0.3.53: brand is back in the header (consistent across mobile +
     // desktop), so the sidebar only carries nav items now.
     <aside className="bg-background hidden w-56 shrink-0 flex-col border-e p-3 md:flex">
-      <NavList items={items} pathname={pathname} params={params || new URLSearchParams()} />
+      <NavList groups={groups} pathname={pathname} params={params || new URLSearchParams()} />
     </aside>
   );
 }
@@ -163,7 +206,7 @@ interface MobileDrawerProps {
 export function MobileSidebarDrawer({ open, onClose }: MobileDrawerProps) {
   const pathname = usePathname() || "/";
   const params = useSearchParams();
-  const items = useSidebarItems();
+  const groups = useSidebarGroups();
 
   // Lock background scroll while the drawer is open so a touch flick can't
   // accidentally scroll the page underneath. Also auto-close on `Escape`
@@ -205,7 +248,7 @@ export function MobileSidebarDrawer({ open, onClose }: MobileDrawerProps) {
         </div>
         <div className="flex-1 overflow-y-auto p-3">
           <NavList
-            items={items}
+            groups={groups}
             pathname={pathname}
             params={params || new URLSearchParams()}
             onNavigate={onClose}
