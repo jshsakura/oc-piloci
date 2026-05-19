@@ -9,6 +9,7 @@ the user only read files. Anything ambiguous passes through — false negatives
 (filtering a useful session) are worse than false positives.
 """
 
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +21,43 @@ import orjson
 MIN_TRANSCRIPT_CHARS = 300
 MIN_DISTINCT_WORDS = 30
 MIN_ASSISTANT_CHARS = 100
+
+# Hard cap for "looks like a one-off notification". Anything longer than this
+# might still be a short notification but the false-positive risk of dropping
+# a real session grows; cap conservatively.
+NOTIFICATION_MAX_CHARS = 600
+
+# Patterns we've observed turning into tiny, semantically-useless "memories":
+# GitHub / Snyk / Dependabot / Renovate webhook-style notifications that arrive
+# via /api/ingest. They look like prose but they're templated automation
+# output — distilling them just produces noise notes the user can't act on
+# and that pile up faster than real session learnings.
+_NOTIFICATION_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r"^A security scan revealed", re.I),
+    re.compile(r"\bvulnerabilit(?:y|ies)\b.*\bseverit", re.I),
+    re.compile(r"^Dependabot\b", re.I),
+    re.compile(r"^Renovate\b", re.I),
+    re.compile(r"^Snyk\b", re.I),
+    re.compile(r"^npm audit\b", re.I),
+    re.compile(r"^GitHub Actions\b", re.I),
+    re.compile(r"^Workflow run\b", re.I),
+    re.compile(r"\b(opened|closed|merged|reopened) (?:a |the )?(?:pull request|issue)\b", re.I),
+    re.compile(r"^Build (?:#\d+ )?(?:failed|succeeded)\b", re.I),
+    re.compile(r"^Stale (?:issue|pull request)\b", re.I),
+]
+
+
+def _looks_like_system_notification(text: str) -> bool:
+    """True when ``text`` reads like a single short automated notification.
+
+    Length-gated so long sessions that happen to mention scans still pass —
+    the false-positive cost of dropping a real session is much worse than
+    keeping a notification in the queue.
+    """
+    stripped = text.strip()
+    if not stripped or len(stripped) > NOTIFICATION_MAX_CHARS:
+        return False
+    return any(p.search(stripped) for p in _NOTIFICATION_PATTERNS)
 
 
 @dataclass
@@ -116,6 +154,18 @@ def evaluate(transcript: str | list[dict[str, Any]]) -> PrefilterDecision:
         return PrefilterDecision(passes=False, reason="empty", char_count=0)
 
     char_count = len(full_text)
+
+    # System notification gate runs BEFORE the length check: notifications are
+    # short by nature and would otherwise either pass the length floor or be
+    # logged as "too_short" with no hint about WHY this kind of input keeps
+    # appearing. The dedicated reason makes the dashboard actionable.
+    if _looks_like_system_notification(full_text):
+        return PrefilterDecision(
+            passes=False,
+            reason="system_notification",
+            char_count=char_count,
+        )
+
     if char_count < MIN_TRANSCRIPT_CHARS:
         return PrefilterDecision(
             passes=False,

@@ -236,7 +236,14 @@ async def _save_memories(
                 # filters, privacy gating, weekly digest) can tell a
                 # ``feedback`` memory apart from a coding ``fact``. Up to
                 # v0.3.35 this was dropped on the floor.
-                "metadata": {"source": "distilled", "category": mem.category},
+                "metadata": {
+                    "source": "distilled",
+                    "category": mem.category,
+                    # Title is the LLM-authored short label used by the wiki
+                    # heading. Falls back to content-derived in vault.py when
+                    # absent (older rows or pre-v0.3.76 extractor).
+                    **({"title": mem.title} if mem.title else {}),
+                },
             }
         )
         accepted_vectors.append(vec)

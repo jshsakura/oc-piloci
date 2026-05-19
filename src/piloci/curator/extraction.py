@@ -47,7 +47,9 @@ _SYSTEM = (
     "Output ONE JSON object, no prose, with this exact schema:\n"
     "{\n"
     '  "memories": [\n'
-    '    {"content": "<single self-contained sentence>",\n'
+    '    {"title": "<short noun-phrase title for this memory, <=60 chars, '
+    "no trailing punctuation, in the user's language>\",\n"
+    '     "content": "<single self-contained sentence>",\n'
     '     "tags": ["tag1", "tag2"],\n'
     '     "category": "fact|decision|preference|pattern|error|solution|feedback"}\n'
     "  ],\n"
@@ -93,6 +95,7 @@ _USER_TEMPLATE = (
 @dataclass
 class DistilledMemory:
     content: str
+    title: str = ""
     tags: list[str] = field(default_factory=list)
     category: str = "fact"
 
@@ -228,8 +231,14 @@ def _validate_memory(item: Any) -> DistilledMemory | None:
     raw_tags = item.get("tags")
     tags = [str(t) for t in raw_tags] if isinstance(raw_tags, list) else []
     category = item.get("category")
+    # Title is optional for backwards compatibility with the previous schema
+    # (and with older models that ignore the new field). vault.py falls back
+    # to deriving from content when title is empty.
+    raw_title = item.get("title")
+    title = raw_title.strip()[:80] if isinstance(raw_title, str) else ""
     return DistilledMemory(
         content=content.strip(),
+        title=title,
         tags=tags[:5],
         category=category if isinstance(category, str) else "fact",
     )
