@@ -205,6 +205,8 @@ async def test_memory_tool_saves_and_invalidates_vault_cache(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_project_scoped_tool_requires_project_id(tmp_path: Path):
+    """Without a project token AND without team_id, memory returns a soft error
+    so the LLM can recover by providing one or the other on the retry."""
     server = create_mcp_server(_server_settings(tmp_path), AsyncMock())
     auth_token = mcp_auth_ctx.set({"sub": "user-1", "project_id": None, "jti": "session-1"})
     session_token = mcp_session_ctx.set(McpSessionTracker())
@@ -215,8 +217,10 @@ async def test_project_scoped_tool_requires_project_id(tmp_path: Path):
         mcp_session_ctx.reset(session_token)
         mcp_auth_ctx.reset(auth_token)
 
-    assert result.root.isError is True
-    assert _content_text(result) == "This MCP action requires a project-scoped token"
+    payload = _content_json(result)
+    assert payload["success"] is False
+    assert "project-scoped token" in payload["error"]
+    assert "team_id" in payload["error"]
 
 
 @pytest.mark.asyncio
@@ -289,7 +293,9 @@ async def test_list_projects_tool_uses_callback_when_available(tmp_path: Path):
         mcp_session_ctx.reset(session_token)
         mcp_auth_ctx.reset(auth_token)
 
-    assert _content_json(result) == {"projects": [{"id": "project-1", "slug": "alpha"}]}
+    payload = _content_json(result)
+    assert payload["projects"] == [{"id": "project-1", "slug": "alpha"}]
+    assert payload["teams"] == []  # no DB in this test, helper returns []
     projects_fn.assert_awaited_once_with("user-1", True)
     assert tracker.tool_calls == 1
     assert tracker.list_projects_calls == 1
@@ -307,7 +313,8 @@ async def test_list_projects_tool_returns_empty_when_callback_missing(tmp_path: 
         mcp_session_ctx.reset(session_token)
         mcp_auth_ctx.reset(auth_token)
 
-    assert _content_json(result) == {"projects": []}
+    payload = _content_json(result)
+    assert payload == {"projects": [], "teams": []}
 
 
 @pytest.mark.asyncio

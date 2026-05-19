@@ -243,3 +243,45 @@ async def test_team_routes_validate_common_error_paths(team_app: Starlette) -> N
 
         missing_doc = await client.delete(f"/api/teams/{team_id}/documents/missing", headers=owner)
         assert missing_doc.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_team_document_single_get_and_raw_download(team_app: Starlette) -> None:
+    """Single-doc GET returns content + bytes; /raw streams with attachment filename
+    derived from the path's basename so download preserves the doc's name."""
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        stranger = _headers("member", "member@example.com")
+
+        team_id = (await client.post("/api/teams", headers=owner, json={"name": "Docs"})).json()[
+            "id"
+        ]
+        doc = (
+            await client.post(
+                f"/api/teams/{team_id}/documents",
+                headers=owner,
+                json={"path": "docs/notes/api.md", "content": "# title\nbody"},
+            )
+        ).json()
+
+        single = await client.get(f"/api/teams/{team_id}/documents/{doc['id']}", headers=owner)
+        assert single.status_code == 200
+        payload = single.json()
+        assert payload["path"] == "docs/notes/api.md"
+        assert payload["content"] == "# title\nbody"
+        assert payload["bytes"] == len("# title\nbody".encode())
+
+        raw = await client.get(f"/api/teams/{team_id}/documents/{doc['id']}/raw", headers=owner)
+        assert raw.status_code == 200
+        assert raw.headers["content-disposition"] == 'attachment; filename="api.md"'
+        assert raw.headers["x-doc-path"] == "docs/notes/api.md"
+        assert raw.text == "# title\nbody"
+
+        # Non-member is rejected on both endpoints with the same 404 mask
+        assert (
+            await client.get(f"/api/teams/{team_id}/documents/{doc['id']}", headers=stranger)
+        ).status_code == 404
+        assert (
+            await client.get(f"/api/teams/{team_id}/documents/{doc['id']}/raw", headers=stranger)
+        ).status_code == 404

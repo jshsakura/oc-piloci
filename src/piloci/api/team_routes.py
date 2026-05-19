@@ -891,6 +891,111 @@ async def route_respond_invite(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# Single document fetch + raw download
+# ---------------------------------------------------------------------------
+
+
+async def route_get_document(request: Request) -> Response:
+    """GET /api/teams/{team_id}/documents/{doc_id} — return single doc with content."""
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    doc_id = request.path_params.get("doc_id", "")
+    user_id = _uid(user)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import TeamDocument, User
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+        result = await db.execute(
+            select(TeamDocument, User.email)
+            .join(User, TeamDocument.author_id == User.id)
+            .where(
+                TeamDocument.id == doc_id,
+                TeamDocument.team_id == team_id,
+                TeamDocument.is_deleted == False,  # noqa: E712
+            )
+        )
+        row = result.first()
+
+    if not row:
+        return _json({"error": "Not found"}, 404)
+
+    doc = row.TeamDocument
+    return _json(
+        {
+            "id": doc.id,
+            "team_id": doc.team_id,
+            "path": doc.path,
+            "content": doc.content,
+            "content_hash": doc.content_hash,
+            "version": doc.version,
+            "author_email": row.email,
+            "updated_at": doc.updated_at.isoformat(),
+            "bytes": len(doc.content.encode()) if doc.content else 0,
+        }
+    )
+
+
+async def route_download_document(request: Request) -> Response:
+    """GET /api/teams/{team_id}/documents/{doc_id}/raw — stream raw file body."""
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    doc_id = request.path_params.get("doc_id", "")
+    user_id = _uid(user)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import TeamDocument
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+        result = await db.execute(
+            select(TeamDocument).where(
+                TeamDocument.id == doc_id,
+                TeamDocument.team_id == team_id,
+                TeamDocument.is_deleted == False,  # noqa: E712
+            )
+        )
+        doc = result.scalar_one_or_none()
+
+    if not doc:
+        return _json({"error": "Not found"}, 404)
+
+    # basename of stored path so filename matches the document's name; the
+    # full path is still surfaced as X-Doc-Path for clients that want the
+    # folder context when bulk-downloading.
+    import os.path
+
+    filename = os.path.basename(doc.path) or "document.md"
+    safe_filename = filename.replace('"', "")
+    body = (doc.content or "").encode("utf-8")
+    return Response(
+        body,
+        media_type="text/markdown; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+            "X-Doc-Path": doc.path,
+            "X-Content-Hash": doc.content_hash or "",
+            "X-Doc-Version": str(doc.version or 1),
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # Route list (exported for registration in routes.py)
 # ---------------------------------------------------------------------------
 
@@ -953,5 +1058,15 @@ TEAM_ROUTES = [
         "/api/teams/{team_id}/documents/{doc_id}",
         _delete_document_limited,
         methods=["DELETE"],
+    ),
+    Route(
+        "/api/teams/{team_id}/documents/{doc_id}",
+        route_get_document,
+        methods=["GET"],
+    ),
+    Route(
+        "/api/teams/{team_id}/documents/{doc_id}/raw",
+        route_download_document,
+        methods=["GET"],
     ),
 ]

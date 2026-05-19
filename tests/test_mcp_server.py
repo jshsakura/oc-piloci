@@ -31,7 +31,7 @@ def test_tool_definitions_names():
     assert names == {
         "memory",
         "recall",
-        "memo",
+        "doc",
         "listProjects",
         "whoAmI",
         "init",

@@ -22,22 +22,23 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 MEMORY_DESC = (
-    "Save or forget memories. action='save' to store facts/decisions/patterns. "
-    "action='forget' with memory_id to remove. When in doubt, SAVE."
+    "Save/forget memories. team_id sets team scope (shared); else personal+project. "
+    "When in doubt, SAVE."
 )
 
 RECALL_DESC = (
-    "Search memories. Returns preview (excerpt+tags+score). "
-    "Use fetch_ids to get full content. Set to_file=true to save as file."
+    "Search memories. team_id sets team scope; else personal+project. "
+    "Returns preview; use fetch_ids for full content."
 )
 
-MEMO_DESC = (
-    "Save a raw document or markdown note directly — no distillation. "
-    "Use for reference docs, meeting notes, or any text to keep verbatim."
+DOC_DESC = (
+    "Save a verbatim document/note. team_id+path uploads to team docs (folder structure "
+    "preserved). team_id only = team raw note. None = personal."
 )
 
 LIST_PROJECTS_DESC = (
-    "List available projects for organizing memories. Cached 5min unless " "refresh=true."
+    "List projects + teams the user belongs to. Use the team id with memory/recall/doc "
+    "for team scope."
 )
 
 WHOAMI_DESC = (
@@ -84,6 +85,13 @@ class MemoryInput(BaseModel):
             description="Required for forget action. Get id from recall first.",
         ),
     ] = None
+    team_id: Annotated[
+        str | None,
+        Field(
+            description="If set, save/forget in this team's shared memory.",
+            max_length=64,
+        ),
+    ] = None
 
 
 class RecallInput(BaseModel):
@@ -124,6 +132,13 @@ class RecallInput(BaseModel):
             ),
         ),
     ] = False
+    team_id: Annotated[
+        str | None,
+        Field(
+            description="If set, search this team's shared memory instead of personal.",
+            max_length=64,
+        ),
+    ] = None
 
 
 class ListProjectsInput(BaseModel):
@@ -467,13 +482,110 @@ def build_setup_snippets(
 _DEDUP_THRESHOLD = 0.95  # cosine similarity above which we update instead of insert
 
 
-async def handle_memory(
+async def _ensure_team_member(team_id: str, user_id: str) -> dict[str, Any] | None:
+    """Returns None if user is a member of team; else an error dict.
+
+    Single SQLite RTT per MCP call — store calls below this point assume
+    the access check already passed.
+    """
+    from piloci.api.team_routes import _get_team_member
+    from piloci.db.session import async_session
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return {"success": False, "error": "Not a member of this team"}
+        return None
+
+
+async def _handle_team_memory(
     args: MemoryInput,
     user_id: str,
-    project_id: str,
+    team_id: str,
     store,
     embed_fn,
 ) -> dict[str, Any]:
+    deny = await _ensure_team_member(team_id, user_id)
+    if deny:
+        return deny
+
+    if args.action == "forget":
+        if not args.memory_id:
+            return {
+                "success": False,
+                "error": "forget requires memory_id. Use recall first to find it.",
+            }
+        # Determine if requester is the team owner (allowed to delete any row).
+        is_owner = False
+        try:
+            from sqlalchemy import select
+
+            from piloci.db.models import Team
+            from piloci.db.session import async_session
+
+            async with async_session() as db:
+                row = await db.execute(select(Team.owner_id).where(Team.id == team_id))
+                owner_id = row.scalar_one_or_none()
+            is_owner = owner_id == user_id
+        except Exception:
+            is_owner = False
+
+        deleted = await store.team_delete(
+            team_id=team_id,
+            memory_id=args.memory_id,
+            requester_id=user_id,
+            allow_owner=is_owner,
+        )
+        if not deleted:
+            return {
+                "success": False,
+                "action": "forget",
+                "error": (
+                    f"memory_id '{args.memory_id}' not found, or you are not " "the author/owner."
+                ),
+            }
+        return {
+            "success": True,
+            "action": "forget",
+            "memory_id": args.memory_id,
+            "team_id": team_id,
+        }
+
+    vector = await embed_fn(args.content)
+
+    memory_id = await store.team_save(
+        team_id=team_id,
+        author_id=user_id,
+        content=args.content,
+        vector=vector,
+        tags=args.tags,
+        metadata={"source": "manual"},
+    )
+    return {
+        "success": True,
+        "action": "save",
+        "memory_id": memory_id,
+        "team_id": team_id,
+        "scope": "team",
+    }
+
+
+async def handle_memory(
+    args: MemoryInput,
+    user_id: str,
+    project_id: str | None,
+    store,
+    embed_fn,
+) -> dict[str, Any]:
+    if args.team_id:
+        return await _handle_team_memory(args, user_id, args.team_id, store, embed_fn)
+
+    if not project_id:
+        return {
+            "success": False,
+            "error": "Personal memory requires a project-scoped token (or set team_id).",
+        }
+
     if args.action == "forget":
         if not args.memory_id:
             return {
@@ -619,15 +731,91 @@ def _filter_feedback_out(rows: list[Any]) -> list[Any]:
     return kept
 
 
+async def _handle_team_recall(
+    args: RecallInput,
+    user_id: str,
+    team_id: str,
+    store,
+    embed_fn,
+    export_dir: Path | None = None,
+) -> dict[str, Any]:
+    deny = await _ensure_team_member(team_id, user_id)
+    if deny:
+        return deny
+
+    if args.fetch_ids:
+        fetched = []
+        for mid in args.fetch_ids:
+            row = await store.team_get(team_id, mid)
+            if row:
+                fetched.append(row)
+        if not args.include_feedback:
+            fetched = _filter_feedback_out(fetched)
+        return {
+            "memories": fetched,
+            "mode": "full",
+            "fetched": len(fetched),
+            "team_id": team_id,
+        }
+
+    if args.query is None:
+        return {"memories": [], "mode": "preview", "total": 0, "error": "query required"}
+
+    vector = await embed_fn(args.query)
+    results = await store.team_hybrid_search(
+        team_id=team_id,
+        query_text=args.query,
+        query_vector=vector,
+        top_k=args.limit,
+        tags=args.tags,
+    )
+    if not args.include_feedback:
+        results = _filter_feedback_out(results)
+
+    if args.to_file and export_dir is not None:
+        md_content = _format_recall_markdown(results, None)
+        out_dir = export_dir / f"team_{team_id}"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        file_path = out_dir / f"recall_{ts}.md"
+        file_path.write_text(md_content, encoding="utf-8")
+        return {
+            "file": str(file_path),
+            "count": len(results),
+            "total_chars": len(md_content),
+            "mode": "file",
+            "team_id": team_id,
+            "previews": [_preview(r) for r in results],
+        }
+
+    return {
+        "memories": [_preview(r) for r in results],
+        "mode": "preview",
+        "total": len(results),
+        "team_id": team_id,
+    }
+
+
 async def handle_recall(
     args: RecallInput,
     user_id: str,
-    project_id: str,
+    project_id: str | None,
     store,
     embed_fn,
     profile_fn=None,
     export_dir: Path | None = None,
 ) -> dict[str, Any]:
+    if args.team_id:
+        return await _handle_team_recall(args, user_id, args.team_id, store, embed_fn, export_dir)
+
+    if not project_id:
+        return {
+            "memories": [],
+            "mode": "preview",
+            "total": 0,
+            "error": "Personal recall requires a project-scoped token (or set team_id).",
+        }
+
     if args.fetch_ids:
         fetched = []
         for mid in args.fetch_ids:
@@ -705,7 +893,30 @@ async def handle_list_projects(
     projects_fn,  # async callable: (user_id, refresh) -> list[dict]
 ) -> dict[str, Any]:
     projects = await projects_fn(user_id, args.refresh)
-    return {"projects": projects}
+    teams = await _list_user_teams(user_id)
+    return {"projects": projects, "teams": teams}
+
+
+async def _list_user_teams(user_id: str) -> list[dict[str, Any]]:
+    """Return teams the user belongs to. Empty list on error or no DB."""
+    try:
+        from sqlalchemy import select
+
+        from piloci.db.models import Team, TeamMember
+        from piloci.db.session import async_session
+
+        async with async_session() as db:
+            result = await db.execute(
+                select(Team.id, Team.name, TeamMember.role)
+                .join(TeamMember, Team.id == TeamMember.team_id)
+                .where(TeamMember.user_id == user_id)
+                .order_by(Team.created_at)
+            )
+            rows = result.all()
+        return [{"id": r.id, "name": r.name, "role": r.role} for r in rows]
+    except Exception as e:
+        logger.debug("list_user_teams skipped: %s", e)
+        return []
 
 
 async def handle_whoami(
@@ -825,49 +1036,167 @@ async def handle_init(
 
 
 # ---------------------------------------------------------------------------
-# memo tool
+# doc tool — verbatim document storage. Three modes:
+#   team_id + path  →  team_documents SQL row (folder-structured, downloadable)
+#   team_id only    →  team-scoped LanceDB memory (raw, searchable)
+#   neither         →  personal LanceDB memory (raw, searchable)
 # ---------------------------------------------------------------------------
 
-_MEMO_EMBED_LIMIT = 2_000  # chars used for embedding; full content stored verbatim
-_MEMO_TAG = "memo"
+_DOC_EMBED_LIMIT = 2_000  # chars used for embedding; full content stored verbatim
+_DOC_TAG = "doc"
 
 
-class MemoInput(BaseModel):
+class DocInput(BaseModel):
     title: Annotated[
         str,
-        Field(description="Short title for the memo (shown in recall results).", max_length=200),
+        Field(description="Short title (used as filename when path omitted).", max_length=200),
     ]
     content: Annotated[
         str,
         Field(
-            description="Full document or markdown content to store verbatim.", max_length=200_000
+            description="Full document or markdown content to store verbatim.", max_length=2_000_000
         ),
     ]
     tags: Annotated[
         list[str] | None,
-        Field(description="Optional extra tags. 'memo' is always added.", max_length=5),
+        Field(description="Optional extra tags. 'doc' is always added.", max_length=5),
     ] = None
     save_to_file: Annotated[
         bool,
         Field(description="Also write to disk as a .md file in the export dir."),
     ] = False
+    team_id: Annotated[
+        str | None,
+        Field(description="If set, save to this team's shared scope.", max_length=64),
+    ] = None
+    path: Annotated[
+        str | None,
+        Field(
+            description="Doc path incl. folders (team_id only). e.g. docs/api/auth.md",
+            max_length=500,
+        ),
+    ] = None
 
 
-async def handle_memo(
-    args: MemoInput,
+async def _save_team_document(
+    team_id: str, user_id: str, path: str, content: str
+) -> dict[str, Any]:
+    """Persist a verbatim file to team_documents. Returns response payload.
+
+    Uses the same upsert semantics the REST routes already exercise: if a row
+    with the same path exists, bump the version; else insert a new row.
+    """
+    import hashlib
+    import uuid
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from piloci.db.models import TeamDocument
+    from piloci.db.session import async_session
+
+    content_hash = hashlib.sha256(content.encode()).hexdigest()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    async with async_session() as db:
+        existing = await db.execute(
+            select(TeamDocument).where(
+                TeamDocument.team_id == team_id,
+                TeamDocument.path == path,
+                TeamDocument.is_deleted == False,  # noqa: E712
+            )
+        )
+        row = existing.scalar_one_or_none()
+        if row is not None:
+            row.content = content
+            row.content_hash = content_hash
+            row.version = (row.version or 1) + 1
+            row.updated_at = now
+            row.author_id = user_id
+            doc_id = row.id
+            version = row.version
+        else:
+            doc_id = str(uuid.uuid4())
+            db.add(
+                TeamDocument(
+                    id=doc_id,
+                    team_id=team_id,
+                    author_id=user_id,
+                    path=path,
+                    content=content,
+                    content_hash=content_hash,
+                    version=1,
+                    parent_hash=None,
+                    updated_at=now,
+                    created_at=now,
+                    is_deleted=False,
+                )
+            )
+            version = 1
+
+    return {
+        "success": True,
+        "doc_id": doc_id,
+        "team_id": team_id,
+        "path": path,
+        "version": version,
+        "content_hash": content_hash,
+        "bytes": len(content.encode()),
+        "download_url": f"/api/teams/{team_id}/documents/{doc_id}/raw",
+        "scope": "team-doc",
+    }
+
+
+async def handle_doc(
+    args: DocInput,
     user_id: str,
-    project_id: str,
+    project_id: str | None,
     store,
     embed_fn,
     export_dir: Path | None = None,
 ) -> dict[str, Any]:
     import re
 
-    embed_text = f"{args.title}\n\n{args.content[:_MEMO_EMBED_LIMIT]}"
-    vector = await embed_fn(embed_text)
+    # Mode A: team_id + path → team_documents (file/folder model)
+    if args.team_id and args.path:
+        deny = await _ensure_team_member(args.team_id, user_id)
+        if deny:
+            return deny
+        return await _save_team_document(args.team_id, user_id, args.path, args.content)
 
-    tags = [_MEMO_TAG] + [t for t in (args.tags or []) if t != _MEMO_TAG]
+    embed_text = f"{args.title}\n\n{args.content[:_DOC_EMBED_LIMIT]}"
+    vector = await embed_fn(embed_text)
+    tags = [_DOC_TAG] + [t for t in (args.tags or []) if t != _DOC_TAG]
     full_content = f"# {args.title}\n\n{args.content}"
+
+    # Mode B: team_id only → team-scoped raw memory
+    if args.team_id:
+        deny = await _ensure_team_member(args.team_id, user_id)
+        if deny:
+            return deny
+        memory_id = await store.team_save(
+            team_id=args.team_id,
+            author_id=user_id,
+            content=full_content,
+            vector=vector,
+            tags=tags,
+            metadata={"source": "manual", "doc_title": args.title},
+        )
+        return {
+            "success": True,
+            "memory_id": memory_id,
+            "team_id": args.team_id,
+            "title": args.title,
+            "bytes": len(full_content.encode()),
+            "scope": "team",
+        }
+
+    # Mode C: personal raw memory (legacy path, unchanged)
+    if not project_id:
+        return {
+            "success": False,
+            "error": "Personal doc requires a project-scoped token (or set team_id).",
+        }
 
     memory_id = await store.save(
         user_id=user_id,
@@ -875,7 +1204,7 @@ async def handle_memo(
         content=full_content,
         vector=vector,
         tags=tags,
-        metadata={"source": "manual", "memo_title": args.title},
+        metadata={"source": "manual", "doc_title": args.title},
     )
 
     result: dict[str, Any] = {
@@ -888,10 +1217,16 @@ async def handle_memo(
 
     if args.save_to_file:
         slug = re.sub(r"[^\w\-]", "_", args.title.lower())[:60]
-        out_dir = (export_dir or Path.home() / ".piloci" / "memos") / user_id / project_id
+        out_dir = (export_dir or Path.home() / ".piloci" / "docs") / user_id / project_id
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{slug}.md"
         out_path.write_text(full_content, encoding="utf-8")
         result["file"] = str(out_path)
 
     return result
+
+
+# Backwards-compatibility aliases — older tests import MemoInput/handle_memo.
+MemoInput = DocInput
+handle_memo = handle_doc
+MEMO_DESC = DOC_DESC
