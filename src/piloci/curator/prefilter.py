@@ -15,12 +15,14 @@ from typing import Any
 
 import orjson
 
-# Each threshold is intentionally generous: prefilter favors letting marginal
-# sessions through. The lazy worker downstream is the cheap path; refusing
-# work here only makes sense when the transcript is *clearly* sterile.
-MIN_TRANSCRIPT_CHARS = 300
-MIN_DISTINCT_WORDS = 30
-MIN_ASSISTANT_CHARS = 100
+# Thresholds raised in v0.3.77 — earlier values (300/30/100) were so
+# generous that any chat fragment slipped through, flooding the user's wiki
+# with "잘잘한 쓰레기". The new floors are calibrated to drop one-off
+# back-and-forth exchanges and toolbar-style single-turn lookups while still
+# admitting real working sessions (which routinely cross 1k chars).
+MIN_TRANSCRIPT_CHARS = 600
+MIN_DISTINCT_WORDS = 60
+MIN_ASSISTANT_CHARS = 200
 
 # Hard cap for "looks like a one-off notification". Anything longer than this
 # might still be a short notification but the false-positive risk of dropping

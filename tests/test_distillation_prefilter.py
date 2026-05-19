@@ -52,32 +52,43 @@ def test_passes_with_real_transcript() -> None:
             "content": (
                 "Sure. The current bcrypt path needs migration handling so existing "
                 "users keep working during the rollover. Let's start by introducing "
-                "a hash version column and a verifier dispatcher function."
+                "a hash version column and a verifier dispatcher function that picks "
+                "the right algorithm based on the stored prefix."
             ),
         },
-        {"role": "user", "content": "Show me the dispatcher first."},
+        {"role": "user", "content": "Show me the dispatcher first, please."},
         {
             "role": "assistant",
             "content": (
                 "Here is one approach using a strategy table keyed on hash prefix. "
                 "Argon2 hashes start with $argon2 while bcrypt uses $2 — we can "
-                "branch on that prefix and dispatch to the right verify call."
+                "branch on that prefix and dispatch to the right verify call. The "
+                "table maps prefix strings to verifier closures so adding a future "
+                "algorithm becomes a one-line registration rather than another "
+                "conditional branch deep inside the login pipeline."
             ),
         },
     ]
     decision = evaluate(transcript)
     assert decision.passes is True
     assert decision.reason is None
-    assert decision.distinct_words >= 30
-    assert decision.assistant_chars >= 100
+    assert decision.distinct_words >= 60
+    assert decision.assistant_chars >= 200
 
 
 def test_string_input_supported() -> None:
     text = (
-        "[user] please refactor the parser to handle nested arrays properly\n"
+        "[user] please refactor the parser to handle nested arrays properly "
+        "and also fix the trailing comma bug that breaks empty objects\n"
         "[assistant] sure thing — i will start by adding a recursive descent "
         "branch for array literals so the existing flat-list path keeps "
-        "working. let me show the diff in two parts.\n"
+        "working through the upgrade. let me show the diff in two parts: "
+        "first the tokenizer changes that recognise opening square brackets "
+        "as a new context, then the parser rule that recurses into nested "
+        "array values and rebuilds them into the runtime structure. after "
+        "that we should add coverage tests around mixed dictionary literal "
+        "scenarios where keys themselves contain quoted strings and numeric "
+        "indices appear alongside symbolic identifiers in unusual orderings.\n"
     ) * 3
     decision = evaluate(text)
     assert decision.passes is True

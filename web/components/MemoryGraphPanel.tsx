@@ -14,6 +14,10 @@ interface MemoryGraphPanelProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   onNodeClick?: (node: GraphNode) => void;
+  /** Fires whenever the explicit graph focus changes — the actively-clicked
+   *  node, or null when the user toggles off / clicks empty canvas. Parent
+   *  can use this to narrow the list to 1-hop notes of the focused node. */
+  onActiveChange?: (node: GraphNode | null) => void;
   /** Empty-canvas click. Parent can use this as a "reset" gesture (clear
    *  filters, drop the open note, return to the overview). */
   onBackgroundClick?: () => void;
@@ -48,6 +52,7 @@ export function MemoryGraphPanel({
   nodes,
   edges,
   onNodeClick,
+  onActiveChange,
   onBackgroundClick,
   selectedNodeId,
 }: MemoryGraphPanelProps) {
@@ -124,10 +129,14 @@ export function MemoryGraphPanel({
     (node: any) => {
       // Click the SAME node again → toggle the highlight off (simple "undo
       // dim" without hunting for a control). No pin, no camera pan.
-      setActiveClick((prev) => (prev === node.id ? null : node.id));
+      setActiveClick((prev) => {
+        const next = prev === node.id ? null : node.id;
+        onActiveChange?.(next ? (node as GraphNode) : null);
+        return next;
+      });
       onNodeClick?.(node as GraphNode);
     },
-    [onNodeClick],
+    [onNodeClick, onActiveChange],
   );
 
   // Empty-canvas click clears the local highlight AND forwards to the
@@ -135,8 +144,9 @@ export function MemoryGraphPanel({
   // (clear tag filter, drop open note, etc.).
   const handleBackgroundClick = useCallback(() => {
     setActiveClick(null);
+    onActiveChange?.(null);
     onBackgroundClick?.();
-  }, [onBackgroundClick]);
+  }, [onActiveChange, onBackgroundClick]);
 
   // Ring is shown for either the actively-clicked node OR the parent-open
   // note. The ring is the orientation cue; the dim layer is gated on

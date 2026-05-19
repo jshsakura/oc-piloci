@@ -45,6 +45,11 @@ function WikiContent() {
   const noteId = searchParams.get("note");
   const tagFilter = searchParams.get("tag");
   const [query, setQuery] = useState("");
+  // Tracks the explicitly-focused graph node (set by MemoryGraphPanel via
+  // onActiveChange). Used to narrow the list to the 1-hop neighborhood of
+  // whatever the user is exploring on the map. Session-local — does not
+  // persist via URL since the graph itself owns the highlight visual.
+  const [graphActive, setGraphActive] = useState<GraphNode | null>(null);
 
   useEffect(() => {
     if (hasHydrated && !isBootstrapping && !user) router.replace("/login");
@@ -86,8 +91,40 @@ function WikiContent() {
     return Array.from(map.entries()).sort((a, b) => b[1] - a[1]);
   }, [notes]);
 
+  // 1-hop note neighborhood of the currently-focused graph node. Used to
+  // narrow the list when the user explicitly picks a tag/topic/note on the
+  // graph — "show me what's about THIS point on the map". Returns null for
+  // no-filter (background click, project node, or no active selection).
+  const graphActiveNoteIds = useMemo<Set<string> | null>(() => {
+    if (!graphActive) return null;
+    if (graphActive.kind === "project") return null;
+    const ids = new Set<string>();
+    if (graphActive.kind === "note") {
+      const mid = graphActive.id.startsWith("note:")
+        ? graphActive.id.slice("note:".length)
+        : graphActive.id;
+      ids.add(mid);
+    }
+    const stripNoteId = (raw: unknown): string | null => {
+      if (typeof raw !== "string") return null;
+      return raw.startsWith("note:") ? raw.slice("note:".length) : null;
+    };
+    for (const e of graphEdges) {
+      if (e.source === graphActive.id) {
+        const m = stripNoteId(e.target);
+        if (m) ids.add(m);
+      }
+      if (e.target === graphActive.id) {
+        const m = stripNoteId(e.source);
+        if (m) ids.add(m);
+      }
+    }
+    return ids;
+  }, [graphActive, graphEdges]);
+
   const filteredNotes = useMemo(() => {
     let arr = notes;
+    if (graphActiveNoteIds) arr = arr.filter((n) => graphActiveNoteIds.has(n.memory_id));
     if (tagFilter) arr = arr.filter((n) => n.tags.includes(tagFilter));
     if (query.trim()) {
       const q = query.toLowerCase();
@@ -103,7 +140,7 @@ function WikiContent() {
     return [...arr].sort(
       (a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at),
     );
-  }, [notes, query, tagFilter]);
+  }, [notes, query, tagFilter, graphActiveNoteIds]);
 
   // Auto-select the first note ONCE per slug. Tracking by slug (not by
   // mount) matters: without the ref, the effect refired whenever noteId
@@ -296,6 +333,7 @@ function WikiContent() {
                   nodes={graphNodes}
                   edges={graphEdges}
                   onNodeClick={handleGraphNode}
+                  onActiveChange={setGraphActive}
                   onBackgroundClick={handleGraphBackground}
                   // Graph node ids are prefixed with kind ("note:<memory_id>");
                   // the ring overlay compares strict-equal to node.id, so we
