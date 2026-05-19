@@ -14,6 +14,9 @@ interface MemoryGraphPanelProps {
   nodes: GraphNode[];
   edges: GraphEdge[];
   onNodeClick?: (node: GraphNode) => void;
+  /** Empty-canvas click. Parent can use this as a "reset" gesture (clear
+   *  filters, drop the open note, return to the overview). */
+  onBackgroundClick?: () => void;
   /** Currently selected node — painted with a ring overlay so the user can
    *  see which point on the map matches the open detail pane. */
   selectedNodeId?: string | null;
@@ -45,6 +48,7 @@ export function MemoryGraphPanel({
   nodes,
   edges,
   onNodeClick,
+  onBackgroundClick,
   selectedNodeId,
 }: MemoryGraphPanelProps) {
   const graphRef = useRef<any>(null);
@@ -68,30 +72,29 @@ export function MemoryGraphPanel({
     [nodes, edges],
   );
 
-  // Highlight state: tracks whichever node is currently "focused" on the
-  // graph regardless of kind. Parent-driven (selectedNodeId from ?note=)
-  // OR self-driven (user clicked a tag/topic that doesn't change the URL).
-  // We hold an internal copy so tag/topic clicks can light up the graph
-  // without forcing the parent to track a separate highlight state.
-  const [highlighted, setHighlighted] = useState<string | null>(selectedNodeId ?? null);
-  useEffect(() => {
-    setHighlighted(selectedNodeId ?? null);
-  }, [selectedNodeId]);
+  // Two separate visual states so the graph doesn't feel "always dimmed":
+  //   - activeClick: user explicitly clicked a node here on the graph
+  //     ➜ ring + 1-hop neighborhood highlighted, everything else dims
+  //     ➜ click same node again or click empty canvas to clear
+  //   - selectedNodeId (from parent ?note=): a note is open in the detail
+  //     pane → ring ONLY for orientation, no dim. Keeps the map readable
+  //     while reading a note via the list.
+  const [activeClick, setActiveClick] = useState<string | null>(null);
 
-  // 1-hop neighborhood of the highlighted node — these stay full opacity
-  // while everything else dims, so the user sees an obvious "here's what's
-  // connected to what you just clicked".
+  // 1-hop neighborhood of the actively-clicked node. Only populated while
+  // the user has an explicit click active — list-driven note selection
+  // does NOT engage the dim layer.
   const highlightNeighbors = useMemo<Set<string> | null>(() => {
-    if (!highlighted) return null;
-    const set = new Set<string>([highlighted]);
+    if (!activeClick) return null;
+    const set = new Set<string>([activeClick]);
     for (const e of edges) {
       const s = typeof e.source === "string" ? e.source : (e.source as any)?.id;
       const t = typeof e.target === "string" ? e.target : (e.target as any)?.id;
-      if (s === highlighted && t) set.add(t);
-      if (t === highlighted && s) set.add(s);
+      if (s === activeClick && t) set.add(t);
+      if (t === activeClick && s) set.add(s);
     }
     return set;
-  }, [highlighted, edges]);
+  }, [activeClick, edges]);
 
   const nodeColor = useCallback(
     (node: any) => {
@@ -106,35 +109,44 @@ export function MemoryGraphPanel({
 
   const linkColor = useCallback(
     (link: any) => {
-      if (!highlighted) return "rgba(148,163,184,0.35)";
+      if (!activeClick) return "rgba(148,163,184,0.35)";
       const s = typeof link.source === "string" ? link.source : link.source?.id;
       const t = typeof link.target === "string" ? link.target : link.target?.id;
-      const touches = s === highlighted || t === highlighted;
+      const touches = s === activeClick || t === activeClick;
       return touches ? "rgba(148,163,184,0.6)" : "rgba(148,163,184,0.08)";
     },
-    [highlighted],
+    [activeClick],
   );
 
   const nodeLabel = useCallback((node: any) => node.label as string, []);
 
   const handleNodeClick = useCallback(
     (node: any) => {
-      // No pin, no camera pan — just light up. The previous pin/centerAt
-      // pair felt jarring on every click and made the map feel possessive.
-      setHighlighted(node.id);
+      // Click the SAME node again → toggle the highlight off (simple "undo
+      // dim" without hunting for a control). No pin, no camera pan.
+      setActiveClick((prev) => (prev === node.id ? null : node.id));
       onNodeClick?.(node as GraphNode);
     },
     [onNodeClick],
   );
 
-  // Selection ring on whatever's highlighted — note OR tag OR topic OR
-  // project. Drawn "after" the default node paint so the ring sits on top.
-  const highlightedRef = useRef<string | null>(highlighted);
-  highlightedRef.current = highlighted;
+  // Empty-canvas click clears the local highlight AND forwards to the
+  // parent, so the page can use the same gesture as a "reset to overview"
+  // (clear tag filter, drop open note, etc.).
+  const handleBackgroundClick = useCallback(() => {
+    setActiveClick(null);
+    onBackgroundClick?.();
+  }, [onBackgroundClick]);
+
+  // Ring is shown for either the actively-clicked node OR the parent-open
+  // note. The ring is the orientation cue; the dim layer is gated on
+  // activeClick only.
+  const ringIdRef = useRef<string | null>(null);
+  ringIdRef.current = activeClick ?? selectedNodeId ?? null;
   const nodeCanvasObjectMode = useCallback(() => "after" as const, []);
   const nodeCanvasObject = useCallback(
     (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      if (node.id !== highlightedRef.current) return;
+      if (node.id !== ringIdRef.current) return;
       const baseR = Math.sqrt((node.val as number) ?? 2) * 5;
       const ringR = baseR + 4 / globalScale;
       ctx.beginPath();
@@ -146,12 +158,12 @@ export function MemoryGraphPanel({
     [],
   );
 
-  // After the d3 sim cools the canvas stops repainting, so a highlight
-  // change alone wouldn't redraw the ring / dim layer. Nudge force-graph
-  // to repaint one frame.
+  // After the d3 sim cools the canvas stops repainting, so a highlight /
+  // ring change alone wouldn't redraw. Nudge force-graph one frame on
+  // either trigger.
   useEffect(() => {
     graphRef.current?.refresh?.();
-  }, [highlighted]);
+  }, [activeClick, selectedNodeId]);
 
   // Measure the panel container ourselves and pass the size to ForceGraph2D
   // as explicit pixels. Without this, react-force-graph defaults to window
@@ -298,6 +310,7 @@ export function MemoryGraphPanel({
         linkDirectionalParticleWidth={1.5}
         linkDirectionalParticleColor={() => "rgba(148,163,184,0.6)"}
         onNodeClick={handleNodeClick}
+        onBackgroundClick={handleBackgroundClick}
         onNodeHover={handleNodeHover}
         nodeCanvasObjectMode={nodeCanvasObjectMode}
         nodeCanvasObject={nodeCanvasObject}

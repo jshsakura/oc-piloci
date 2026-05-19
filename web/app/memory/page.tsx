@@ -157,8 +157,35 @@ function WikiContent() {
     const memoryId = node.id.startsWith("note:")
       ? node.id.slice("note:".length)
       : node.id;
+    // If a tag filter is active and the graph-clicked note isn't tagged
+    // with it, the list would have no row to scroll to — clear the filter
+    // so the list reflects what the user is actually looking at.
+    const target = notes.find((n) => n.memory_id === memoryId);
+    if (slug && tagFilter && target && !target.tags.includes(tagFilter)) {
+      pushParams(router, searchParams, { slug, note: memoryId, tag: null });
+      return;
+    }
     handleSelectNote(memoryId);
   }
+
+  // Background click on the graph = "reset to overview": drop the open
+  // note AND the tag filter so the user has a clear path back to the
+  // unfiltered, unselected state — addresses "전체로 돌아가는 느낌이 없어".
+  function handleGraphBackground() {
+    if (!slug) return;
+    pushParams(router, searchParams, { slug, note: null, tag: null });
+  }
+
+  // Keep the list's active row visible. When a note is picked via the graph
+  // (or a deep link / wikilink jump), the row may be outside the scroll
+  // viewport, leaving the list looking "frozen" and disconnected from the
+  // detail pane.
+  const listRef = useRef<HTMLUListElement | null>(null);
+  useEffect(() => {
+    if (!noteId || !listRef.current) return;
+    const el = listRef.current.querySelector(`[data-note-id="${noteId}"]`);
+    el?.scrollIntoView({ block: "nearest" });
+  }, [noteId]);
 
   if (!hasHydrated || isBootstrapping) {
     return (
@@ -269,6 +296,7 @@ function WikiContent() {
                   nodes={graphNodes}
                   edges={graphEdges}
                   onNodeClick={handleGraphNode}
+                  onBackgroundClick={handleGraphBackground}
                   // Graph node ids are prefixed with kind ("note:<memory_id>");
                   // the ring overlay compares strict-equal to node.id, so we
                   // mirror the prefix here. Without this the ring never showed.
@@ -343,7 +371,7 @@ function WikiContent() {
                     </div>
                   )}
                 </div>
-                <ul className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2">
+                <ul ref={listRef} className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2">
                   {workspaceQuery.isLoading ? (
                     <li className="space-y-1.5 py-1">
                       {Array.from({ length: 6 }).map((_, i) => (
@@ -358,7 +386,7 @@ function WikiContent() {
                     filteredNotes.map((n) => {
                       const active = n.memory_id === noteId;
                       return (
-                        <li key={n.memory_id}>
+                        <li key={n.memory_id} data-note-id={n.memory_id}>
                           <button
                             type="button"
                             onClick={() => handleSelectNote(n.memory_id)}
