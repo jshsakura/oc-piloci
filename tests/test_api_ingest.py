@@ -106,22 +106,38 @@ async def test_route_ingest_returns_202_when_substantive(monkeypatch):
     from piloci.api import routes
 
     transcript = [
-        {"role": "user", "content": "I want to refactor the auth middleware to argon2id."},
+        {
+            "role": "user",
+            "content": (
+                "I want to refactor the authentication middleware to use argon2id "
+                "instead of plain bcrypt so the rollover stays compatible with the "
+                "existing stored hashes and the verifier dispatcher branches on prefix."
+            ),
+        },
         {
             "role": "assistant",
             "content": (
                 "Sure — the bcrypt path needs migration handling so existing users stay "
                 "working during the rollover. Let's introduce a hash version column and "
-                "a verifier dispatcher function that branches on the hash prefix."
+                "a verifier dispatcher function that branches on the stored hash prefix "
+                "to pick the appropriate algorithm without forcing immediate resets."
             ),
         },
-        {"role": "user", "content": "Show me the dispatcher first."},
+        {
+            "role": "user",
+            "content": (
+                "Show me the dispatcher first, including the part where the strategy "
+                "table maps prefix strings to verifier closures registered at startup."
+            ),
+        },
         {
             "role": "assistant",
             "content": (
                 "Here is one approach using a strategy table keyed on hash prefix. "
-                "Argon2 hashes start with $argon2 while bcrypt uses $2 — branch on that "
-                "and dispatch to the right verify call."
+                "Argon2 hashes start with dollar argon2 while bcrypt uses dollar 2 — "
+                "branch on that and dispatch to the right verify call inside the new "
+                "dispatcher so future algorithms become a one-line registration instead "
+                "of another conditional branch deep inside the login pipeline today."
             ),
         },
     ]

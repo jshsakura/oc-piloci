@@ -1953,18 +1953,26 @@ def _valid_transcript(n: int = 6) -> str:
     than placeholder strings.
     """
     user_lines = [
-        "I want to refactor the auth middleware so the verifier dispatcher "
-        "branches on the password hash prefix.",
-        "Show me where the bcrypt path lives today.",
-        "Walk me through the migration handling so existing users keep working.",
+        "I want to refactor the authentication middleware so the verifier "
+        "dispatcher branches on the stored password hash prefix instead of "
+        "hardcoding bcrypt as the single algorithm everywhere.",
+        "Show me where the bcrypt path currently lives today and which "
+        "downstream callers depend on its specific exception shapes for "
+        "their retry logic during rollout windows.",
+        "Walk me through the migration handling step by step so existing "
+        "users keep working seamlessly while we transition stored hashes "
+        "from the legacy format into the new argon2 column.",
     ]
     assistant_lines = [
         "Sure — the bcrypt path needs a hash version column and a verifier "
-        "dispatcher function so we can rotate without locking anyone out.",
-        "Argon2 hashes start with $argon2 while bcrypt uses $2 — branch on "
-        "that prefix and dispatch to the right verify call.",
-        "We can stage the migration in three steps: introduce, dual-verify, "
-        "rotate-on-success. That keeps existing logins working.",
+        "dispatcher function so we can rotate algorithms without locking "
+        "anyone out of their existing session or forcing immediate resets.",
+        "Argon2 hashes start with the prefix dollar argon2 while bcrypt "
+        "uses dollar 2 — branch on that prefix and dispatch to the right "
+        "verify call inside the new strategy table keyed by algorithm.",
+        "We can stage the migration in three steps: introduce the column, "
+        "dual verify against both algorithms during reads, then rotate on "
+        "next successful login so storage gradually converges over time.",
     ]
     msgs = []
     for i in range(n):
