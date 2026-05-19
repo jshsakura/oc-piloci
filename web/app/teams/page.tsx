@@ -192,8 +192,10 @@ export default function TeamsPage() {
       {/* items-start: side stack and main pane line up at the top instead
           of stretching to match each other (v0.3.58 — the user noticed
           uneven internal heights). */}
-      <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="min-w-0 space-y-4">
+      {/* Mobile/tablet: 위→아래 stack. lg+: 사이드/메인 2단. flex-col을
+          명시해 CSS Grid의 묵시적 1-col 동작에 의존하지 않도록. */}
+      <div className="mt-4 flex w-full min-w-0 flex-col gap-4 lg:grid lg:items-start lg:gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="w-full min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -263,7 +265,7 @@ export default function TeamsPage() {
           </Card>
         </aside>
 
-        <section className="min-w-0 space-y-4">
+        <section className="w-full min-w-0 space-y-4">
           {!selectedTeam ? (
             // No-team skeleton: previews the same right-pane shape the user
             // gets once a team is selected (overview / docs / new-doc form),
@@ -351,14 +353,14 @@ export default function TeamsPage() {
                     </Button>
                   </div>
                 </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2 md:items-stretch">
-                  <div className="flex flex-col gap-2">
+                <CardContent className="grid w-full gap-4 md:grid-cols-2 md:items-stretch">
+                  <div className="flex w-full min-w-0 flex-col gap-2">
                     <Label>멤버</Label>
-                    <div className="flex flex-1 flex-col gap-1.5 rounded-xl border p-3">
+                    <div className="flex w-full flex-1 flex-col gap-1.5 rounded-xl border p-3">
                       {teamQuery.data?.members.map((member) => (
                         <div
                           key={member.user_id}
-                          className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-1.5"
+                          className="flex w-full items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-1.5"
                         >
                           {/* flex-1 + min-w-0: flex 자식이 부모를 못 넘기게
                               하면서 안쪽 truncate가 실제로 동작. min-w-0만
@@ -381,10 +383,10 @@ export default function TeamsPage() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-2">
+                  <div className="flex w-full min-w-0 flex-col gap-2">
                     <Label htmlFor="team-invite">이메일로 초대</Label>
                     <form
-                      className="flex flex-1 flex-col gap-3 rounded-xl border p-3"
+                      className="flex w-full flex-1 flex-col gap-3 rounded-xl border p-3"
                       onSubmit={(event) => {
                         event.preventDefault();
                         if (!inviteEmail.trim())
