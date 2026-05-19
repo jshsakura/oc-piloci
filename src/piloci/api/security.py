@@ -73,7 +73,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 class CSRFMiddleware(BaseHTTPMiddleware):
-    """Double-submit CSRF check for cookie-authenticated unsafe requests."""
+    """Double-submit CSRF check for cookie-authenticated unsafe requests.
+
+    Legacy-session retrofit: when an authenticated session cookie is present
+    but the CSRF cookie is missing (user logged in before the csrf system
+    shipped, or the cookie was cleared), a safe-method response auto-issues
+    a fresh ``piloci_csrf`` cookie. The next unsafe request can then send
+    the matching header. Users don't have to log out + back in.
+    """
 
     def __init__(self, app: ASGIApp) -> None:
         super().__init__(app)
@@ -88,7 +95,20 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                 or not secrets.compare_digest(cookie_token, header_token)
             ):
                 return JSONResponse({"error": "CSRF validation failed"}, status_code=403)
-        return await call_next(request)
+            return await call_next(request)
+
+        response = await call_next(request)
+
+        # Safe-method retrofit: session exists, csrf cookie missing → mint one
+        # so the very next POST can complete.
+        if (
+            request.method.upper() in _SAFE_METHODS
+            and request.cookies.get("piloci_session")
+            and not request.cookies.get(CSRF_COOKIE_NAME)
+        ):
+            secure = request.url.scheme == "https"
+            set_csrf_cookie(response, new_csrf_token(), secure=secure, max_age=86400 * 30)
+        return response
 
     @staticmethod
     def _requires_check(request: Request) -> bool:
