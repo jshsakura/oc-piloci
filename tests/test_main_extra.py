@@ -331,6 +331,13 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     ):
         await stop_event.wait()
 
+    async def team_wiki_worker(
+        received_settings: object,
+        received_store: object,
+        stop_event: asyncio.Event,
+    ):
+        await stop_event.wait()
+
     def fake_create_task(coro: Coroutine[Any, Any, Any]) -> str:
         nonlocal created_task_count
         created_task_count += 1
@@ -345,6 +352,8 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     distillation_module.run_distillation_worker = distillation_worker
     weekly_module = types.ModuleType("piloci.curator.weekly_digest_worker")
     weekly_module.run_weekly_digest_worker = weekly_digest_worker
+    team_wiki_module = types.ModuleType("piloci.curator.team_wiki_worker")
+    team_wiki_module.run_team_wiki_worker = team_wiki_worker
 
     monkeypatch.setattr("piloci.main.get_settings", lambda: settings)
     monkeypatch.setattr("piloci.main.init_db", init_db_mock)
@@ -355,6 +364,7 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
         patch_ctx.setitem(sys.modules, "piloci.curator.profile", profile_module)
         patch_ctx.setitem(sys.modules, "piloci.curator.distillation_worker", distillation_module)
         patch_ctx.setitem(sys.modules, "piloci.curator.weekly_digest_worker", weekly_module)
+        patch_ctx.setitem(sys.modules, "piloci.curator.team_wiki_worker", team_wiki_module)
 
         stop_event = asyncio.Event()
         bg_tasks: list[object] = []
@@ -364,10 +374,10 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     init_db_mock.assert_awaited_once()
     store.ensure_collection.assert_awaited_once()
     instincts_store.ensure_collection.assert_awaited_once()
-    # maintenance + distillation + profile + weekly_digest = 4 tasks
+    # maintenance + distillation + profile + weekly_digest + team_wiki = 5 tasks
     # (health monitor off by default)
-    assert created_task_count == 4
-    assert bg_tasks == ["task-1", "task-2", "task-3", "task-4"]
+    assert created_task_count == 5
+    assert bg_tasks == ["task-1", "task-2", "task-3", "task-4", "task-5"]
 
 
 @pytest.mark.asyncio

@@ -403,6 +403,10 @@ class Team(Base):
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     avatar: Mapped[str | None] = mapped_column(Text, nullable=True)
     color: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # AI wiki: opt-in flag + last-build watermark so the daily worker can
+    # skip teams that have no new memories or docs since the last build.
+    auto_wiki_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_wiki_built_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (Index("idx_teams_owner", "owner_id"),)
 
@@ -486,3 +490,63 @@ class TeamDocument(Base):
     )
 
     team: Mapped[Team] = relationship("Team", back_populates="documents")
+
+
+class TeamWikiArticle(Base):
+    """LLM-generated wiki article (one per topic, unique slug per team).
+
+    The GLM worker writes whole articles; humans can edit. ``revision`` bumps
+    on every change so the frontend can show history. ``sources`` lists the
+    memory/doc IDs the LLM drew on so users can audit provenance.
+    """
+
+    __tablename__ = "team_wiki_articles"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    team_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False
+    )
+    slug: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sources_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    author_kind: Mapped[str] = mapped_column(Text, nullable=False, default="llm")
+    author_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    generated_by: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "idx_team_wiki_unique_slug",
+            "team_id",
+            "slug",
+            unique=True,
+        ),
+        Index("idx_team_wiki_team_category", "team_id", "category"),
+    )
+
+
+class TeamWikiRevision(Base):
+    """Snapshot of an article before it was overwritten by a new revision."""
+
+    __tablename__ = "team_wiki_revisions"
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True)
+    article_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("team_wiki_articles.id", ondelete="CASCADE"), nullable=False
+    )
+    team_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("teams.id", ondelete="CASCADE"), nullable=False
+    )
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    author_kind: Mapped[str] = mapped_column(Text, nullable=False, default="llm")
+    author_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    __table_args__ = (Index("idx_team_wiki_rev_article", "article_id", "revision"),)

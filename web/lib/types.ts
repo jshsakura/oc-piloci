@@ -37,7 +37,75 @@ export interface TeamDetail extends TeamSummary {
   description?: string | null;
   avatar?: string | null;
   color?: string | null;
+  auto_wiki_enabled?: boolean;
+  last_wiki_built_at?: string | null;
   members: TeamMember[];
+}
+
+export interface TeamWikiArticleSummary {
+  id: string;
+  slug: string;
+  title: string;
+  summary?: string | null;
+  category?: string | null;
+  revision: number;
+  generated_by?: string | null;
+  updated_at: string;
+}
+
+export interface TeamWikiArticle extends TeamWikiArticleSummary {
+  content: string;
+  sources: Array<{ kind: string; id: string; title?: string | null }>;
+  author_kind: string;
+  author_id?: string | null;
+  created_at: string;
+}
+
+export interface TeamWorkspace {
+  root: string;
+  team: {
+    id: string;
+    name?: string | null;
+    auto_wiki_enabled?: boolean;
+    last_wiki_built_at?: string | null;
+  };
+  generated_at: string;
+  stats: { documents: number; memories: number; nodes: number; edges: number };
+  notes: Array<{
+    kind: "doc" | "memory";
+    doc_id?: string;
+    memory_id?: string;
+    title: string;
+    path?: string;
+    tags?: string[];
+    excerpt?: string;
+    author_email?: string | null;
+    updated_at?: string | number;
+    download_url?: string;
+  }>;
+  graph: {
+    nodes: Array<{
+      id: string;
+      label: string;
+      kind: string;
+      path?: string;
+      [key: string]: unknown;
+    }>;
+    edges: Array<{ source: string; target: string; kind: string }>;
+  };
+  wiki_articles: TeamWikiArticleSummary[];
+  wiki_built_at?: string;
+}
+
+export interface TeamWikiBuildResponse {
+  success: boolean;
+  team_id?: string;
+  articles_built: number;
+  clusters?: number;
+  failures?: string[];
+  generated_by?: string | null;
+  error?: string;
+  reason?: string;
 }
 
 export interface TeamInvite {

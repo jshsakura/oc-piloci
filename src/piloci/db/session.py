@@ -88,6 +88,10 @@ _SQLITE_ADD_COLUMNS: dict[str, dict[str, str]] = {
         "last_attempted_at": "DATETIME",
         "attempt_count": "INTEGER NOT NULL DEFAULT 0",
     },
+    "teams": {
+        "auto_wiki_enabled": "INTEGER NOT NULL DEFAULT 0",
+        "last_wiki_built_at": "DATETIME",
+    },
 }
 
 

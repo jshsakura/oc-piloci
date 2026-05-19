@@ -240,6 +240,28 @@ export const api = {
     }),
   deleteTeamDocument: (teamId: string, docId: string) =>
     request(`/api/teams/${teamId}/documents/${docId}`, { method: "DELETE" }),
+  getTeamWorkspace: (teamId: string) =>
+    request<import("./types").TeamWorkspace>(`/api/teams/${teamId}/workspace`),
+  listTeamWikiArticles: (teamId: string) =>
+    request<import("./types").TeamWikiArticleSummary[]>(`/api/teams/${teamId}/wiki/articles`),
+  getTeamWikiArticle: (teamId: string, slug: string) =>
+    request<import("./types").TeamWikiArticle>(`/api/teams/${teamId}/wiki/articles/${slug}`),
+  buildTeamWiki: (teamId: string) =>
+    request<import("./types").TeamWikiBuildResponse>(`/api/teams/${teamId}/wiki/build`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }),
+  patchTeamSettings: (teamId: string, patch: Partial<{
+    name: string;
+    description: string;
+    avatar: string;
+    color: string;
+    auto_wiki_enabled: boolean;
+  }>) =>
+    request<import("./types").TeamDetail>(`/api/teams/${teamId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
 
   // Auth
   forgotPassword: (email: string) =>

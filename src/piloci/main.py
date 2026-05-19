@@ -344,6 +344,14 @@ async def _startup(app, store, stop_event, bg_tasks, instincts_store=None) -> No
             )
             logger.info("Weekly digest worker started")
 
+        # Team wiki daily generator — heavy LLM work routes to external
+        # providers (GLM etc.); local Gemma is only the fallback. Cycle is
+        # hourly heartbeat with a 24h build watermark per team.
+        from piloci.curator.team_wiki_worker import run_team_wiki_worker
+
+        bg_tasks.append(asyncio.create_task(run_team_wiki_worker(settings, store, stop_event)))
+        logger.info("Team wiki worker started")
+
     # Two-way Telegram bot — opt-in (v0.3.39). Independent of curator gates
     # since it answers status queries even when distillation is paused.
     if settings.telegram_bot_enabled and settings.telegram_bot_token and settings.telegram_chat_id:

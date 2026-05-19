@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileText, Inbox, MailPlus, RefreshCcw, Trash2, UsersRound } from "lucide-react";
+import { BookOpen, FileText, Inbox, MailPlus, RefreshCcw, Trash2, UsersRound } from "lucide-react";
+import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -327,18 +328,26 @@ export default function TeamsPage() {
                       {teamQuery.data?.members.length ?? 0}명 참여 중
                     </p>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      teamsQuery.refetch();
-                      teamQuery.refetch();
-                      docsQuery.refetch();
-                      invitesQuery.refetch();
-                    }}
-                  >
-                    <RefreshCcw className="me-2 size-4" /> 새로고침
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/teams/wiki?id=${selectedTeam.id}`}
+                      className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent"
+                    >
+                      <BookOpen className="me-2 size-4" /> 팀 위키
+                    </Link>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        teamsQuery.refetch();
+                        teamQuery.refetch();
+                        docsQuery.refetch();
+                        invitesQuery.refetch();
+                      }}
+                    >
+                      <RefreshCcw className="me-2 size-4" /> 새로고침
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2 md:items-stretch">
                   <div className="flex flex-col gap-2">

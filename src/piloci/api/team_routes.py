@@ -227,6 +227,8 @@ async def route_patch_team(request: Request) -> Response:
                 team.color = color
             elif not color:
                 team.color = None
+        if "auto_wiki_enabled" in body:
+            team.auto_wiki_enabled = bool(body["auto_wiki_enabled"])
         db.add(team)
 
     return _json(
@@ -236,6 +238,10 @@ async def route_patch_team(request: Request) -> Response:
             "description": team.description,
             "avatar": team.avatar,
             "color": team.color,
+            "auto_wiki_enabled": bool(team.auto_wiki_enabled),
+            "last_wiki_built_at": (
+                team.last_wiki_built_at.isoformat() if team.last_wiki_built_at else None
+            ),
         }
     )
 
@@ -944,6 +950,218 @@ async def route_get_document(request: Request) -> Response:
     )
 
 
+async def route_team_workspace(request: Request) -> Response:
+    """GET /api/teams/{tid}/workspace — folder tree + graph + wiki article list.
+
+    Builds from cache when available; rebuilds fresh otherwise. Wiki articles
+    are surfaced as a flat list with category — the frontend handles grouping.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    user_id = _uid(user)
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+    from piloci.config import get_settings
+    from piloci.curator.team_vault import build_team_vault, load_cached_team_vault, save_team_vault
+
+    settings = get_settings()
+    workspace = load_cached_team_vault(settings.vault_dir, team_id)
+    if workspace is None:
+        # Cold rebuild — fetch the source rows and assemble. No LLM call.
+        from sqlalchemy import select
+
+        from piloci.db.models import Team, TeamDocument
+
+        async with async_session() as db:
+            team_row = (
+                await db.execute(select(Team).where(Team.id == team_id))
+            ).scalar_one_or_none()
+            doc_rows = (
+                (
+                    await db.execute(
+                        select(TeamDocument).where(
+                            TeamDocument.team_id == team_id,
+                            TeamDocument.is_deleted == False,  # noqa: E712
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        team_dict = {
+            "id": team_row.id,
+            "name": team_row.name,
+            "auto_wiki_enabled": bool(team_row.auto_wiki_enabled),
+            "last_wiki_built_at": (
+                team_row.last_wiki_built_at.isoformat() if team_row.last_wiki_built_at else None
+            ),
+        }
+        documents = [
+            {
+                "id": d.id,
+                "path": d.path,
+                "content": d.content,
+                "version": d.version,
+                "updated_at": d.updated_at,
+            }
+            for d in doc_rows
+        ]
+        # Team-scoped LanceDB memories require the store; fall back to empty
+        # if the request didn't pass one (workspace is still useful from docs).
+        memories: list[dict[str, Any]] = []
+        store = getattr(request.app.state, "store", None)
+        if store is not None:
+            try:
+                memories = await store.team_list(team_id, limit=500)
+            except Exception:
+                memories = []
+
+        workspace = build_team_vault(team_dict, memories, documents)
+        save_team_vault(settings.vault_dir, team_id, workspace)
+
+    return _json(workspace)
+
+
+async def route_team_wiki_articles(request: Request) -> Response:
+    """GET /api/teams/{tid}/wiki/articles — list of generated articles."""
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    user_id = _uid(user)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import TeamWikiArticle
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+        rows = (
+            (
+                await db.execute(
+                    select(TeamWikiArticle)
+                    .where(TeamWikiArticle.team_id == team_id)
+                    .order_by(TeamWikiArticle.category, TeamWikiArticle.title)
+                )
+            )
+            .scalars()
+            .all()
+        )
+
+    return _json(
+        [
+            {
+                "id": r.id,
+                "slug": r.slug,
+                "title": r.title,
+                "summary": r.summary,
+                "category": r.category,
+                "revision": r.revision,
+                "generated_by": r.generated_by,
+                "updated_at": r.updated_at.isoformat(),
+            }
+            for r in rows
+        ]
+    )
+
+
+async def route_team_wiki_article(request: Request) -> Response:
+    """GET /api/teams/{tid}/wiki/articles/{slug} — single article body."""
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    slug = request.path_params.get("slug", "")
+    user_id = _uid(user)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import TeamWikiArticle
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+        row = (
+            await db.execute(
+                select(TeamWikiArticle).where(
+                    TeamWikiArticle.team_id == team_id,
+                    TeamWikiArticle.slug == slug,
+                )
+            )
+        ).scalar_one_or_none()
+
+    if row is None:
+        return _json({"error": "Not found"}, 404)
+
+    sources: list[dict[str, Any]] = []
+    if row.sources_json:
+        try:
+            sources = orjson.loads(row.sources_json)
+        except Exception:
+            sources = []
+
+    return _json(
+        {
+            "id": row.id,
+            "slug": row.slug,
+            "title": row.title,
+            "summary": row.summary,
+            "content": row.content,
+            "category": row.category,
+            "sources": sources,
+            "revision": row.revision,
+            "generated_by": row.generated_by,
+            "author_kind": row.author_kind,
+            "author_id": row.author_id,
+            "updated_at": row.updated_at.isoformat(),
+            "created_at": row.created_at.isoformat(),
+        }
+    )
+
+
+async def route_team_wiki_build(request: Request) -> Response:
+    """POST /api/teams/{tid}/wiki/build — owner-only manual trigger.
+
+    Returns immediately with the build summary; LLM work runs synchronously
+    within the request. UI shows a spinner while the request is in flight.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    user_id = _uid(user)
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+        if member.role != "owner":
+            return _json({"error": "Forbidden — owner only"}, 403)
+
+    store = getattr(request.app.state, "store", None)
+    if store is None:
+        return _json({"error": "memory store unavailable"}, 503)
+
+    from piloci.curator.team_wiki_worker import build_team_wiki
+
+    summary = await build_team_wiki(team_id, store)
+    return _json(summary)
+
+
 async def route_download_document(request: Request) -> Response:
     """GET /api/teams/{team_id}/documents/{doc_id}/raw — stream raw file body."""
     user = _require_user(request)
@@ -1068,5 +1286,18 @@ TEAM_ROUTES = [
         "/api/teams/{team_id}/documents/{doc_id}/raw",
         route_download_document,
         methods=["GET"],
+    ),
+    # Workspace + wiki
+    Route("/api/teams/{team_id}/workspace", route_team_workspace, methods=["GET"]),
+    Route("/api/teams/{team_id}/wiki/articles", route_team_wiki_articles, methods=["GET"]),
+    Route(
+        "/api/teams/{team_id}/wiki/articles/{slug}",
+        route_team_wiki_article,
+        methods=["GET"],
+    ),
+    Route(
+        "/api/teams/{team_id}/wiki/build",
+        limiter.limit(RATE_MUTATION)(route_team_wiki_build),
+        methods=["POST"],
     ),
 ]
