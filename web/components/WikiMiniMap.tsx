@@ -13,11 +13,14 @@ const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false 
 const KIND_COLOR: Record<GraphNode["kind"], string> = {
   project: "#6366f1",
   note: "#10b981",
-  tag: "#f59e0b",
+  tag: "#facc15",
   topic: "#8b5cf6",
   team: "#0ea5e9",
-  folder: "#64748b",
-  doc: "#22c55e",
+  // folder vs doc was slate-gray vs green — too close in dark mode. Bumped
+  // folder to a warm coral so the filesystem skeleton stands out from the
+  // green doc-leaves at a glance.
+  folder: "#fb7185",
+  doc: "#16a34a",
 };
 
 interface WikiMiniMapProps {

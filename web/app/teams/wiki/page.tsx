@@ -165,7 +165,7 @@ function TeamWikiContent() {
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
-            팀이 쌓아둔 메모와 문서를 GLM이 한국어 위키 아티클로 정리합니다.
+            팀이 쌓아둔 메모와 문서를 AI가 한국어 위키 아티클로 정리합니다.
           </p>
           {teamQuery.data?.last_wiki_built_at && (
             <p className="mt-1 text-xs text-muted-foreground">
@@ -319,13 +319,82 @@ function TeamWikiContent() {
                   )}
                 </article>
               ) : articles.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  왼쪽 안내에 따라 위키를 처음 만들어 보세요.
-                </p>
+                <div className="flex flex-col items-center gap-6 px-4 py-12 text-center sm:py-20">
+                  <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
+                    <BookOpen className="size-7 text-primary" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-lg font-semibold sm:text-xl">
+                      아직 정리된 위키가 없어요
+                    </h2>
+                    <p className="mx-auto max-w-md text-sm text-muted-foreground sm:text-[15px]">
+                      팀이 올린 문서와 메모를 AI가 한국어 아티클로 묶어줍니다.
+                      자료를 한 번이라도 쌓아두면 새벽에 자동으로 한 번 정리하고,
+                      바로 보고 싶다면 아래 버튼으로 즉시 만들 수 있어요.
+                    </p>
+                  </div>
+
+                  <div className="mt-2 grid w-full max-w-xl gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border bg-card/50 p-4 text-left">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        1단계
+                      </p>
+                      <p className="mt-1 text-sm font-medium">공용 문서 올리기</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        팀 페이지에서 폴더 구조 그대로 업로드.
+                      </p>
+                    </div>
+                    <div className="rounded-xl border bg-card/50 p-4 text-left">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        2단계
+                      </p>
+                      <p className="mt-1 text-sm font-medium">팀 메모 쌓기</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        결정·회의록·일화. `memory` 툴로 한 줄씩.
+                      </p>
+                    </div>
+                    <div className="rounded-xl border bg-card/50 p-4 text-left">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        3단계
+                      </p>
+                      <p className="mt-1 text-sm font-medium">AI 위키 만들기</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        새벽 자동 + 지금 생성 버튼.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button
+                      size="lg"
+                      onClick={() => buildMutation.mutate()}
+                      disabled={buildMutation.isPending || !isOwner}
+                    >
+                      {buildMutation.isPending ? (
+                        <>
+                          <Loader2 className="me-2 size-4 animate-spin" /> 생성 중…
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="me-2 size-4" /> 지금 위키 만들기
+                        </>
+                      )}
+                    </Button>
+                    <Button variant="outline" size="lg" onClick={() => router.push("/teams")}>
+                      문서 업로드하러 가기
+                    </Button>
+                  </div>
+                  {!isOwner && (
+                    <p className="text-xs text-muted-foreground">
+                      팀 소유자만 수동 생성을 누를 수 있어요. 새벽 자동 빌드는 켜면 누구나 받아요.
+                    </p>
+                  )}
+                </div>
               ) : (
-                <p className="text-sm text-muted-foreground">
-                  왼쪽에서 아티클을 선택하세요.
-                </p>
+                <div className="flex flex-col items-center gap-3 px-4 py-12 text-center text-muted-foreground">
+                  <BookOpen className="size-8" />
+                  <p className="text-sm">왼쪽에서 아티클을 선택하세요.</p>
+                </div>
               )}
             </CardContent>
           </Card>

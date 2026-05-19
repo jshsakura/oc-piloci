@@ -136,7 +136,7 @@ async def test_build_team_wiki_returns_error_when_no_external_provider(
 
     result = await team_wiki_worker.build_team_wiki("team-1", AsyncMock())
     assert result["success"] is False
-    assert "외부 LLM" in result["error"]
+    assert "외부 AI" in result["error"]
 
 
 @pytest.mark.asyncio

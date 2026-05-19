@@ -593,8 +593,8 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             "team_id": team_id,
             "articles_built": 0,
             "error": (
-                "팀 위키 생성은 외부 LLM(GLM 등) 등록이 필요합니다. "
-                "설정 > LLM 제공자에서 등록해 주세요."
+                "팀 위키 생성은 외부 AI 모델 등록이 필요합니다. "
+                "설정 > LLM 제공자에서 사용할 모델을 등록해 주세요."
             ),
         }
     targets = list(fallbacks)

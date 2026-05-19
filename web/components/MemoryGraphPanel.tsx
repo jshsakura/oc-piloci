@@ -29,11 +29,11 @@ interface MemoryGraphPanelProps {
 const KIND_COLOR: Record<GraphNode["kind"], string> = {
   project: "#6366f1",
   note: "#10b981",
-  tag: "#f59e0b",
+  tag: "#facc15",
   topic: "#8b5cf6",
   team: "#0ea5e9",
-  folder: "#64748b",
-  doc: "#22c55e",
+  folder: "#fb7185",
+  doc: "#16a34a",
 };
 
 const KIND_LABEL: Record<GraphNode["kind"], string> = {

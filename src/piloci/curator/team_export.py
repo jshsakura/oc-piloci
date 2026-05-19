@@ -84,7 +84,7 @@ def build_index_md(
     lines.append(f"# {name} — 팀 지식 묶음")
     lines.append("")
     lines.append("이 묶음은 piLoci가 내려준 팀 공유 자료입니다. 사람이 직접 올린")
-    lines.append("문서(`docs/`)와 GLM-5.1이 한국어로 정리한 위키(`wiki/`)가 한 벌로")
+    lines.append("문서(`docs/`)와 AI가 한국어로 정리한 위키(`wiki/`)가 한 벌로")
     lines.append("들어 있어요. 같은 내용을 원본/증류 두 결로 볼 수 있도록 설계했습니다.")
     lines.append("")
     lines.append("**먼저 읽기**")

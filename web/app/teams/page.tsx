@@ -192,8 +192,8 @@ export default function TeamsPage() {
       {/* items-start: side stack and main pane line up at the top instead
           of stretching to match each other (v0.3.58 — the user noticed
           uneven internal heights). */}
-      <div className="mt-4 grid items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="space-y-4">
+      <div className="mt-4 grid min-w-0 items-start gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
@@ -263,7 +263,7 @@ export default function TeamsPage() {
           </Card>
         </aside>
 
-        <section className="space-y-4">
+        <section className="min-w-0 space-y-4">
           {!selectedTeam ? (
             // No-team skeleton: previews the same right-pane shape the user
             // gets once a team is selected (overview / docs / new-doc form),
@@ -322,13 +322,15 @@ export default function TeamsPage() {
             <>
               <Card>
                 <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <CardTitle>{teamQuery.data?.name ?? selectedTeam.name}</CardTitle>
+                  <div className="min-w-0">
+                    <CardTitle className="truncate">
+                      {teamQuery.data?.name ?? selectedTeam.name}
+                    </CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {teamQuery.data?.members.length ?? 0}명 참여 중
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Link
                       href={`/teams/wiki?id=${selectedTeam.id}`}
                       className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent"
@@ -390,13 +392,14 @@ export default function TeamsPage() {
                         inviteMutation.mutate();
                       }}
                     >
-                      <div className="flex gap-2">
+                      <div className="flex min-w-0 gap-2">
                         <Input
                           id="team-invite"
                           type="email"
                           value={inviteEmail}
                           onChange={(event) => setInviteEmail(event.target.value)}
                           placeholder="teammate@example.com"
+                          className="min-w-0 flex-1"
                         />
                         <Button type="submit" disabled={inviteMutation.isPending}>
                           <MailPlus className="size-4" />
