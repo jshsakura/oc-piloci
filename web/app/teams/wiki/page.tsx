@@ -10,8 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { WikiMiniMap } from "@/components/WikiMiniMap";
 import { api } from "@/lib/api";
-import type { TeamWikiArticle, TeamWikiArticleSummary } from "@/lib/types";
+import type { GraphNode, TeamWikiArticle, TeamWikiArticleSummary } from "@/lib/types";
 
 // Article-centric view. List on the left, reader on the right.
 // Graph + folder tree intentionally deferred to keep the surface focused.
@@ -68,6 +69,12 @@ function TeamWikiContent() {
     enabled: Boolean(teamId),
   });
 
+  const workspaceQuery = useQuery({
+    queryKey: ["team-workspace", teamId],
+    queryFn: () => api.getTeamWorkspace(teamId),
+    enabled: Boolean(teamId),
+  });
+
   const articles = articlesQuery.data ?? [];
 
   // Auto-select the first article when the list arrives so the reader pane
@@ -120,11 +127,41 @@ function TeamWikiContent() {
     ? resolveWikilinks(articleQuery.data.content, articles)
     : "";
 
+  // Map article.sources (id/kind) to graph node ids so the mini-map can
+  // ring the source nodes when an article opens.
+  const highlightedNodeIds = useMemo(() => {
+    const sources = articleQuery.data?.sources ?? [];
+    return sources.map((s) =>
+      s.kind === "doc" ? `doc:${s.id}` : `memory:${s.id}`,
+    );
+  }, [articleQuery.data]);
+
+  // Click on a graph node — if it matches an article title, jump to it.
+  const handleNodeClick = (node: GraphNode) => {
+    if (node.kind === "doc" && node.download_url) {
+      window.open(node.download_url, "_blank");
+      return;
+    }
+    if (node.kind === "topic" || node.kind === "note") {
+      const lower = node.label.toLowerCase();
+      const match = articles.find((a) => a.title.toLowerCase() === lower);
+      if (match) setSelectedSlug(match.slug);
+    }
+  };
+
   const buildSummary = buildMutation.data;
   const buildError = buildSummary && !buildSummary.success ? buildSummary.error : null;
 
   return (
     <AppShell title={teamQuery.data?.name ? `${teamQuery.data.name} · 위키` : "팀 위키"}>
+      {workspaceQuery.data?.graph && (
+        <WikiMiniMap
+          nodes={workspaceQuery.data.graph.nodes as GraphNode[]}
+          edges={workspaceQuery.data.graph.edges as never}
+          highlightedIds={highlightedNodeIds}
+          onNodeClick={handleNodeClick}
+        />
+      )}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-muted-foreground">

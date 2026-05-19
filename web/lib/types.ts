@@ -332,9 +332,14 @@ export interface VaultNote {
 export interface GraphNode {
   id: string;
   label: string;
-  kind: "project" | "note" | "tag" | "topic";
+  kind: "project" | "note" | "tag" | "topic" | "team" | "folder" | "doc";
   path?: string;
   slug?: string;
+  team_id?: string;
+  doc_id?: string;
+  memory_id?: string;
+  download_url?: string;
+  version?: number;
 }
 
 export interface GraphEdge {

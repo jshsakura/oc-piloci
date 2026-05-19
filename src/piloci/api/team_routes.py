@@ -559,6 +559,8 @@ async def route_create_document(request: Request) -> Response:
         except IntegrityError:
             return _json({"error": "A document at this path already exists"}, 409)
 
+    await _invalidate_team_vault(team_id)
+
     return _json(
         {
             "id": doc_id,
@@ -570,6 +572,18 @@ async def route_create_document(request: Request) -> Response:
         },
         201,
     )
+
+
+async def _invalidate_team_vault(team_id: str) -> None:
+    """Drop the cached team workspace so the next GET rebuilds with fresh
+    documents. Fail-open: cache miss is harmless."""
+    try:
+        from piloci.config import get_settings
+        from piloci.curator.team_vault import invalidate_team_vault_cache
+
+        await invalidate_team_vault_cache(get_settings().vault_dir, team_id)
+    except Exception:
+        pass
 
 
 async def route_list_documents(request: Request) -> Response:
@@ -745,6 +759,8 @@ async def route_update_document(request: Request) -> Response:
         doc.updated_at = now
         db.add(doc)
 
+    await _invalidate_team_vault(team_id)
+
     return _json(
         {
             "id": doc_id,
@@ -788,6 +804,7 @@ async def route_delete_document(request: Request) -> Response:
         doc.updated_at = _utcnow()
         db.add(doc)
 
+    await _invalidate_team_vault(team_id)
     return _json({"deleted": True})
 
 

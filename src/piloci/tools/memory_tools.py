@@ -561,6 +561,7 @@ async def _handle_team_memory(
         tags=args.tags,
         metadata={"source": "manual"},
     )
+    await _invalidate_team_vault_silently(team_id)
     return {
         "success": True,
         "action": "save",
@@ -568,6 +569,18 @@ async def _handle_team_memory(
         "team_id": team_id,
         "scope": "team",
     }
+
+
+async def _invalidate_team_vault_silently(team_id: str) -> None:
+    """Drop the cached team workspace on memory writes so the wiki page sees
+    fresh data on next load. Cache miss is harmless — fail-open."""
+    try:
+        from piloci.config import get_settings
+        from piloci.curator.team_vault import invalidate_team_vault_cache
+
+        await invalidate_team_vault_cache(get_settings().vault_dir, team_id)
+    except Exception:
+        pass
 
 
 async def handle_memory(

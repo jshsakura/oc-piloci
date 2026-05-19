@@ -31,6 +31,9 @@ const KIND_COLOR: Record<GraphNode["kind"], string> = {
   note: "#10b981",
   tag: "#f59e0b",
   topic: "#8b5cf6",
+  team: "#0ea5e9",
+  folder: "#64748b",
+  doc: "#22c55e",
 };
 
 const KIND_LABEL: Record<GraphNode["kind"], string> = {
@@ -38,6 +41,9 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   note: "기억",
   tag: "태그",
   topic: "주제",
+  team: "팀",
+  folder: "폴더",
+  doc: "문서",
 };
 
 function hexToRgba(hex: string, alpha: number): string {
