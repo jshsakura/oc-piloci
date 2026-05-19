@@ -481,7 +481,12 @@ function TeamWikiContent() {
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground">본문 (마크다운)</label>
-              <MarkdownEditor value={draftContent} onChange={setDraftContent} height={420} />
+              <MarkdownEditor
+                value={draftContent}
+                onChange={setDraftContent}
+                height={420}
+                imageUploadUrl={`/api/teams/${teamId}/wiki/images`}
+              />
             </div>
             <p className="text-[11px] text-muted-foreground">
               사람이 고친 결은 다음 새벽 위키 빌드의 스타일 힌트로 자동 반영됩니다.

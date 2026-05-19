@@ -138,6 +138,73 @@ async def test_team_delete_returns_false_for_missing_row(lancedb_store):
 
 
 @pytest.mark.asyncio
+async def test_team_update_content_changes_text_and_metadata(lancedb_store):
+    mid = await lancedb_store.team_save(
+        _TEAM, _AUTHOR, "original", _VECTOR, tags=["a"], metadata={"category": "draft"}
+    )
+
+    # Author can update with new content + re-embed vector.
+    new_vector = [0.2] * len(_VECTOR)
+    ok = await lancedb_store.team_update(
+        _TEAM,
+        mid,
+        requester_id=_AUTHOR,
+        content="revised body",
+        new_vector=new_vector,
+        tags=["a", "b"],
+        metadata={"category": "final"},
+    )
+    assert ok is True
+
+    row = await lancedb_store.team_get(_TEAM, mid)
+    assert row is not None
+    assert row["content"] == "revised body"
+    assert set(row["tags"]) == {"a", "b"}
+    # Existing author_id stays; new metadata merges over.
+    assert row["metadata"]["category"] == "final"
+    assert row["metadata"]["author_id"] == _AUTHOR
+
+
+@pytest.mark.asyncio
+async def test_team_update_tags_only_skips_embedding(lancedb_store):
+    mid = await lancedb_store.team_save(_TEAM, _AUTHOR, "stable", _VECTOR)
+    ok = await lancedb_store.team_update(_TEAM, mid, requester_id=_AUTHOR, tags=["new-tag"])
+    assert ok is True
+    row = await lancedb_store.team_get(_TEAM, mid)
+    assert "new-tag" in (row or {}).get("tags", [])
+    # Content untouched.
+    assert (row or {}).get("content") == "stable"
+
+
+@pytest.mark.asyncio
+async def test_team_update_rejects_non_author_without_owner_flag(lancedb_store):
+    mid = await lancedb_store.team_save(_TEAM, _AUTHOR, "mine", _VECTOR)
+    other = "user-stranger"
+    ok = await lancedb_store.team_update(_TEAM, mid, requester_id=other, content="hijack")
+    assert ok is False
+
+
+@pytest.mark.asyncio
+async def test_team_update_allows_owner_with_flag(lancedb_store):
+    mid = await lancedb_store.team_save(_TEAM, _AUTHOR, "owner-edits", _VECTOR)
+    owner = "team-owner"
+    ok = await lancedb_store.team_update(
+        _TEAM,
+        mid,
+        requester_id=owner,
+        content="owner override",
+        allow_owner=True,
+    )
+    assert ok is True
+
+
+@pytest.mark.asyncio
+async def test_team_update_returns_false_for_missing_row(lancedb_store):
+    ok = await lancedb_store.team_update(_TEAM, "never-existed", requester_id=_AUTHOR, content="x")
+    assert ok is False
+
+
+@pytest.mark.asyncio
 async def test_personal_scope_is_isolated_from_team_writes(lancedb_store):
     """Personal recall must never surface team rows even when the same vector
     is used — the team_id sentinel filter is what enforces this."""

@@ -1211,6 +1211,111 @@ async def route_update_team_memory(request: Request) -> Response:
     return _json({"updated": updated})
 
 
+async def route_upload_team_wiki_image(request: Request) -> Response:
+    """POST /api/teams/{tid}/wiki/images — body is the raw image bytes
+    (already WebP from the client). Returns ``{url, id, bytes}``.
+
+    Storage: ``settings.vault_dir / team_{team_id} / wiki / images / {id}.webp``.
+    Filesystem-only — no DB row, the markdown body that references the URL
+    is the only source of truth. Orphan cleanup happens in the maintenance
+    worker (compares image files against article body references).
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    user_id = _uid(user)
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+    body = await request.body()
+    if not body or len(body) > 5 * 1024 * 1024:  # 5 MB ceiling
+        return _json({"error": "Image must be 1B-5MB"}, 400)
+
+    # Quick magic-byte sniff so we don't write arbitrary uploads to disk
+    # when a misbehaving client sends, say, an HTML form. WebP starts
+    # with RIFF...WEBP. PNG/JPEG accepted too as a fallback (client may
+    # downgrade if canvas WebP fails).
+    if body[:4] == b"RIFF" and body[8:12] == b"WEBP":
+        ext = "webp"
+        ctype = "image/webp"
+    elif body[:8] == b"\x89PNG\r\n\x1a\n":
+        ext = "png"
+        ctype = "image/png"
+    elif body[:3] == b"\xff\xd8\xff":
+        ext = "jpg"
+        ctype = "image/jpeg"
+    else:
+        return _json({"error": "Unsupported image format (webp/png/jpeg only)"}, 415)
+
+    from piloci.config import get_settings
+
+    settings = get_settings()
+    image_id = uuid.uuid4().hex
+    out_dir = settings.vault_dir / f"team_{team_id}" / "wiki" / "images"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{image_id}.{ext}"
+    out_path.write_bytes(body)
+
+    return _json(
+        {
+            "id": image_id,
+            "url": f"/api/teams/{team_id}/wiki/images/{image_id}.{ext}",
+            "content_type": ctype,
+            "bytes": len(body),
+        },
+        201,
+    )
+
+
+async def route_get_team_wiki_image(request: Request) -> Response:
+    """GET /api/teams/{tid}/wiki/images/{filename} — serve a previously
+    uploaded image. Member-only, filename sanitized to refuse path traversal.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    filename = request.path_params.get("filename", "")
+    user_id = _uid(user)
+
+    # Hex-id.ext only — no slashes, no `..`. Strictest filter for static reads.
+    import re
+
+    if not re.match(r"^[a-f0-9]{16,64}\.(webp|png|jpg|jpeg)$", filename):
+        return _json({"error": "Bad filename"}, 400)
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+    from piloci.config import get_settings
+
+    settings = get_settings()
+    path = settings.vault_dir / f"team_{team_id}" / "wiki" / "images" / filename
+    if not path.is_file():
+        return _json({"error": "Not found"}, 404)
+
+    ext = filename.rsplit(".", 1)[-1].lower()
+    media_type = {
+        "webp": "image/webp",
+        "png": "image/png",
+        "jpg": "image/jpeg",
+        "jpeg": "image/jpeg",
+    }.get(ext, "application/octet-stream")
+    return Response(
+        path.read_bytes(),
+        media_type=media_type,
+        headers={"Cache-Control": "private, max-age=31536000, immutable"},
+    )
+
+
 async def route_update_team_wiki_article(request: Request) -> Response:
     """PATCH /api/teams/{tid}/wiki/articles/{slug} — human edit of a wiki article.
 
@@ -1604,5 +1709,15 @@ TEAM_ROUTES = [
         "/api/teams/{team_id}/wiki/articles/{slug}",
         limiter.limit(RATE_MUTATION)(route_update_team_wiki_article),
         methods=["PATCH"],
+    ),
+    Route(
+        "/api/teams/{team_id}/wiki/images",
+        limiter.limit(RATE_MUTATION)(route_upload_team_wiki_image),
+        methods=["POST"],
+    ),
+    Route(
+        "/api/teams/{team_id}/wiki/images/{filename}",
+        route_get_team_wiki_image,
+        methods=["GET"],
     ),
 ]

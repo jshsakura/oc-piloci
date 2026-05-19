@@ -334,6 +334,227 @@ async def test_team_workspace_and_wiki_routes(team_app: Starlette, tmp_path, mon
 
 
 @pytest.mark.asyncio
+async def test_team_wiki_article_patch_snapshots_revision(
+    team_app: Starlette, tmp_path, monkeypatch
+) -> None:
+    """PATCH /wiki/articles/{slug} should write a TeamWikiRevision row with
+    the previous body, then bump the article's revision + mark author_kind
+    as 'human' so the worker treats it as a style hint next build."""
+    from piloci.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "vault_dir", tmp_path / "vaults")
+
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        stranger = _headers("member", "member@example.com")
+
+        team_id = (await client.post("/api/teams", headers=owner, json={"name": "Edits"})).json()[
+            "id"
+        ]
+
+        # Seed a wiki article directly via the route layer's session so the
+        # PATCH endpoint has something to mutate.
+        from datetime import datetime, timezone
+
+        from piloci.api import team_routes
+        from piloci.db.models import TeamWikiArticle
+
+        async with team_routes.async_session() as db:
+            db.add(
+                TeamWikiArticle(
+                    id="art-1",
+                    team_id=team_id,
+                    slug="intro",
+                    title="Intro",
+                    summary=None,
+                    content="첫 본문",
+                    category="folder/docs",
+                    sources_json=None,
+                    revision=1,
+                    author_kind="llm",
+                    author_id=None,
+                    generated_by="test",
+                    created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                    updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                )
+            )
+            await db.commit()
+
+        # Non-member rejected.
+        assert (
+            await client.patch(
+                f"/api/teams/{team_id}/wiki/articles/intro",
+                headers=stranger,
+                json={"content": "hijack"},
+            )
+        ).status_code == 404
+
+        # Empty patch rejected.
+        empty = await client.patch(
+            f"/api/teams/{team_id}/wiki/articles/intro", headers=owner, json={}
+        )
+        assert empty.status_code == 400
+
+        # Real edit succeeds and bumps revision.
+        patched = await client.patch(
+            f"/api/teams/{team_id}/wiki/articles/intro",
+            headers=owner,
+            json={"title": "Intro v2", "content": "고친 본문"},
+        )
+        assert patched.status_code == 200
+        body = patched.json()
+        assert body["revision"] == 2
+        assert body["author_kind"] == "human"
+
+        # Verify the article row + a snapshot in revisions table.
+        from sqlalchemy import select
+
+        from piloci.db.models import TeamWikiArticle as TA
+        from piloci.db.models import TeamWikiRevision
+
+        async with team_routes.async_session() as db:
+            row = (
+                await db.execute(select(TA).where(TA.team_id == team_id, TA.slug == "intro"))
+            ).scalar_one()
+            assert row.title == "Intro v2"
+            assert row.content == "고친 본문"
+            assert row.author_kind == "human"
+
+            snaps = (
+                (
+                    await db.execute(
+                        select(TeamWikiRevision).where(TeamWikiRevision.article_id == "art-1")
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(snaps) == 1
+            # Snapshot captures the *previous* state, not the patched one.
+            assert snaps[0].content == "첫 본문"
+
+
+@pytest.mark.asyncio
+async def test_team_wiki_image_upload_and_fetch_round_trip(
+    team_app: Starlette, tmp_path, monkeypatch
+) -> None:
+    """Round-trip: POST webp bytes → 201 with url → GET that url returns the
+    same bytes with image/webp content-type. Non-member is rejected on both
+    ends, bad filenames return 400 before touching the FS."""
+    from piloci.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "vault_dir", tmp_path / "vaults")
+
+    # Smallest valid WebP — RIFF header + WEBP magic + empty body. The
+    # endpoint only sniffs magic bytes, so this is enough to pass the
+    # format guard without bundling a real encoder.
+    webp_bytes = b"RIFF\x24\x00\x00\x00WEBPVP8 \x18\x00\x00\x00\x30\x01\x00\x9d\x01\x2a"
+    # Pad to 32 bytes so length > 0 and slice indices line up — the magic
+    # check only reads [:4] and [8:12].
+    webp_bytes += b"\x00" * 16
+
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        stranger = _headers("member", "member@example.com")
+
+        team_id = (await client.post("/api/teams", headers=owner, json={"name": "Imgs"})).json()[
+            "id"
+        ]
+
+        # Non-member rejected at upload.
+        rejected = await client.post(
+            f"/api/teams/{team_id}/wiki/images",
+            headers={**stranger, "content-type": "image/webp"},
+            content=webp_bytes,
+        )
+        assert rejected.status_code == 404
+
+        # Owner uploads — gets a URL back.
+        up = await client.post(
+            f"/api/teams/{team_id}/wiki/images",
+            headers={**owner, "content-type": "image/webp"},
+            content=webp_bytes,
+        )
+        assert up.status_code == 201
+        body = up.json()
+        assert body["url"].startswith(f"/api/teams/{team_id}/wiki/images/")
+        assert body["url"].endswith(".webp")
+        filename = body["url"].rsplit("/", 1)[-1]
+
+        # Empty body is rejected as 400.
+        empty = await client.post(
+            f"/api/teams/{team_id}/wiki/images",
+            headers={**owner, "content-type": "image/webp"},
+            content=b"",
+        )
+        assert empty.status_code == 400
+
+        # Wrong magic (e.g. HTML form payload) is rejected as 415.
+        garbage = await client.post(
+            f"/api/teams/{team_id}/wiki/images",
+            headers={**owner, "content-type": "image/webp"},
+            content=b"<html>not an image</html>",
+        )
+        assert garbage.status_code == 415
+
+        # Member can fetch the just-uploaded image with proper content type.
+        got = await client.get(f"/api/teams/{team_id}/wiki/images/{filename}", headers=owner)
+        assert got.status_code == 200
+        assert got.headers["content-type"] == "image/webp"
+        assert got.content == webp_bytes
+
+        # Non-member fetch blocked.
+        blocked = await client.get(f"/api/teams/{team_id}/wiki/images/{filename}", headers=stranger)
+        assert blocked.status_code == 404
+
+        # Path traversal/dirty filename rejected at the route, never touches FS.
+        bad_name = await client.get(
+            f"/api/teams/{team_id}/wiki/images/..%2Fsecret.webp", headers=owner
+        )
+        assert bad_name.status_code in (400, 404)
+
+        # Missing file (well-formed name, not on disk) → 404.
+        absent = await client.get(
+            f"/api/teams/{team_id}/wiki/images/{'a' * 32}.webp", headers=owner
+        )
+        assert absent.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_team_memory_patch_requires_member(team_app: Starlette, monkeypatch) -> None:
+    """PATCH /memories/{id} short-circuits with 404 for non-members before
+    even consulting the store, and surfaces a 503 when the store binding
+    is missing from app.state — the layer has its own no-store fallback."""
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        stranger = _headers("member", "member@example.com")
+
+        team_id = (await client.post("/api/teams", headers=owner, json={"name": "M"})).json()["id"]
+
+        # No store on app.state → 503 (member can still pass the auth check).
+        no_store = await client.patch(
+            f"/api/teams/{team_id}/memories/whatever",
+            headers=owner,
+            json={"tags": ["x"]},
+        )
+        assert no_store.status_code == 503
+
+        # Stranger is short-circuited at the member check, even before store
+        # binding is consulted.
+        rejected = await client.patch(
+            f"/api/teams/{team_id}/memories/whatever",
+            headers=stranger,
+            json={"tags": ["x"]},
+        )
+        assert rejected.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_team_patch_toggles_auto_wiki_flag(team_app: Starlette) -> None:
     transport = httpx.ASGITransport(app=team_app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
