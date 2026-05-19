@@ -148,33 +148,16 @@ function WikiContent() {
   }
 
   function handleGraphNode(node: GraphNode) {
-    // Backend prefixes graph node ids with their kind ("note:<memory_id>",
-    // "tag:<slug>", "topic:<slug>"). Previously this handler passed node.id
-    // straight into ?note=, which put e.g. "note:abc" there and silently
-    // matched nothing — so every node click looked dead.
-    if (node.kind === "note") {
-      const memoryId = node.id.startsWith("note:")
-        ? node.id.slice("note:".length)
-        : node.id;
-      handleSelectNote(memoryId);
-      return;
-    }
-    if (node.kind === "tag") {
-      // The tag node's label is the raw tag string, which is exactly what
-      // the list facet filter (?tag=) compares against. Clear ?note= so the
-      // detail pane doesn't keep a stale selection underneath the filter.
-      if (!slug) return;
-      pushParams(router, searchParams, { slug, tag: node.label, note: null });
-      return;
-    }
-    if (node.kind === "topic") {
-      // Topic = inline [[link]] reference. Try to resolve it to an in-project
-      // note by title; if no match, no-op rather than navigating to a 404.
-      const match = notes.find((n) => n.title === node.label || n.path === node.label);
-      if (match) handleSelectNote(match.memory_id);
-      return;
-    }
-    // project node: graph is already centered on it. No-op.
+    // Only note clicks open the detail pane. tag / topic / project clicks
+    // are handled inside MemoryGraphPanel as a graph-local highlight + 1-hop
+    // dim so the user gets visual feedback without the page yanking the
+    // open note away or churning the URL. Tag filtering lives in the list
+    // facet chips, which feels intentional rather than incidental.
+    if (node.kind !== "note") return;
+    const memoryId = node.id.startsWith("note:")
+      ? node.id.slice("note:".length)
+      : node.id;
+    handleSelectNote(memoryId);
   }
 
   if (!hasHydrated || isBootstrapping) {
@@ -440,7 +423,26 @@ function WikiContent() {
                   {copy.backToList}
                 </button>
                 <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-3 md:px-4 md:pt-4">
-                  <VaultNoteDetail note={selectedNote} />
+                  <VaultNoteDetail
+                    note={selectedNote}
+                    onWikilinkClick={(label) => {
+                      // [[link]] in the body could mean: another note in this
+                      // project (by title/path), or a tag the curator decided
+                      // to surface. Try note first, then tag — silently no-op
+                      // if neither matches (rather than a dead-end navigation).
+                      const noteMatch = notes.find(
+                        (n) => n.title === label || n.path === label,
+                      );
+                      if (noteMatch) {
+                        handleSelectNote(noteMatch.memory_id);
+                        return;
+                      }
+                      const tagHit = notes.some((n) => n.tags.includes(label));
+                      if (tagHit && slug) {
+                        pushParams(router, searchParams, { slug, tag: label });
+                      }
+                    }}
+                  />
                   {linkedNotes.length > 0 && (
                     <div className="mt-6 border-t pt-4">
                       <p className="text-muted-foreground mb-2 text-xs font-medium uppercase tracking-wide">

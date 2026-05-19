@@ -33,6 +33,14 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   topic: "주제",
 };
 
+function hexToRgba(hex: string, alpha: number): string {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 export function MemoryGraphPanel({
   nodes,
   edges,
@@ -60,39 +68,73 @@ export function MemoryGraphPanel({
     [nodes, edges],
   );
 
+  // Highlight state: tracks whichever node is currently "focused" on the
+  // graph regardless of kind. Parent-driven (selectedNodeId from ?note=)
+  // OR self-driven (user clicked a tag/topic that doesn't change the URL).
+  // We hold an internal copy so tag/topic clicks can light up the graph
+  // without forcing the parent to track a separate highlight state.
+  const [highlighted, setHighlighted] = useState<string | null>(selectedNodeId ?? null);
+  useEffect(() => {
+    setHighlighted(selectedNodeId ?? null);
+  }, [selectedNodeId]);
+
+  // 1-hop neighborhood of the highlighted node — these stay full opacity
+  // while everything else dims, so the user sees an obvious "here's what's
+  // connected to what you just clicked".
+  const highlightNeighbors = useMemo<Set<string> | null>(() => {
+    if (!highlighted) return null;
+    const set = new Set<string>([highlighted]);
+    for (const e of edges) {
+      const s = typeof e.source === "string" ? e.source : (e.source as any)?.id;
+      const t = typeof e.target === "string" ? e.target : (e.target as any)?.id;
+      if (s === highlighted && t) set.add(t);
+      if (t === highlighted && s) set.add(s);
+    }
+    return set;
+  }, [highlighted, edges]);
+
   const nodeColor = useCallback(
-    (node: any) => KIND_COLOR[node.kind as GraphNode["kind"]] ?? "#94a3b8",
-    [],
+    (node: any) => {
+      const base = KIND_COLOR[node.kind as GraphNode["kind"]] ?? "#94a3b8";
+      if (highlightNeighbors && !highlightNeighbors.has(node.id)) {
+        return hexToRgba(base, 0.18);
+      }
+      return base;
+    },
+    [highlightNeighbors],
+  );
+
+  const linkColor = useCallback(
+    (link: any) => {
+      if (!highlighted) return "rgba(148,163,184,0.35)";
+      const s = typeof link.source === "string" ? link.source : link.source?.id;
+      const t = typeof link.target === "string" ? link.target : link.target?.id;
+      const touches = s === highlighted || t === highlighted;
+      return touches ? "rgba(148,163,184,0.6)" : "rgba(148,163,184,0.08)";
+    },
+    [highlighted],
   );
 
   const nodeLabel = useCallback((node: any) => node.label as string, []);
 
   const handleNodeClick = useCallback(
     (node: any) => {
-      // Pin the clicked node so d3 doesn't drift it after selection.
-      node.fx = node.x;
-      node.fy = node.y;
+      // No pin, no camera pan — just light up. The previous pin/centerAt
+      // pair felt jarring on every click and made the map feel possessive.
+      setHighlighted(node.id);
       onNodeClick?.(node as GraphNode);
-      // No camera movement on click — the selection ring shows which node
-      // is active, and the detail pane shows the content. Panning to the
-      // clicked node pulled the whole map off-center, especially after a
-      // few clicks chained through peripheral nodes. The user can still
-      // re-center the whole map with the Maximize button.
     },
     [onNodeClick],
   );
 
-  // Paint a ring around the selected node so the click feels like it locks
-  // onto a real anchor on the map. Drawn "after" the default node paint so
-  // the ring sits on top of the dot. The ref-based lookup avoids re-creating
-  // the callback (which would prompt force-graph to rebind props) every
-  // selection change — we just refresh the canvas instead.
-  const selectedRef = useRef<string | null | undefined>(selectedNodeId);
-  selectedRef.current = selectedNodeId;
+  // Selection ring on whatever's highlighted — note OR tag OR topic OR
+  // project. Drawn "after" the default node paint so the ring sits on top.
+  const highlightedRef = useRef<string | null>(highlighted);
+  highlightedRef.current = highlighted;
   const nodeCanvasObjectMode = useCallback(() => "after" as const, []);
   const nodeCanvasObject = useCallback(
     (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      if (node.id !== selectedRef.current) return;
+      if (node.id !== highlightedRef.current) return;
       const baseR = Math.sqrt((node.val as number) ?? 2) * 5;
       const ringR = baseR + 4 / globalScale;
       ctx.beginPath();
@@ -104,11 +146,12 @@ export function MemoryGraphPanel({
     [],
   );
 
-  // After the d3 sim cools the canvas stops repainting, so a selection change
-  // alone wouldn't redraw the ring. Nudge force-graph to repaint one frame.
+  // After the d3 sim cools the canvas stops repainting, so a highlight
+  // change alone wouldn't redraw the ring / dim layer. Nudge force-graph
+  // to repaint one frame.
   useEffect(() => {
     graphRef.current?.refresh?.();
-  }, [selectedNodeId]);
+  }, [highlighted]);
 
   // Measure the panel container ourselves and pass the size to ForceGraph2D
   // as explicit pixels. Without this, react-force-graph defaults to window
@@ -249,7 +292,7 @@ export function MemoryGraphPanel({
         nodeLabel={nodeLabel}
         nodeColor={nodeColor}
         nodeRelSize={5}
-        linkColor={() => "rgba(148,163,184,0.35)"}
+        linkColor={linkColor}
         linkWidth={1}
         linkDirectionalParticles={1}
         linkDirectionalParticleWidth={1.5}
