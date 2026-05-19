@@ -554,3 +554,573 @@ def test_run_uninstall_removes_secondary_client_entries(tmp_path: Path) -> None:
     assert any("mcp.json" in r for r in removed)
     assert any("settings.json" in r for r in removed)
     assert any("config.toml" in r for r in removed)
+
+
+# ---------------------------------------------------------------------------
+# JSONC parser + Python launcher quirks
+# ---------------------------------------------------------------------------
+
+
+def test_parse_jsonc_preserves_newlines_in_block_comment() -> None:
+    """Block comments are wiped but newlines kept so error line numbers stay sane."""
+    text = '{\n  /* multi\n     line\n     comment */\n  "k": 1\n}'
+    out = installer._parse_jsonc(text)
+    assert out == {"k": 1}
+
+
+def test_parse_jsonc_strips_trailing_commas_and_line_comments() -> None:
+    text = '{\n  "k": 1, // trailing line comment\n  "arr": [1, 2,],\n}'
+    assert installer._parse_jsonc(text) == {"k": 1, "arr": [1, 2]}
+
+
+def test_python_cmd_windows_with_py_launcher(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(installer.os, "name", "nt")
+    monkeypatch.setattr(
+        installer.shutil, "which", lambda name: "/win/py.exe" if name == "py" else None
+    )
+    assert installer._python_cmd() == "py"
+
+
+def test_python_cmd_windows_without_py_launcher(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(installer.os, "name", "nt")
+    monkeypatch.setattr(installer.shutil, "which", lambda name: None)
+    assert installer._python_cmd() == "python"
+
+
+# ---------------------------------------------------------------------------
+# chmod PermissionError swallows (write_config_json, plugin installs, ...)
+# ---------------------------------------------------------------------------
+
+
+def _chmod_always_raises(self, mode: int) -> None:
+    raise PermissionError("simulated read-only filesystem")
+
+
+def test_write_config_json_swallows_chmod_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "chmod", _chmod_always_raises)
+    cfg = installer.write_config_json("tok", "https://x.example/", home=tmp_path)
+    assert cfg.exists()
+    data = json.loads(cfg.read_text())
+    assert data["token"] == "tok"
+
+
+def test_install_claude_plugin_swallows_chmod_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "chmod", _chmod_always_raises)
+    with patch("piloci.installer._http_download", return_value=b"hook"):
+        plugin_dir = installer.install_claude_plugin("https://x.example", "JWT.tok", home=tmp_path)
+    assert (plugin_dir / "hooks" / "hook.py").exists()
+    assert (plugin_dir / "hooks" / "stop-hook.py").exists()
+    assert (plugin_dir / ".mcp.json").exists()
+
+
+def test_install_claude_plugin_removes_legacy_stop_hook_sh(tmp_path: Path) -> None:
+    # Pre-create the legacy bash stop-hook so install_claude_plugin's cleanup
+    # branch (the legacy_sh.unlink path) runs.
+    hooks_dir = tmp_path / installer.CLAUDE_PLUGIN_DIR_NAME / "hooks"
+    hooks_dir.mkdir(parents=True)
+    legacy = hooks_dir / "stop-hook.sh"
+    legacy.write_text("# legacy bash")
+    with patch("piloci.installer._http_download", return_value=b"hook"):
+        installer.install_claude_plugin("https://x.example", "JWT.tok", home=tmp_path)
+    assert not legacy.exists()
+
+
+def test_install_claude_plugin_legacy_sh_unlink_oserror_is_swallowed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hooks_dir = tmp_path / installer.CLAUDE_PLUGIN_DIR_NAME / "hooks"
+    hooks_dir.mkdir(parents=True)
+    legacy = hooks_dir / "stop-hook.sh"
+    legacy.write_text("# legacy bash")
+
+    real_unlink = Path.unlink
+
+    def _unlink(self, *a, **kw):  # noqa: ANN001
+        if self.name == "stop-hook.sh":
+            raise OSError("locked")
+        return real_unlink(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "unlink", _unlink)
+    with patch("piloci.installer._http_download", return_value=b"hook"):
+        # Must not raise.
+        installer.install_claude_plugin("https://x.example", "JWT.tok", home=tmp_path)
+
+
+def test_install_opencode_plugin_swallows_chmod_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "chmod", _chmod_always_raises)
+    with patch("piloci.installer._http_download", return_value=b"// ts"):
+        installer.install_opencode_plugin("https://x.example", "JWT.tok", home=tmp_path)
+    cfg = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    assert cfg.exists()
+
+
+def test_install_opencode_mcp_swallows_chmod_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "chmod", _chmod_always_raises)
+    cfg = installer.install_opencode_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    assert cfg.exists()
+
+
+def test_merge_json_mcp_swallows_chmod_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "chmod", _chmod_always_raises)
+    cfg = installer.install_cursor_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    assert cfg.exists()
+
+
+def test_install_codex_mcp_swallows_chmod_permission_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(Path, "chmod", _chmod_always_raises)
+    with patch("piloci.installer._http_download", return_value=b"hook"):
+        cfg = installer.install_codex_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    assert cfg.exists()
+
+
+# ---------------------------------------------------------------------------
+# Corrupt-JSON handling — merger functions back the file up and start clean
+# ---------------------------------------------------------------------------
+
+
+def test_merge_claude_settings_handles_corrupt_json(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.json"
+    settings.write_text("{ not valid json")
+    installer._merge_claude_settings(settings)
+    data = json.loads(settings.read_text())
+    assert "SessionStart" in data["hooks"]
+    assert settings.with_suffix(".json.piloci-corrupt-bak").exists()
+
+
+def test_merge_claude_settings_handles_non_dict_hooks(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"hooks": ["this should be dict but is list"]}))
+    installer._merge_claude_settings(settings)
+    data = json.loads(settings.read_text())
+    # Replaced wholesale with a fresh dict.
+    assert isinstance(data["hooks"], dict)
+    assert "SessionStart" in data["hooks"]
+
+
+def test_merge_claude_settings_handles_non_list_event(tmp_path: Path) -> None:
+    settings = tmp_path / "settings.json"
+    settings.write_text(json.dumps({"hooks": {"SessionStart": "garbage", "Stop": 5}}))
+    installer._merge_claude_settings(settings)
+    data = json.loads(settings.read_text())
+    assert isinstance(data["hooks"]["SessionStart"], list)
+    assert isinstance(data["hooks"]["Stop"], list)
+
+
+def test_install_opencode_plugin_handles_corrupt_existing_cfg(tmp_path: Path) -> None:
+    cfg_path = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text("{ broken json")
+    with patch("piloci.installer._http_download", return_value=b"// ts"):
+        installer.install_opencode_plugin("https://x.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg_path.read_text())
+    assert data["mcp"]["piloci"]["url"].endswith("/mcp/http")
+    assert cfg_path.with_suffix(".json.piloci-corrupt-bak").exists()
+
+
+def test_install_opencode_plugin_makes_backup_for_existing_cfg(tmp_path: Path) -> None:
+    cfg_path = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(json.dumps({"other": "kept"}))
+    with patch("piloci.installer._http_download", return_value=b"// ts"):
+        installer.install_opencode_plugin("https://x.example", "JWT.tok", home=tmp_path)
+    bak = cfg_path.with_suffix(".json.piloci-bak")
+    assert bak.exists()
+    assert json.loads(bak.read_text()) == {"other": "kept"}
+
+
+def test_install_opencode_plugin_handles_non_dict_mcp(tmp_path: Path) -> None:
+    cfg_path = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(json.dumps({"mcp": ["wrong type"]}))
+    with patch("piloci.installer._http_download", return_value=b"// ts"):
+        installer.install_opencode_plugin("https://x.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg_path.read_text())
+    assert isinstance(data["mcp"], dict)
+    assert "piloci" in data["mcp"]
+
+
+def test_install_opencode_mcp_handles_corrupt_cfg(tmp_path: Path) -> None:
+    cfg_path = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text("{ broken json")
+    installer.install_opencode_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg_path.read_text())
+    assert "piloci" in data["mcp"]
+    assert cfg_path.with_suffix(".json.piloci-corrupt-bak").exists()
+
+
+def test_install_opencode_mcp_handles_non_dict_mcp(tmp_path: Path) -> None:
+    cfg_path = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(json.dumps({"mcp": 42}))
+    installer.install_opencode_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg_path.read_text())
+    assert isinstance(data["mcp"], dict)
+    assert "piloci" in data["mcp"]
+
+
+def test_merge_json_mcp_handles_corrupt_cfg(tmp_path: Path) -> None:
+    cfg_path = tmp_path / installer.CURSOR_DIR_NAME / "mcp.json"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text("{ corrupt")
+    installer.install_cursor_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg_path.read_text())
+    assert "piloci" in data["mcpServers"]
+    assert cfg_path.with_suffix(".json.piloci-corrupt-bak").exists()
+
+
+def test_merge_json_mcp_handles_non_dict_parent_bucket(tmp_path: Path) -> None:
+    cfg_path = tmp_path / installer.CURSOR_DIR_NAME / "mcp.json"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(json.dumps({"mcpServers": "wrong"}))
+    installer.install_cursor_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg_path.read_text())
+    assert isinstance(data["mcpServers"], dict)
+    assert "piloci" in data["mcpServers"]
+
+
+# ---------------------------------------------------------------------------
+# _remove_json_mcp_entry — defensive guards
+# ---------------------------------------------------------------------------
+
+
+def test_remove_json_mcp_entry_missing_file(tmp_path: Path) -> None:
+    assert (
+        installer._remove_json_mcp_entry(
+            tmp_path / "no.json", parent_key="mcpServers", server_name="piloci"
+        )
+        is False
+    )
+
+
+def test_remove_json_mcp_entry_corrupt_file_returns_false(tmp_path: Path) -> None:
+    cfg = tmp_path / "x.json"
+    cfg.write_text("{ corrupt")
+    assert (
+        installer._remove_json_mcp_entry(cfg, parent_key="mcpServers", server_name="piloci")
+        is False
+    )
+
+
+def test_remove_json_mcp_entry_non_dict_root_returns_false(tmp_path: Path) -> None:
+    cfg = tmp_path / "x.json"
+    cfg.write_text(json.dumps(["not", "a", "dict"]))
+    assert (
+        installer._remove_json_mcp_entry(cfg, parent_key="mcpServers", server_name="piloci")
+        is False
+    )
+
+
+def test_remove_json_mcp_entry_absent_server_returns_false(tmp_path: Path) -> None:
+    cfg = tmp_path / "x.json"
+    cfg.write_text(json.dumps({"mcpServers": {"other": {}}}))
+    assert (
+        installer._remove_json_mcp_entry(cfg, parent_key="mcpServers", server_name="piloci")
+        is False
+    )
+
+
+# ---------------------------------------------------------------------------
+# install_antigravity_mcp + install_gemini_mcp — round trip
+# ---------------------------------------------------------------------------
+
+
+def test_install_antigravity_mcp_writes_http_entry(tmp_path: Path) -> None:
+    cfg = installer.install_antigravity_mcp("https://x.example/", "JWT.tok", home=tmp_path)
+    data = json.loads(cfg.read_text())
+    assert data["mcpServers"]["piloci"]["url"] == "https://x.example/mcp/http"
+    assert data["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer JWT.tok"
+
+
+# ---------------------------------------------------------------------------
+# install_codex_mcp — http_download exceptions are swallowed
+# ---------------------------------------------------------------------------
+
+
+def test_install_codex_mcp_swallows_hook_download_failures(tmp_path: Path) -> None:
+    def _boom(url: str, *, token: str | None = None, timeout: int = 30) -> bytes:
+        raise OSError("network down")
+
+    with patch("piloci.installer._http_download", side_effect=_boom):
+        cfg = installer.install_codex_mcp("https://x.example", "JWT.tok", home=tmp_path)
+    # Despite hook download failing, the TOML block is still appended.
+    assert "[mcp_servers.piloci]" in cfg.read_text()
+
+
+# ---------------------------------------------------------------------------
+# cleanup_legacy_install — corrupt JSON inputs are tolerated
+# ---------------------------------------------------------------------------
+
+
+def test_cleanup_legacy_install_tolerates_corrupt_settings(tmp_path: Path) -> None:
+    settings = tmp_path / installer.CLAUDE_DIR_NAME / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text("{ broken json")
+    # Does not raise; file is left as-is because parse failed.
+    installer.cleanup_legacy_install(home=tmp_path)
+
+
+def test_cleanup_legacy_install_tolerates_non_list_hook_event(tmp_path: Path) -> None:
+    settings = tmp_path / installer.CLAUDE_DIR_NAME / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(json.dumps({"hooks": {"SessionStart": "not-a-list"}}))
+    installer.cleanup_legacy_install(home=tmp_path)
+
+
+def test_cleanup_legacy_install_empties_hooks_dict_when_only_piloci(tmp_path: Path) -> None:
+    settings = tmp_path / installer.CLAUDE_DIR_NAME / "settings.json"
+    settings.parent.mkdir(parents=True)
+    settings.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "*",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": "python3 ~/.config/piloci/hook.py",
+                                }
+                            ],
+                        }
+                    ]
+                }
+            }
+        )
+    )
+    installer.cleanup_legacy_install(home=tmp_path)
+    data = json.loads(settings.read_text())
+    # The whole 'hooks' key is removed when no events remain.
+    assert "hooks" not in data
+
+
+def test_cleanup_legacy_install_tolerates_corrupt_opencode(tmp_path: Path) -> None:
+    cfg = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text("{ also broken")
+    installer.cleanup_legacy_install(home=tmp_path)
+
+
+def test_cleanup_legacy_install_empties_opencode_mcp_when_only_piloci(tmp_path: Path) -> None:
+    cfg = tmp_path / installer.OPENCODE_DIR_NAME / "opencode.json"
+    cfg.parent.mkdir(parents=True)
+    cfg.write_text(json.dumps({"mcp": {"piloci": {"type": "remote", "url": "x"}}}))
+    installer.cleanup_legacy_install(home=tmp_path)
+    data = json.loads(cfg.read_text())
+    # 'mcp' key removed once empty.
+    assert "mcp" not in data
+
+
+# ---------------------------------------------------------------------------
+# _cli_version fallback — import failure path
+# ---------------------------------------------------------------------------
+
+
+def test_cli_version_returns_unknown_when_import_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+
+    original = sys.modules.pop("piloci.version", None)
+
+    class _BrokenFinder:
+        def find_spec(self, name, path=None, target=None):  # noqa: ANN001
+            if name == "piloci.version":
+                raise RuntimeError("import broken")
+            return None
+
+    sys.meta_path.insert(0, _BrokenFinder())
+    try:
+        assert installer._cli_version() == "unknown"
+    finally:
+        sys.meta_path.pop(0)
+        if original is not None:
+            sys.modules["piloci.version"] = original
+
+
+# ---------------------------------------------------------------------------
+# run_install — failure path + heartbeat note + cleanup notes
+# ---------------------------------------------------------------------------
+
+
+def test_run_install_records_sweep_notes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Pre-create a legacy hook.py so cleanup_legacy_install has something to remove.
+    legacy = tmp_path / installer.PILOCI_DIR_NAME
+    legacy.mkdir(parents=True)
+    (legacy / "hook.py").write_text("# legacy")
+
+    monkeypatch.setattr("piloci.installer.post_install_heartbeat", lambda *a, **kw: False)
+    with patch("piloci.installer.shutil.which", return_value=None):
+        report = installer.run_install(
+            "tok", "https://x.example", home=tmp_path, targets=["cursor"]
+        )
+    assert any("정리" in n for n in report.notes)
+
+
+def test_run_install_records_install_failure_in_clients(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _boom(*a, **kw):  # noqa: ANN001
+        raise OSError("disk full")
+
+    monkeypatch.setattr("piloci.installer.install_cursor_mcp", _boom)
+    monkeypatch.setattr("piloci.installer.post_install_heartbeat", lambda *a, **kw: False)
+    with patch("piloci.installer.shutil.which", return_value=None):
+        report = installer.run_install(
+            "tok", "https://x.example", home=tmp_path, targets=["cursor"]
+        )
+    assert report.clients["cursor"].startswith("failed:")
+    assert any("설치 실패" in n for n in report.notes)
+
+
+def test_run_install_heartbeat_success_appends_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("piloci.installer.post_install_heartbeat", lambda *a, **kw: True)
+    with patch("piloci.installer.shutil.which", return_value=None):
+        report = installer.run_install(
+            "tok", "https://x.example", home=tmp_path, targets=["cursor"]
+        )
+    assert any("설치 시그널 전송" in n for n in report.notes)
+
+
+def test_run_install_hostname_oserror_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import socket
+
+    def _boom() -> str:
+        raise OSError("no hostname")
+
+    captured: dict = {}
+
+    def _fake_heartbeat(base_url, token, *, client_kinds, hostname=None, timeout=5):  # noqa: ANN001
+        captured["hostname"] = hostname
+        return True
+
+    monkeypatch.setattr(socket, "gethostname", _boom)
+    monkeypatch.setattr("piloci.installer.post_install_heartbeat", _fake_heartbeat)
+    with patch("piloci.installer.shutil.which", return_value=None):
+        installer.run_install("tok", "https://x.example", home=tmp_path, targets=["cursor"])
+    assert captured["hostname"] is None
+
+
+# ---------------------------------------------------------------------------
+# fetch_install_payload — happy path + malformed payload
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_install_payload_parses_response() -> None:
+    body = json.dumps({"token": "JWT.tok", "base_url": "https://piloci.example"}).encode()
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return body
+
+    captured: dict = {}
+
+    def _fake_urlopen(req, timeout):  # noqa: ANN001
+        captured["url"] = req.full_url
+        captured["accept"] = req.get_header("Accept")
+        return _Resp()
+
+    with patch("piloci.installer.urllib.request.urlopen", _fake_urlopen):
+        out = installer.fetch_install_payload("https://x.example/install/abc")
+    assert out == {"token": "JWT.tok", "base_url": "https://piloci.example"}
+    assert captured["accept"] == "application/json"
+
+
+def test_fetch_install_payload_raises_on_missing_keys() -> None:
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return json.dumps({"token": "x"}).encode()  # base_url missing
+
+    with patch("piloci.installer.urllib.request.urlopen", lambda *a, **kw: _Resp()):
+        with pytest.raises(ValueError):
+            installer.fetch_install_payload("https://x.example/install/abc")
+
+
+# ---------------------------------------------------------------------------
+# get_default_server — extra branches
+# ---------------------------------------------------------------------------
+
+
+def test_get_default_server_returns_none_when_no_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("PILOCI_SERVER", raising=False)
+    monkeypatch.setattr("piloci.installer.Path.home", lambda: tmp_path)
+    assert installer.get_default_server() is None
+
+
+def test_get_default_server_returns_none_on_corrupt_config(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("PILOCI_SERVER", raising=False)
+    cfg_dir = tmp_path / installer.PILOCI_DIR_NAME
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.json").write_text("{ broken")
+    monkeypatch.setattr("piloci.installer.Path.home", lambda: tmp_path)
+    assert installer.get_default_server() is None
+
+
+def test_get_default_server_returns_none_when_ingest_url_unexpected(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("PILOCI_SERVER", raising=False)
+    cfg_dir = tmp_path / installer.PILOCI_DIR_NAME
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "config.json").write_text(json.dumps({"ingest_url": "https://x/unexpected"}))
+    monkeypatch.setattr("piloci.installer.Path.home", lambda: tmp_path)
+    assert installer.get_default_server() is None
+
+
+# ---------------------------------------------------------------------------
+# _http_download — basic round trip exercising the response.read() line
+# ---------------------------------------------------------------------------
+
+
+def test_http_download_returns_body_with_token() -> None:
+    captured: dict = {}
+
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def read(self):
+            return b"payload-bytes"
+
+    def _fake_urlopen(req, timeout):  # noqa: ANN001
+        captured["auth"] = req.get_header("Authorization")
+        return _Resp()
+
+    with patch("piloci.installer.urllib.request.urlopen", _fake_urlopen):
+        out = installer._http_download("https://x.example/api/hook/script", token="JWT.tok")
+    assert out == b"payload-bytes"
+    assert captured["auth"] == "Bearer JWT.tok"
