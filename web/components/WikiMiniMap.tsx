@@ -47,6 +47,10 @@ export function WikiMiniMap({ nodes, edges, highlightedIds = [], onNodeClick }: 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [hidden, setHidden] = useState(false);
+  // Hover label stays inside the card — react-force-graph's default tooltip
+  // is an HTML overlay anchored to mouse coords that falls outside the
+  // small floating panel (user reported "툴팁이 좌측으로 나온다").
+  const [hovered, setHovered] = useState<GraphNode | null>(null);
 
   const highlightSet = useMemo(() => new Set(highlightedIds), [highlightedIds]);
 
@@ -118,34 +122,48 @@ export function WikiMiniMap({ nodes, edges, highlightedIds = [], onNodeClick }: 
           </button>
         </div>
       </div>
-      <ForceGraph2D
-        graphData={graphData}
-        width={width}
-        height={height - 22}
-        nodeRelSize={3}
-        linkWidth={0.5}
-        linkColor={() => "rgba(148,163,184,0.5)"}
-        cooldownTicks={60}
-        enableNodeDrag={false}
-        // Custom paint so highlighted source nodes get a ring matching
-        // the article reader's emphasis.
-        nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D) => {
-          const color = KIND_COLOR[node.kind as GraphNode["kind"]] ?? "#94a3b8";
-          const radius = node.val ?? 2;
-          ctx.beginPath();
-          ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
-          ctx.fillStyle = color;
-          ctx.fill();
-          if (highlightSet.has(node.id)) {
-            ctx.lineWidth = 1.2;
-            ctx.strokeStyle = "#f43f5e";
-            ctx.stroke();
-          }
-        }}
-        onNodeClick={(node: any) => {
-          if (onNodeClick) onNodeClick(node as GraphNode);
-        }}
-      />
+      <div className="relative" style={{ width, height: height - 22 }}>
+        <ForceGraph2D
+          graphData={graphData}
+          width={width}
+          height={height - 22}
+          nodeRelSize={3}
+          linkWidth={0.5}
+          linkColor={() => "rgba(148,163,184,0.5)"}
+          cooldownTicks={60}
+          enableNodeDrag={false}
+          // nodeLabel="" disables the default HTML tooltip that mispositions
+          // when the canvas lives inside a small fixed-position card. We
+          // render our own hover bar in the bottom-left of the card instead.
+          nodeLabel={() => ""}
+          nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D) => {
+            const color = KIND_COLOR[node.kind as GraphNode["kind"]] ?? "#94a3b8";
+            const radius = node.val ?? 2;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
+            ctx.fillStyle = color;
+            ctx.fill();
+            if (highlightSet.has(node.id)) {
+              ctx.lineWidth = 1.2;
+              ctx.strokeStyle = "#f43f5e";
+              ctx.stroke();
+            }
+          }}
+          onNodeHover={(node: any) => setHovered((node as GraphNode) ?? null)}
+          onNodeClick={(node: any) => {
+            if (onNodeClick) onNodeClick(node as GraphNode);
+          }}
+        />
+        {hovered && (
+          <div className="pointer-events-none absolute inset-x-1 bottom-1 truncate rounded bg-background/90 px-2 py-1 text-[11px] font-medium shadow-sm backdrop-blur">
+            <span
+              className="me-1 inline-block size-2 rounded-full align-middle"
+              style={{ backgroundColor: KIND_COLOR[hovered.kind] ?? "#94a3b8" }}
+            />
+            {hovered.label}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
