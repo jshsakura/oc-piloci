@@ -156,8 +156,12 @@ export default function AppShell({ children, title, actions }: AppShellProps) {
         {/* main no longer caps width — full-bleed pages (memory wiki) need
             the room; conventional pages opt back in to a max-w container
             by wrapping their own children. */}
-        <main className="min-w-0 flex-1">
-          <div className="w-full px-4 py-6 sm:px-6 lg:py-8">{children}</div>
+        {/* overflow-x-hidden 가드: 어떤 페이지의 내부 요소(긴 path/슬러그/
+            mono URL)가 viewport 너비를 넘겨도 모바일에서 좌우 스크롤이
+            생기지 않도록. 진짜로 가로 스크롤이 필요한 영역(그래프 등)은
+            자체 컨테이너에 overflow-x-auto를 명시하면 정상 동작. */}
+        <main className="min-w-0 flex-1 overflow-x-hidden">
+          <div className="w-full max-w-full px-4 py-6 sm:px-6 lg:py-8">{children}</div>
         </main>
       </div>
 

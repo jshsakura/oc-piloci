@@ -297,7 +297,7 @@ function TeamWikiContent() {
                   <Skeleton className="h-40 w-full" />
                 </div>
               ) : articleQuery.data ? (
-                <article className="prose prose-sm max-w-none whitespace-pre-wrap leading-relaxed dark:prose-invert">
+                <article className="prose prose-sm max-w-none whitespace-pre-wrap break-words leading-relaxed dark:prose-invert">
                   {articleQuery.data.summary && (
                     <p className="text-sm text-muted-foreground">
                       {articleQuery.data.summary}
