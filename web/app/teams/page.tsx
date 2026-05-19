@@ -358,7 +358,11 @@ export default function TeamsPage() {
                           key={member.user_id}
                           className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-1.5"
                         >
-                          <div className="min-w-0">
+                          {/* flex-1 + min-w-0: flex 자식이 부모를 못 넘기게
+                              하면서 안쪽 truncate가 실제로 동작. min-w-0만
+                              으로는 "preferred = content width"가 살아남아
+                              긴 이메일·UUID가 행을 부풀리는 케이스가 있음. */}
+                          <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">{member.email}</p>
                             <p className="truncate text-[10px] text-muted-foreground">
                               {member.user_id}
@@ -408,9 +412,12 @@ export default function TeamsPage() {
                                 key={invite.id}
                                 className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-1.5"
                               >
-                                <span className="truncate text-sm text-muted-foreground">
+                                {/* span은 inline이라 truncate가 안 먹음 —
+                                    block-level + flex-1 min-w-0로 줄여서
+                                    긴 이메일이 행을 못 늘리도록. */}
+                                <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
                                   {invite.invitee_email}
-                                </span>
+                                </p>
                                 <Badge variant="outline" className="shrink-0">
                                   {invite.status}
                                 </Badge>
@@ -449,7 +456,7 @@ export default function TeamsPage() {
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div>
+                            <div className="min-w-0 flex-1">
                               <p className="break-all text-sm font-medium">{doc.path}</p>
                               <p className="text-xs text-muted-foreground">v{doc.version}</p>
                             </div>
