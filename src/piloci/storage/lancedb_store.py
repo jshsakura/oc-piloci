@@ -742,6 +742,71 @@ class MemoryStore:
         where = self._team_build_where(team_id, tags)
         return await tbl.count_rows(where)
 
+    async def team_update(
+        self,
+        team_id: str,
+        memory_id: str,
+        requester_id: str,
+        *,
+        content: str | None = None,
+        new_vector: list[float] | None = None,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        allow_owner: bool = False,
+    ) -> bool:
+        """Author-only update of a team memory. Owner can pass allow_owner=True.
+
+        Returns False if the row is missing or requester isn't the author.
+        Content change requires re-embedding — caller passes ``new_vector``.
+        """
+        existing = await self.team_get(team_id, memory_id)
+        if not existing:
+            return False
+        if not allow_owner:
+            author = (existing.get("metadata") or {}).get("author_id")
+            if author and author != requester_id:
+                return False
+
+        tbl = await self._get_table()
+        where = self._team_memory_filter_sql(team_id, memory_id)
+        now = int(time.time())
+
+        if new_vector is not None:
+            merged_meta = {**(existing.get("metadata") or {}), **(metadata or {})}
+            row = {
+                "memory_id": _safe_id(memory_id),
+                "user_id": existing.get("user_id"),
+                "project_id": existing.get("project_id"),
+                "scope": existing.get("scope", MEMORY_SCOPE_TEAM),
+                "team_id": _safe_id(team_id),
+                "content": content if content is not None else existing.get("content", ""),
+                "tags": tags if tags is not None else existing.get("tags", []),
+                "metadata": orjson.dumps(merged_meta).decode(),
+                "created_at": existing.get("created_at", now),
+                "updated_at": now,
+                "vector": new_vector,
+            }
+            with get_runtime_profiler().track("lancedb.team_update"):
+                await (
+                    tbl.merge_insert("memory_id")
+                    .when_matched_update_all()
+                    .when_not_matched_insert_all()
+                    .execute([row])
+                )
+            return True
+
+        updates: dict[str, Any] = {"updated_at": now}
+        if content is not None:
+            updates["content"] = content
+        if tags is not None:
+            updates["tags"] = tags
+        if metadata is not None:
+            merged = {**(existing.get("metadata") or {}), **metadata}
+            updates["metadata"] = orjson.dumps(merged).decode()
+        with get_runtime_profiler().track("lancedb.team_update"):
+            await tbl.update(updates=updates, where=where)
+        return True
+
     async def team_delete(
         self,
         team_id: str,

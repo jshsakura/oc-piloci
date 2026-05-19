@@ -3,12 +3,21 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Loader2, RefreshCcw, Sparkles } from "lucide-react";
+import { BookOpen, Loader2, Pencil, RefreshCcw, Sparkles } from "lucide-react";
 
 import AppShell from "@/components/AppShell";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WikiMiniMap } from "@/components/WikiMiniMap";
 import { api } from "@/lib/api";
@@ -96,6 +105,36 @@ function TeamWikiContent() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["team-wiki-articles", teamId] });
       queryClient.invalidateQueries({ queryKey: ["team", teamId] });
+    },
+  });
+
+  // Edit modal state — when open, we hold a local copy of the article so the
+  // editor is controlled and we can compare on save to know if anything moved.
+  const [editOpen, setEditOpen] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftSummary, setDraftSummary] = useState("");
+  const [draftContent, setDraftContent] = useState("");
+
+  const openEdit = () => {
+    if (!articleQuery.data) return;
+    setDraftTitle(articleQuery.data.title ?? "");
+    setDraftSummary(articleQuery.data.summary ?? "");
+    setDraftContent(articleQuery.data.content ?? "");
+    setEditOpen(true);
+  };
+
+  const editMutation = useMutation({
+    mutationFn: () =>
+      api.updateTeamWikiArticle(teamId, selectedSlug as string, {
+        title: draftTitle,
+        summary: draftSummary || null,
+        content: draftContent,
+      }),
+    onSuccess: () => {
+      setEditOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["team-wiki-article", teamId, selectedSlug] });
+      queryClient.invalidateQueries({ queryKey: ["team-wiki-articles", teamId] });
+      queryClient.invalidateQueries({ queryKey: ["team-workspace", teamId] });
     },
   });
 
@@ -284,10 +323,15 @@ function TeamWikiContent() {
 
         <section>
           <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <CardTitle className="min-w-0 truncate text-base">
                 {articleQuery.data?.title ?? (articles.length === 0 ? "위키 비어 있음" : "아티클 선택")}
               </CardTitle>
+              {articleQuery.data && (
+                <Button variant="outline" size="sm" onClick={openEdit}>
+                  <Pencil className="me-2 size-4" /> 편집
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
               {articleQuery.isLoading ? (
@@ -406,6 +450,60 @@ function TeamWikiContent() {
           </div>
         </section>
       </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>아티클 편집</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="wiki-title">
+                제목
+              </label>
+              <Input
+                id="wiki-title"
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                placeholder="아티클 제목"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="wiki-summary">
+                요약 (1~2문장)
+              </label>
+              <Input
+                id="wiki-summary"
+                value={draftSummary}
+                onChange={(e) => setDraftSummary(e.target.value)}
+                placeholder="짧은 요약"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">본문 (마크다운)</label>
+              <MarkdownEditor value={draftContent} onChange={setDraftContent} height={420} />
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              사람이 고친 결은 다음 새벽 위키 빌드의 스타일 힌트로 자동 반영됩니다.
+              revision 히스토리에 이전 본문이 자동 저장돼요.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditOpen(false)}>
+              취소
+            </Button>
+            <Button onClick={() => editMutation.mutate()} disabled={editMutation.isPending}>
+              {editMutation.isPending ? (
+                <>
+                  <Loader2 className="me-2 size-4 animate-spin" /> 저장 중…
+                </>
+              ) : (
+                "저장"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppShell>
   );
 }

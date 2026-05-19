@@ -1149,6 +1149,160 @@ async def route_team_wiki_article(request: Request) -> Response:
     )
 
 
+async def route_update_team_memory(request: Request) -> Response:
+    """PATCH /api/teams/{tid}/memories/{id} — author-only edit of a team memory.
+
+    Re-embeds when content changes. Tags/metadata can be patched alone without
+    paying for an embedding. Vault cache is invalidated so the next workspace
+    GET rebuilds with fresh content.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    memory_id = request.path_params.get("id", "")
+    user_id = _uid(user)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "Invalid JSON"}, 400)
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+    store = getattr(request.app.state, "store", None)
+    if store is None:
+        return _json({"error": "memory store unavailable"}, 503)
+
+    content = body.get("content")
+    tags = body.get("tags")
+    metadata = body.get("metadata")
+    new_vector = None
+    if content is not None:
+        from piloci.config import get_settings
+        from piloci.storage.embed import embed_one
+
+        settings = get_settings()
+        new_vector = await embed_one(
+            content,
+            model=settings.embed_model,
+            cache_dir=settings.embed_cache_dir,
+            lru_size=settings.embed_lru_size,
+            executor_workers=settings.embed_executor_workers,
+            max_concurrency=settings.embed_max_concurrency,
+        )
+
+    updated = await store.team_update(
+        team_id=team_id,
+        memory_id=memory_id,
+        requester_id=user_id,
+        content=content,
+        new_vector=new_vector,
+        tags=tags,
+        metadata=metadata,
+        allow_owner=member.role == "owner",
+    )
+    if updated:
+        await _invalidate_team_vault(team_id)
+    return _json({"updated": updated})
+
+
+async def route_update_team_wiki_article(request: Request) -> Response:
+    """PATCH /api/teams/{tid}/wiki/articles/{slug} — human edit of a wiki article.
+
+    Captures the previous revision into ``team_wiki_revisions`` and stamps the
+    new row with ``author_kind="human"``. The team_wiki_worker pulls recent
+    human-edited revisions as few-shot style hints, so editing here feeds
+    back into the LLM's next draft pass.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    slug = request.path_params.get("slug", "")
+    user_id = _uid(user)
+
+    try:
+        body = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "Invalid JSON"}, 400)
+
+    from sqlalchemy import select
+
+    from piloci.db.models import TeamWikiArticle, TeamWikiRevision
+
+    title = body.get("title")
+    summary = body.get("summary")
+    content = body.get("content")
+    category = body.get("category")
+    if all(v is None for v in (title, summary, content, category)):
+        return _json({"error": "Nothing to update"}, 400)
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+        row = (
+            await db.execute(
+                select(TeamWikiArticle).where(
+                    TeamWikiArticle.team_id == team_id,
+                    TeamWikiArticle.slug == slug,
+                )
+            )
+        ).scalar_one_or_none()
+        if row is None:
+            return _json({"error": "Not found"}, 404)
+
+        now = _utcnow()
+        db.add(
+            TeamWikiRevision(
+                id=str(uuid.uuid4()),
+                article_id=row.id,
+                team_id=team_id,
+                revision=row.revision,
+                title=row.title,
+                content=row.content,
+                author_kind=row.author_kind,
+                author_id=row.author_id,
+                created_at=now,
+            )
+        )
+
+        if title is not None and title.strip():
+            row.title = title.strip()
+        if summary is not None:
+            row.summary = summary.strip() or None
+        if content is not None:
+            row.content = content
+        if category is not None:
+            row.category = category.strip() or None
+        row.revision = (row.revision or 1) + 1
+        row.author_kind = "human"
+        row.author_id = user_id
+        row.updated_at = now
+        db.add(row)
+        article_id = row.id
+        revision = row.revision
+
+    await _invalidate_team_vault(team_id)
+
+    return _json(
+        {
+            "id": article_id,
+            "slug": slug,
+            "revision": revision,
+            "updated_at": now.isoformat(),
+            "author_kind": "human",
+        }
+    )
+
+
 async def route_team_export_zip(request: Request) -> Response:
     """GET /api/teams/{tid}/export.zip — bundle docs + wiki + AGENTS.md.
 
@@ -1441,4 +1595,14 @@ TEAM_ROUTES = [
         methods=["POST"],
     ),
     Route("/api/teams/{team_id}/export.zip", route_team_export_zip, methods=["GET"]),
+    Route(
+        "/api/teams/{team_id}/memories/{id}",
+        limiter.limit(RATE_MUTATION)(route_update_team_memory),
+        methods=["PATCH"],
+    ),
+    Route(
+        "/api/teams/{team_id}/wiki/articles/{slug}",
+        limiter.limit(RATE_MUTATION)(route_update_team_wiki_article),
+        methods=["PATCH"],
+    ),
 ]

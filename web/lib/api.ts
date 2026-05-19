@@ -251,6 +251,32 @@ export const api = {
       method: "POST",
       body: JSON.stringify({}),
     }),
+  updateTeamWikiArticle: (
+    teamId: string,
+    slug: string,
+    patch: { title?: string; summary?: string | null; content?: string; category?: string | null },
+  ) =>
+    request<{ id: string; slug: string; revision: number; updated_at: string; author_kind: string }>(
+      `/api/teams/${teamId}/wiki/articles/${slug}`,
+      { method: "PATCH", body: JSON.stringify(patch) },
+    ),
+  updateTeamMemory: (
+    teamId: string,
+    memoryId: string,
+    patch: { content?: string; tags?: string[]; metadata?: Record<string, unknown> },
+  ) =>
+    request<{ updated: boolean }>(`/api/teams/${teamId}/memories/${memoryId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+  updateMemory: (
+    memoryId: string,
+    patch: { content?: string; tags?: string[]; metadata?: Record<string, unknown> },
+  ) =>
+    request<{ updated: boolean }>(`/api/memories/${memoryId}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   patchTeamSettings: (teamId: string, patch: Partial<{
     name: string;
     description: string;
