@@ -113,7 +113,15 @@ class MemoryStore:
     async def _get_table(self):
         if self._table is None:
             db = await self._get_db()
-            self._table = await db.create_table(TABLE_NAME, schema=_SCHEMA, exist_ok=True)
+            # Open existing table without enforcing schema match — production
+            # tables created before the team_id column was added would otherwise
+            # fail create_table(exist_ok=True) with "Schema Error: Provided
+            # schema does not match existing table schema". add_columns inside
+            # ensure_collection() bridges the gap.
+            try:
+                self._table = await db.open_table(TABLE_NAME)
+            except Exception:
+                self._table = await db.create_table(TABLE_NAME, schema=_SCHEMA)
         return self._table
 
     async def ensure_collection(self) -> None:
