@@ -677,6 +677,69 @@ def _preview(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Total characters of excerpt text returned across a single team recall. Keeps
+# the MCP tool response token-bounded ("응답 안 터지게") so a broad query against
+# a big team vault degrades into a truncated, narrow-your-query hint rather
+# than a wall of text.
+_RECALL_CHAR_CAP = 6000
+_DOC_EXCERPT_LEN = 240
+
+
+def _result_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    """Parse a row's metadata blob (str or already-dict) into a dict."""
+    meta = row.get("metadata")
+    if isinstance(meta, dict):
+        return meta
+    if isinstance(meta, str | bytes | bytearray) and meta:
+        try:
+            parsed = json.loads(meta)
+            return parsed if isinstance(parsed, dict) else {}
+        except (ValueError, TypeError):
+            return {}
+    return {}
+
+
+def _doc_preview(row: dict[str, Any], meta: dict[str, Any], excerpt_len: int) -> dict[str, Any]:
+    content = row.get("content", "")
+    excerpt = content[:excerpt_len]
+    if len(content) > excerpt_len:
+        excerpt += "..."
+    return {
+        "kind": "doc",
+        "path": meta.get("path", ""),
+        "line_start": meta.get("line_start"),
+        "line_end": meta.get("line_end"),
+        "score": row.get("score", 0.0),
+        "excerpt": excerpt,
+    }
+
+
+def _build_team_previews(results: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
+    """Build token-bounded recall previews, tagging doc chunks vs memories.
+
+    Walks results in (already ranked) order, accumulating excerpt characters
+    against ``_RECALL_CHAR_CAP``. Once the cap is hit we stop emitting further
+    previews and flag ``truncated`` so the agent knows to narrow the query.
+    """
+    previews: list[dict[str, Any]] = []
+    used = 0
+    truncated = False
+    for row in results:
+        meta = _result_metadata(row)
+        if meta.get("kind") == "doc_chunk":
+            item = _doc_preview(row, meta, _DOC_EXCERPT_LEN)
+        else:
+            item = {"kind": "memory", **_preview(row)}
+        excerpt_len = len(item.get("excerpt", ""))
+        if used + excerpt_len > _RECALL_CHAR_CAP and previews:
+            # Cap reached — drop the rest rather than overflow the response.
+            truncated = True
+            break
+        previews.append(item)
+        used += excerpt_len
+    return previews, truncated
+
+
 def _format_recall_markdown(
     results: list[dict[str, Any]], profile: dict[str, Any] | None = None
 ) -> str:
@@ -801,10 +864,12 @@ async def _handle_team_recall(
             "previews": [_preview(r) for r in results],
         }
 
+    previews, truncated = _build_team_previews(results)
     return {
-        "memories": [_preview(r) for r in results],
+        "memories": previews,
         "mode": "preview",
         "total": len(results),
+        "truncated": truncated,
         "team_id": team_id,
     }
 

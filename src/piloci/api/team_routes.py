@@ -6,6 +6,7 @@ Follows the same Starlette Request/Response + orjson + async_session pattern
 as routes.py. All endpoints require Bearer token authentication.
 """
 
+import asyncio
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -560,6 +561,7 @@ async def route_create_document(request: Request) -> Response:
             return _json({"error": "A document at this path already exists"}, 409)
 
     await _invalidate_team_vault(team_id)
+    _schedule_doc_index(request, team_id, doc_id, path, content)
 
     return _json(
         {
@@ -584,6 +586,44 @@ async def _invalidate_team_vault(team_id: str) -> None:
         await invalidate_team_vault_cache(get_settings().vault_dir, team_id)
     except Exception:
         pass
+
+
+def _schedule_doc_index(
+    request: Request, team_id: str, doc_id: str, path: str, content: str
+) -> None:
+    """Fire-and-forget: (re)index a team document into the team vector table.
+
+    The memory store lives on ``request.app.state.store`` (same handle the
+    team recall/save routes use). If it isn't wired up we skip silently —
+    document CRUD must never depend on the vector index being available.
+    ``index_team_document`` itself swallows and logs any runtime error.
+    """
+    store = getattr(request.app.state, "store", None)
+    if store is None:
+        return
+    from piloci.config import get_settings
+    from piloci.curator.team_doc_index import index_team_document
+
+    asyncio.create_task(
+        index_team_document(
+            store,
+            team_id,
+            doc_id,
+            path,
+            content,
+            settings=get_settings(),
+        )
+    )
+
+
+def _schedule_doc_remove(request: Request, team_id: str, doc_id: str) -> None:
+    """Fire-and-forget: drop a team document's indexed chunks on delete."""
+    store = getattr(request.app.state, "store", None)
+    if store is None:
+        return
+    from piloci.curator.team_doc_index import remove_team_document
+
+    asyncio.create_task(remove_team_document(store, team_id, doc_id))
 
 
 async def route_list_documents(request: Request) -> Response:
@@ -758,14 +798,17 @@ async def route_update_document(request: Request) -> Response:
         doc.author_id = user_id
         doc.updated_at = now
         db.add(doc)
+        doc_path = doc.path
+        new_version = doc.version
 
     await _invalidate_team_vault(team_id)
+    _schedule_doc_index(request, team_id, doc_id, doc_path, content)
 
     return _json(
         {
             "id": doc_id,
             "content_hash": new_hash,
-            "version": doc.version,
+            "version": new_version,
             "updated_at": now.isoformat(),
         }
     )
@@ -805,6 +848,7 @@ async def route_delete_document(request: Request) -> Response:
         db.add(doc)
 
     await _invalidate_team_vault(team_id)
+    _schedule_doc_remove(request, team_id, doc_id)
     return _json({"deleted": True})
 
 

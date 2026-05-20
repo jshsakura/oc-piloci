@@ -344,3 +344,106 @@ async def test_ensure_team_member_returns_error_for_stranger():
             deny = await memory_tools._ensure_team_member("team-1", "stranger")
     assert deny is not None
     assert "member" in deny["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# recall preview — doc chunks + token cap
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_recall_preview_surfaces_doc_chunk_path_and_lines(
+    fake_store, fake_embed, monkeypatch
+):
+    """A doc_chunk result is shaped as kind='doc' with path + line range,
+    while a memory result keeps kind='memory'."""
+    monkeypatch.setattr(
+        "piloci.tools.memory_tools._ensure_team_member", AsyncMock(return_value=None)
+    )
+    fake_store.team_hybrid_search.return_value = [
+        {
+            "id": "doc::d1::0",
+            "memory_id": "doc::d1::0",
+            "content": "the deploy runbook lives in ops/deploy.md and explains rollout",
+            "tags": [],
+            "score": 0.91,
+            "metadata": {
+                "kind": "doc_chunk",
+                "doc_id": "d1",
+                "path": "ops/deploy.md",
+                "chunk_index": 0,
+                "line_start": 12,
+                "line_end": 30,
+            },
+        },
+        {
+            "id": "mem-1",
+            "memory_id": "mem-1",
+            "content": "a plain team memory",
+            "tags": ["note"],
+            "score": 0.5,
+            "metadata": {},
+        },
+    ]
+
+    result = await handle_recall(
+        RecallInput(query="deploy", team_id="team-1"),
+        user_id="alice",
+        project_id=None,
+        store=fake_store,
+        embed_fn=fake_embed,
+    )
+
+    items = result["memories"]
+    assert items[0]["kind"] == "doc"
+    assert items[0]["path"] == "ops/deploy.md"
+    assert items[0]["line_start"] == 12
+    assert items[0]["line_end"] == 30
+    assert "excerpt" in items[0]
+    assert items[1]["kind"] == "memory"
+    assert result["truncated"] is False
+    assert result["total"] == 2
+
+
+@pytest.mark.asyncio
+async def test_recall_preview_truncates_and_flags_when_over_cap(
+    fake_store, fake_embed, monkeypatch
+):
+    """Many large doc chunks → excerpt budget exhausted → fewer previews
+    returned, truncated flag set, but total reflects the full match count."""
+    from piloci.tools.memory_tools import _RECALL_CHAR_CAP
+
+    monkeypatch.setattr(
+        "piloci.tools.memory_tools._ensure_team_member", AsyncMock(return_value=None)
+    )
+    big = "x" * 5000
+    fake_store.team_hybrid_search.return_value = [
+        {
+            "id": f"doc::d::{i}",
+            "memory_id": f"doc::d::{i}",
+            "content": big,
+            "tags": [],
+            "score": 0.9 - i * 0.01,
+            "metadata": {
+                "kind": "doc_chunk",
+                "path": "big.md",
+                "line_start": i,
+                "line_end": i + 1,
+            },
+        }
+        for i in range(60)
+    ]
+
+    result = await handle_recall(
+        RecallInput(query="x", team_id="team-1", limit=50),
+        user_id="alice",
+        project_id=None,
+        store=fake_store,
+        embed_fn=fake_embed,
+    )
+
+    assert result["truncated"] is True
+    assert result["total"] == 60
+    assert len(result["memories"]) < 60
+    total_excerpt = sum(len(m.get("excerpt", "")) for m in result["memories"])
+    assert total_excerpt <= _RECALL_CHAR_CAP

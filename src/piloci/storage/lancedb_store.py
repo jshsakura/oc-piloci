@@ -628,6 +628,80 @@ class MemoryStore:
             )
         return ids
 
+    @staticmethod
+    def _doc_chunk_id(doc_id: str, idx: int) -> str:
+        """Deterministic memory_id for a document chunk so reindex overwrites."""
+        return f"doc::{_safe_id(doc_id)}::{idx}"
+
+    async def team_index_doc_chunks(
+        self,
+        team_id: str,
+        doc_id: str,
+        chunks: list[dict[str, Any]],
+    ) -> list[str]:
+        """Index a team document's chunks into the team table.
+
+        Each chunk dict carries {content, vector, metadata}. memory_ids are
+        DETERMINISTIC (``doc::<doc_id>::<idx>``) so a reindex replaces the
+        previous version cleanly. Existing rows for this doc are deleted first
+        (LIKE match) before the new set is inserted — no orphan/dupe chunks.
+        scope is stamped 'team' and the chunk metadata records kind='doc_chunk'.
+        """
+        safe_team = _safe_id(team_id)
+        safe_doc = _safe_id(doc_id)
+
+        # Remove the previous version of this doc first so stale chunks from a
+        # longer prior revision can't linger.
+        await self.team_remove_doc_chunks(team_id, doc_id)
+
+        if not chunks:
+            return []
+
+        tbl = await self._get_table()
+        now = int(time.time())
+        ids: list[str] = []
+        rows = []
+        for idx, chunk in enumerate(chunks):
+            memory_id = self._doc_chunk_id(safe_doc, idx)
+            ids.append(memory_id)
+            meta = dict(chunk.get("metadata") or {})
+            meta.setdefault("kind", "doc_chunk")
+            meta.setdefault("doc_id", doc_id)
+            rows.append(
+                {
+                    "memory_id": memory_id,
+                    "user_id": safe_team,  # no single author for a doc chunk
+                    "project_id": safe_team,  # placeholder; never used for team scope
+                    "scope": MEMORY_SCOPE_TEAM,
+                    "team_id": safe_team,
+                    "content": chunk["content"],
+                    "tags": chunk.get("tags", []),
+                    "metadata": orjson.dumps(meta).decode(),
+                    "created_at": now,
+                    "updated_at": now,
+                    "vector": chunk["vector"],
+                }
+            )
+        with get_runtime_profiler().track("lancedb.team_index_doc"):
+            await (
+                tbl.merge_insert("memory_id")
+                .when_matched_update_all()
+                .when_not_matched_insert_all()
+                .execute(rows)
+            )
+        return ids
+
+    async def team_remove_doc_chunks(self, team_id: str, doc_id: str) -> int:
+        """Delete all chunk rows for a team document (team-scoped LIKE match)."""
+        safe_team = _safe_id(team_id)
+        safe_doc = _safe_id(doc_id)
+        tbl = await self._get_table()
+        where = f"team_id = '{safe_team}' AND memory_id LIKE 'doc::{safe_doc}::%'"
+        with get_runtime_profiler().track("lancedb.team_remove_doc"):
+            result = await tbl.delete(where)
+        deleted = getattr(result, "num_deleted_rows", 0)
+        return deleted if isinstance(deleted, int) else 0
+
     async def team_search(
         self,
         team_id: str,
