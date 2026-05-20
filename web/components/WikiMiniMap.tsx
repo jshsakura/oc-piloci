@@ -36,6 +36,9 @@ interface WikiMiniMapProps {
   hidden?: boolean;
   /** Lets the map ask the parent to hide itself (× button, density guard). */
   onHiddenChange?: (hidden: boolean) => void;
+  /** Inline mode: render full-width inside a tab instead of floating in the
+   *  top-right corner. No drag, no hide button, no density auto-dismiss. */
+  inline?: boolean;
 }
 
 /**
@@ -55,11 +58,13 @@ export function WikiMiniMap({
   onNodeClick,
   hidden = false,
   onHiddenChange,
+  inline = false,
 }: WikiMiniMapProps) {
   const { t } = useTranslation();
   const copy = t.teams.map;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
+  const [inlineSize, setInlineSize] = useState({ width: 640, height: 460 });
   const setHidden = useCallback(
     (next: boolean) => onHiddenChange?.(next),
     [onHiddenChange],
@@ -139,11 +144,74 @@ export function WikiMiniMap({
   // on from the header, but we don't insist on rendering a hairball by default.
   const dismissedRef = useRef(false);
   useEffect(() => {
+    // Inline mode lives inside a dedicated tab — never auto-dismiss, the user
+    // came here on purpose.
+    if (inline) return;
     if (nodes.length > 400 && !dismissedRef.current) {
       dismissedRef.current = true;
       setHidden(true);
     }
-  }, [nodes.length, setHidden]);
+  }, [nodes.length, setHidden, inline]);
+
+  // Inline mode tracks its container width so the canvas fills the tab.
+  useEffect(() => {
+    if (!inline) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const measure = () =>
+      setInlineSize({ width: el.clientWidth, height: Math.max(360, el.clientHeight) });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [inline]);
+
+  if (inline) {
+    return (
+      <div
+        ref={containerRef}
+        className="relative h-[60vh] min-h-[360px] w-full overflow-hidden rounded-xl border bg-background/40"
+      >
+        <ForceGraph2D
+          graphData={graphData}
+          width={inlineSize.width}
+          height={inlineSize.height}
+          nodeRelSize={4}
+          linkWidth={0.6}
+          linkColor={() => "rgba(148,163,184,0.5)"}
+          cooldownTicks={80}
+          enableNodeDrag={false}
+          nodeLabel={() => ""}
+          nodeCanvasObject={(node: any, ctx: CanvasRenderingContext2D) => {
+            const color = KIND_COLOR[node.kind as GraphNode["kind"]] ?? "#94a3b8";
+            const radius = node.val ?? 2;
+            ctx.beginPath();
+            ctx.arc(node.x, node.y, radius, 0, 2 * Math.PI);
+            ctx.fillStyle = color;
+            ctx.fill();
+            if (highlightSet.has(node.id)) {
+              ctx.lineWidth = 1.4;
+              ctx.strokeStyle = "#f43f5e";
+              ctx.stroke();
+            }
+          }}
+          onNodeHover={(node: any) => setHovered((node as GraphNode) ?? null)}
+          onNodeClick={(node: any) => {
+            if (onNodeClick) onNodeClick(node as GraphNode);
+          }}
+        />
+        {hovered && (
+          <div className="pointer-events-none absolute inset-x-2 bottom-2 truncate rounded bg-background/90 px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur">
+            <span
+              className="me-1.5 inline-block size-2 rounded-full align-middle"
+              style={{ backgroundColor: KIND_COLOR[hovered.kind] ?? "#94a3b8" }}
+            />
+            {hovered.label}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (hidden) return null;
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
@@ -12,30 +13,50 @@ import {
   FileArchive,
   FileText,
   Inbox,
+  Loader2,
   MailPlus,
+  Map as MapIcon,
+  Pencil,
   RefreshCcw,
+  Sparkles,
   Trash2,
   Upload,
   UsersRound,
   X,
 } from "lucide-react";
-import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { WikiMiniMap } from "@/components/WikiMiniMap";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
-import type { TeamDocumentSummary, TeamSummary } from "@/lib/types";
+import type {
+  GraphNode,
+  TeamDocumentSummary,
+  TeamSummary,
+  TeamWikiArticle,
+  TeamWikiArticleSummary,
+} from "@/lib/types";
 
 function humanizeSize(bytes?: number): string {
   if (bytes == null) return "";
@@ -93,6 +114,25 @@ function isViewable(path: string, mime?: string | null): boolean {
   return false;
 }
 
+// A node's file is browser-viewable when its path extension renders inline;
+// otherwise the popup offers a download instead of an "open".
+function nodeViewable(node: GraphNode): boolean {
+  const path = node.path ?? node.label ?? "";
+  return _VIEWABLE_EXT.has(fileExt(path));
+}
+
+function resolveWikilinks(markdown: string, articles: TeamWikiArticleSummary[]): string {
+  // Replace [[topic]] with a same-page anchor when a matching slug exists;
+  // otherwise render as italics so the intended link still reads.
+  const titleMap = new Map(articles.map((a) => [a.title.toLowerCase(), a.slug]));
+  return markdown.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_, raw, alias) => {
+    const label = (alias || raw).trim();
+    const slug = titleMap.get(raw.trim().toLowerCase());
+    if (slug) return `[${label}](#article-${slug})`;
+    return `*${label}*`;
+  });
+}
+
 function localPart(email: string): string {
   const at = email.indexOf("@");
   return at > 0 ? email.slice(0, at) : email;
@@ -143,21 +183,183 @@ function EmailChip({ label, email }: { label: string; email: string }) {
   );
 }
 
+function EmptyState({ icon: Icon, text }: { icon: typeof UsersRound; text: string }) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-8 text-center text-muted-foreground">
+      <Icon className="size-8" />
+      <p className="text-sm">{text}</p>
+    </div>
+  );
+}
+
 type Notice = { tone: "ok" | "error"; text: string } | null;
+function toError(error: unknown, fallback: string): Notice {
+  return { tone: "error", text: error instanceof Error ? error.message : fallback };
+}
+
 const EMPTY_TEAMS: TeamSummary[] = [];
+type TabKey = "settings" | "wiki" | "map";
+const TAB_KEYS: TabKey[] = ["settings", "wiki", "map"];
+
+function TeamsSuspenseFallback() {
+  const { t } = useTranslation();
+  return (
+    <AppShell title={t.teams.page.title}>
+      <p className="text-sm text-muted-foreground">{t.teams.wiki.loading}</p>
+    </AppShell>
+  );
+}
 
 export default function TeamsPage() {
+  // useSearchParams() requires a Suspense boundary under static export.
+  return (
+    <Suspense fallback={<TeamsSuspenseFallback />}>
+      <TeamsShell />
+    </Suspense>
+  );
+}
+
+function TeamsShell() {
+  const { t } = useTranslation();
+  const copy = t.teams;
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const teamsQuery = useQuery({ queryKey: ["teams"], queryFn: api.listTeams });
+  const teams = teamsQuery.data ?? EMPTY_TEAMS;
+
+  // Team + active tab live in the URL so the page is static-export safe (no
+  // [id] dynamic segment) and shareable/back-button friendly.
+  const urlTeamId = searchParams?.get("id") ?? "";
+  const urlTab = (searchParams?.get("tab") ?? "settings") as TabKey;
+  const activeTab: TabKey = TAB_KEYS.includes(urlTab) ? urlTab : "settings";
+  const selectedTeamId = urlTeamId || (teams.length > 0 ? teams[0].id : "");
+
+  // Default the URL to the first team once teams load and none was selected,
+  // mirroring the old auto-select behaviour.
+  useEffect(() => {
+    if (!urlTeamId && teams.length > 0) {
+      const next = new URLSearchParams(searchParams?.toString());
+      next.set("id", teams[0].id);
+      router.replace(`/teams?${next.toString()}`);
+    }
+  }, [urlTeamId, teams, router, searchParams]);
+
+  const setTeam = (id: string) => {
+    const next = new URLSearchParams(searchParams?.toString());
+    next.set("id", id);
+    router.push(`/teams?${next.toString()}`);
+  };
+
+  const setTab = (tab: string) => {
+    const next = new URLSearchParams(searchParams?.toString());
+    next.set("tab", tab);
+    router.push(`/teams?${next.toString()}`);
+  };
+
+  const selectedTeam = useMemo(
+    () => teams.find((team) => team.id === selectedTeamId) ?? null,
+    [selectedTeamId, teams],
+  );
+
+  return (
+    <AppShell title={copy.page.title}>
+      <div className="mb-4 flex flex-col gap-3">
+        {/* Team selector: a plain select keeps static export trivial and
+            matches the old wiki dropdown. */}
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm font-medium text-muted-foreground" htmlFor="team-select">
+            {copy.tabs.teamSelect}
+          </label>
+          <select
+            id="team-select"
+            className="h-9 min-w-48 rounded-lg border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            value={selectedTeamId}
+            onChange={(event) => setTeam(event.target.value)}
+            disabled={teams.length === 0}
+          >
+            <option value="" disabled>
+              {copy.tabs.teamSelectPlaceholder}
+            </option>
+            {teams.map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <Tabs value={activeTab} onValueChange={setTab}>
+          <TabsList>
+            <TabsTrigger value="settings">{copy.tabs.settings}</TabsTrigger>
+            <TabsTrigger value="wiki">{copy.tabs.wiki}</TabsTrigger>
+            <TabsTrigger value="map">{copy.tabs.map}</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="settings" className="mt-4">
+            <SettingsTab
+              teams={teams}
+              teamsQuery={teamsQuery}
+              selectedTeam={selectedTeam}
+              selectedTeamId={selectedTeamId}
+              onSelectTeam={setTeam}
+            />
+          </TabsContent>
+          <TabsContent value="wiki" className="mt-4">
+            {selectedTeamId ? (
+              <WikiTab teamId={selectedTeamId} />
+            ) : (
+              <NoTeamHint text={copy.tabs.noTeam} />
+            )}
+          </TabsContent>
+          <TabsContent value="map" className="mt-4">
+            {selectedTeamId ? (
+              <MapTab teamId={selectedTeamId} />
+            ) : (
+              <NoTeamHint text={copy.tabs.noTeam} />
+            )}
+          </TabsContent>
+        </Tabs>
+      </div>
+    </AppShell>
+  );
+}
+
+function NoTeamHint({ text }: { text: string }) {
+  return (
+    <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+      {text}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 설정 tab: team management — members, invites, files.
+// ---------------------------------------------------------------------------
+
+interface SettingsTabProps {
+  teams: TeamSummary[];
+  teamsQuery: ReturnType<typeof useQuery<TeamSummary[]>>;
+  selectedTeam: TeamSummary | null;
+  selectedTeamId: string;
+  onSelectTeam: (id: string) => void;
+}
+
+function SettingsTab({
+  teams,
+  teamsQuery,
+  selectedTeam,
+  selectedTeamId,
+  onSelectTeam,
+}: SettingsTabProps) {
   const { t } = useTranslation();
   const copy = t.teams;
   const queryClient = useQueryClient();
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [teamName, setTeamName] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [docPath, setDocPath] = useState("notes.md");
   const [docContent, setDocContent] = useState("");
   const [editingDoc, setEditingDoc] = useState<TeamDocumentSummary | null>(null);
-  // True when the open doc is binary — we hide the editor and show a download
-  // panel instead of inlining bytes.
   const [editingBinary, setEditingBinary] = useState(false);
   const [loadingDoc, setLoadingDoc] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -165,44 +367,32 @@ export default function TeamsPage() {
   const [notice, setNotice] = useState<Notice>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const teamsQuery = useQuery({ queryKey: ["teams"], queryFn: api.listTeams });
   const pendingInvitesQuery = useQuery({
     queryKey: ["team-pending-invites"],
     queryFn: api.listPendingInvites,
   });
 
-  const teams = teamsQuery.data ?? EMPTY_TEAMS;
-
-  useEffect(() => {
-    if (!selectedTeamId && teams.length > 0) setSelectedTeamId(teams[0].id);
-  }, [selectedTeamId, teams]);
-
   const teamQuery = useQuery({
     queryKey: ["team", selectedTeamId],
-    queryFn: () => api.getTeam(selectedTeamId as string),
+    queryFn: () => api.getTeam(selectedTeamId),
     enabled: Boolean(selectedTeamId),
   });
   const invitesQuery = useQuery({
     queryKey: ["team-invites", selectedTeamId],
-    queryFn: () => api.listTeamInvites(selectedTeamId as string),
+    queryFn: () => api.listTeamInvites(selectedTeamId),
     enabled: Boolean(selectedTeamId),
   });
   const docsQuery = useQuery({
     queryKey: ["team-documents", selectedTeamId],
-    queryFn: () => api.listTeamDocuments(selectedTeamId as string),
+    queryFn: () => api.listTeamDocuments(selectedTeamId),
     enabled: Boolean(selectedTeamId),
   });
-
-  const selectedTeam = useMemo(
-    () => teams.find((team) => team.id === selectedTeamId) ?? null,
-    [selectedTeamId, teams],
-  );
 
   const createTeamMutation = useMutation({
     mutationFn: () => api.createTeam(teamName.trim()),
     onSuccess: (team: TeamSummary) => {
       setTeamName("");
-      setSelectedTeamId(team.id);
+      onSelectTeam(team.id);
       setNotice({ tone: "ok", text: copy.notices.teamCreated });
       queryClient.invalidateQueries({ queryKey: ["teams"] });
     },
@@ -210,7 +400,7 @@ export default function TeamsPage() {
   });
 
   const inviteMutation = useMutation({
-    mutationFn: () => api.createTeamInvite(selectedTeamId as string, inviteEmail.trim()),
+    mutationFn: () => api.createTeamInvite(selectedTeamId, inviteEmail.trim()),
     onSuccess: () => {
       setInviteEmail("");
       setNotice({ tone: "ok", text: copy.notices.inviteCreated });
@@ -231,8 +421,7 @@ export default function TeamsPage() {
   });
 
   const cancelInviteMutation = useMutation({
-    mutationFn: (inviteId: string) =>
-      api.cancelTeamInvite(selectedTeamId as string, inviteId),
+    mutationFn: (inviteId: string) => api.cancelTeamInvite(selectedTeamId, inviteId),
     onSuccess: () => {
       setNotice({ tone: "ok", text: copy.notices.inviteCancelled });
       queryClient.invalidateQueries({ queryKey: ["team-invites", selectedTeamId] });
@@ -242,10 +431,7 @@ export default function TeamsPage() {
 
   const createDocMutation = useMutation({
     mutationFn: () =>
-      api.createTeamDocument(selectedTeamId as string, {
-        path: docPath.trim(),
-        content: docContent,
-      }),
+      api.createTeamDocument(selectedTeamId, { path: docPath.trim(), content: docContent }),
     onSuccess: () => {
       resetEditor();
       setNotice({ tone: "ok", text: copy.notices.docSaved });
@@ -256,7 +442,7 @@ export default function TeamsPage() {
 
   const updateDocMutation = useMutation({
     mutationFn: () =>
-      api.updateTeamDocument(selectedTeamId as string, editingDoc?.id ?? "", {
+      api.updateTeamDocument(selectedTeamId, editingDoc?.id ?? "", {
         content: docContent,
         parent_hash: editingDoc?.content_hash,
       }),
@@ -269,7 +455,7 @@ export default function TeamsPage() {
   });
 
   const deleteDocMutation = useMutation({
-    mutationFn: (docId: string) => api.deleteTeamDocument(selectedTeamId as string, docId),
+    mutationFn: (docId: string) => api.deleteTeamDocument(selectedTeamId, docId),
     onSuccess: () => {
       setNotice({ tone: "ok", text: copy.notices.docDeleted });
       queryClient.invalidateQueries({ queryKey: ["team-documents", selectedTeamId] });
@@ -286,9 +472,6 @@ export default function TeamsPage() {
     setDocContent("");
   };
 
-  // v0.3.59: fetch the single doc (with content) instead of fishing the body
-  // out of the pull-diff cache — that cache only held added/modified entries,
-  // so most selections showed an empty editor.
   const selectDocument = async (doc: TeamDocumentSummary) => {
     setEditingDoc(doc);
     setDocPath(doc.path);
@@ -302,7 +485,7 @@ export default function TeamsPage() {
     setLoadingDoc(true);
     setDocContent("");
     try {
-      const detail = await api.getTeamDocument(selectedTeamId as string, doc.id);
+      const detail = await api.getTeamDocument(selectedTeamId, doc.id);
       if (detail.is_binary) {
         setEditingBinary(true);
         setDocContent("");
@@ -343,9 +526,8 @@ export default function TeamsPage() {
   };
 
   return (
-    <AppShell title={copy.page.title}>
-      {/* v0.3.58: create-team form moved out of header actions into a
-          slim row inline at the top of the page body. */}
+    <>
+      {/* Compact top row: create-team form sits inline at the top of the tab. */}
       <div className="mb-3 flex items-center justify-end">
         <form
           className="flex gap-2"
@@ -370,7 +552,7 @@ export default function TeamsPage() {
       </div>
       {notice && (
         <div
-          className={`mt-4 rounded-xl border px-4 py-3 text-sm ${
+          className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
             notice.tone === "error" ? "border-destructive/30 text-destructive" : "text-muted-foreground"
           }`}
         >
@@ -378,12 +560,7 @@ export default function TeamsPage() {
         </div>
       )}
 
-      {/* items-start: side stack and main pane line up at the top instead
-          of stretching to match each other (v0.3.58 — the user noticed
-          uneven internal heights). */}
-      {/* Mobile/tablet: 위→아래 stack. lg+: 사이드/메인 2단. flex-col을
-          명시해 CSS Grid의 묵시적 1-col 동작에 의존하지 않도록. */}
-      <div className="mt-4 flex w-full min-w-0 flex-col gap-4 lg:grid lg:items-start lg:gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <div className="flex w-full min-w-0 flex-col gap-4 lg:grid lg:items-start lg:gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <aside className="w-full min-w-0 space-y-4">
           <Card>
             <CardHeader>
@@ -401,7 +578,7 @@ export default function TeamsPage() {
                   <button
                     key={team.id}
                     type="button"
-                    onClick={() => setSelectedTeamId(team.id)}
+                    onClick={() => onSelectTeam(team.id)}
                     className={`w-full rounded-xl border px-3 py-2 text-left transition-colors hover:bg-accent ${
                       team.id === selectedTeamId ? "border-primary bg-primary/5" : "bg-background"
                     }`}
@@ -456,59 +633,7 @@ export default function TeamsPage() {
 
         <section className="w-full min-w-0 space-y-4">
           {!selectedTeam ? (
-            // No-team skeleton: previews the same right-pane shape the user
-            // gets once a team is selected (overview / docs / new-doc form),
-            // with the hint centered as a call-to-action.
-            <div className="relative space-y-4">
-              <Card>
-                <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-2">
-                    <div className="bg-muted/40 h-5 w-32 animate-pulse rounded" />
-                    <div className="bg-muted/30 h-3 w-20 animate-pulse rounded" />
-                  </div>
-                </CardHeader>
-                <CardContent className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <div className="bg-muted/40 h-3 w-10 animate-pulse rounded" />
-                    <div className="bg-muted/20 h-14 animate-pulse rounded-xl" />
-                    <div className="bg-muted/20 h-14 animate-pulse rounded-xl" />
-                  </div>
-                  <div className="space-y-3 rounded-xl border p-3">
-                    <div className="bg-muted/40 h-3 w-24 animate-pulse rounded" />
-                    <div className="bg-muted/30 h-9 animate-pulse rounded" />
-                  </div>
-                </CardContent>
-              </Card>
-
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
-                <Card>
-                  <CardHeader>
-                    <div className="bg-muted/40 h-4 w-20 animate-pulse rounded" />
-                  </CardHeader>
-                  <CardContent className="space-y-2">
-                    {Array.from({ length: 3 }).map((_, i) => (
-                      <div key={i} className="bg-muted/20 h-14 animate-pulse rounded-xl" />
-                    ))}
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardHeader>
-                    <div className="bg-muted/40 h-4 w-24 animate-pulse rounded" />
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="bg-muted/30 h-9 animate-pulse rounded" />
-                    <div className="bg-muted/20 h-40 animate-pulse rounded" />
-                  </CardContent>
-                </Card>
-              </div>
-
-              {/* Hint overlay */}
-              <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
-                <div className="bg-background/95 text-muted-foreground rounded-lg border px-5 py-3 text-center text-sm shadow-md backdrop-blur-sm">
-                  {copy.page.pickTeamHint}
-                </div>
-              </div>
-            </div>
+            <NoTeamHint text={copy.page.pickTeamHint} />
           ) : (
             <>
               <Card>
@@ -522,16 +647,14 @@ export default function TeamsPage() {
                       {copy.members.countSuffix}
                     </p>
                   </div>
+                  {/* Condensed: refresh is icon-only with a title; primary
+                      actions keep their labels. */}
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link
-                      href={`/teams/wiki?id=${selectedTeam.id}`}
-                      className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent"
-                    >
-                      <BookOpen className="me-2 size-4" /> {copy.page.wikiLink}
-                    </Link>
                     <Button
                       variant="outline"
-                      size="sm"
+                      size="icon"
+                      title={copy.page.refresh}
+                      aria-label={copy.page.refresh}
                       onClick={() => {
                         teamsQuery.refetch();
                         teamQuery.refetch();
@@ -539,7 +662,7 @@ export default function TeamsPage() {
                         invitesQuery.refetch();
                       }}
                     >
-                      <RefreshCcw className="me-2 size-4" /> {copy.page.refresh}
+                      <RefreshCcw className="size-4" />
                     </Button>
                   </div>
                 </CardHeader>
@@ -552,10 +675,6 @@ export default function TeamsPage() {
                           key={member.user_id}
                           className="flex w-full items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-1.5"
                         >
-                          {/* flex-1 + min-w-0: flex 자식이 부모를 못 넘기게
-                              하면서 안쪽 truncate가 실제로 동작. min-w-0만
-                              으로는 "preferred = content width"가 살아남아
-                              긴 이메일·UUID가 행을 부풀리는 케이스가 있음. */}
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">{member.email}</p>
                             <p className="truncate text-[10px] text-muted-foreground">
@@ -607,9 +726,6 @@ export default function TeamsPage() {
                                 key={invite.id}
                                 className="flex items-center justify-between gap-3 rounded-lg bg-muted/30 px-3 py-1.5"
                               >
-                                {/* span은 inline이라 truncate가 안 먹음 —
-                                    block-level + flex-1 min-w-0로 줄여서
-                                    긴 이메일이 행을 못 늘리도록. */}
                                 <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
                                   {invite.invitee_email}
                                 </p>
@@ -618,9 +734,11 @@ export default function TeamsPage() {
                                   {invite.status === "pending" && (
                                     <Button
                                       type="button"
-                                      variant="ghost"
-                                      size="sm"
+                                      variant="outline"
+                                      size="icon"
+                                      className="size-7"
                                       title={copy.page.cancelInvite}
+                                      aria-label={copy.page.cancelInvite}
                                       disabled={cancelInviteMutation.isPending}
                                       onClick={() => cancelInviteMutation.mutate(invite.id)}
                                     >
@@ -656,9 +774,16 @@ export default function TeamsPage() {
                       >
                         <Upload className="me-2 size-4" /> {copy.docs.upload}
                       </Button>
-                      <Button asChild type="button" variant="outline" size="sm">
+                      <Button
+                        asChild
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        title={copy.docs.downloadZip}
+                        aria-label={copy.docs.downloadZip}
+                      >
                         <a href={api.teamExportZipUrl(selectedTeam.id)}>
-                          <FileArchive className="me-2 size-4" /> {copy.docs.downloadZip}
+                          <FileArchive className="size-4" />
                         </a>
                       </Button>
                     </div>
@@ -738,13 +863,13 @@ export default function TeamsPage() {
                                 )}
                               </div>
                             </div>
-                            <div className="flex shrink-0 items-center">
+                            <div className="flex shrink-0 items-center gap-1">
                               <a
                                 href={api.teamDocumentRawUrl(selectedTeam.id, doc.id)}
                                 target="_blank"
                                 rel="noreferrer"
                                 onClick={(event) => event.stopPropagation()}
-                                className="inline-flex size-8 items-center justify-center rounded-md hover:bg-accent"
+                                className="inline-flex size-8 items-center justify-center rounded-md border hover:bg-accent"
                                 aria-label={isViewable(doc.path, doc.mime) ? copy.docs.openAriaLabel : copy.docs.downloadAriaLabel}
                                 title={isViewable(doc.path, doc.mime) ? copy.docs.openTitle : copy.docs.downloadTitle}
                               >
@@ -756,8 +881,11 @@ export default function TeamsPage() {
                               </a>
                               <Button
                                 type="button"
-                                variant="ghost"
-                                size="sm"
+                                variant="outline"
+                                size="icon"
+                                className="size-8"
+                                title={copy.docs.deleteDoc}
+                                aria-label={copy.docs.deleteDoc}
                                 onClick={(event) => {
                                   event.stopPropagation();
                                   deleteDocMutation.mutate(doc.id);
@@ -779,8 +907,6 @@ export default function TeamsPage() {
                   </CardHeader>
                   <CardContent>
                     {editingDoc && editingBinary ? (
-                      // Binary docs aren't editable inline — bytes never enter the
-                      // textarea. We point the user at the raw download instead.
                       <div className="space-y-4">
                         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed py-10 text-center">
                           <FileIcon className="size-8 text-muted-foreground" />
@@ -870,19 +996,501 @@ export default function TeamsPage() {
           )}
         </section>
       </div>
-    </AppShell>
+    </>
   );
 }
 
-function EmptyState({ icon: Icon, text }: { icon: typeof UsersRound; text: string }) {
+// ---------------------------------------------------------------------------
+// Shared wiki data hook — both the LLM 위키 and 맥락지도 tabs read from it so
+// the article ↔ graph highlight stays in sync within a tab switch.
+// ---------------------------------------------------------------------------
+
+function useWikiData(teamId: string) {
+  const currentUser = useAuthStore((s) => s.user);
+
+  const teamQuery = useQuery({
+    queryKey: ["team", teamId],
+    queryFn: () => api.getTeam(teamId),
+    enabled: Boolean(teamId),
+  });
+  const articlesQuery = useQuery({
+    queryKey: ["team-wiki-articles", teamId],
+    queryFn: () => api.listTeamWikiArticles(teamId),
+    enabled: Boolean(teamId),
+  });
+  const workspaceQuery = useQuery({
+    queryKey: ["team-workspace", teamId],
+    queryFn: () => api.getTeamWorkspace(teamId),
+    enabled: Boolean(teamId),
+  });
+
+  const articles = articlesQuery.data ?? [];
+  const isOwner = Boolean(currentUser && teamQuery.data?.owner_id === currentUser.user_id);
+
+  return { teamQuery, articlesQuery, workspaceQuery, articles, isOwner };
+}
+
+// ---------------------------------------------------------------------------
+// LLM 위키 tab: article list + reader + build + auto-build + edit dialog.
+// ---------------------------------------------------------------------------
+
+function WikiTab({ teamId }: { teamId: string }) {
+  const { t } = useTranslation();
+  const copy = t.teams.wiki;
+  const queryClient = useQueryClient();
+  const { teamQuery, articlesQuery, articles, isOwner } = useWikiData(teamId);
+  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedSlug && articles.length > 0) setSelectedSlug(articles[0].slug);
+  }, [articles, selectedSlug]);
+
+  const articleQuery = useQuery<TeamWikiArticle>({
+    queryKey: ["team-wiki-article", teamId, selectedSlug],
+    queryFn: () => api.getTeamWikiArticle(teamId, selectedSlug as string),
+    enabled: Boolean(teamId && selectedSlug),
+  });
+
+  const buildMutation = useMutation({
+    mutationFn: () => api.buildTeamWiki(teamId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["team-wiki-articles", teamId] });
+      queryClient.invalidateQueries({ queryKey: ["team", teamId] });
+    },
+  });
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftSummary, setDraftSummary] = useState("");
+  const [draftContent, setDraftContent] = useState("");
+
+  const openEdit = () => {
+    if (!articleQuery.data) return;
+    setDraftTitle(articleQuery.data.title ?? "");
+    setDraftSummary(articleQuery.data.summary ?? "");
+    setDraftContent(articleQuery.data.content ?? "");
+    setEditOpen(true);
+  };
+
+  const editMutation = useMutation({
+    mutationFn: () =>
+      api.updateTeamWikiArticle(teamId, selectedSlug as string, {
+        title: draftTitle,
+        summary: draftSummary || null,
+        content: draftContent,
+      }),
+    onSuccess: () => {
+      setEditOpen(false);
+      queryClient.invalidateQueries({ queryKey: ["team-wiki-article", teamId, selectedSlug] });
+      queryClient.invalidateQueries({ queryKey: ["team-wiki-articles", teamId] });
+      queryClient.invalidateQueries({ queryKey: ["team-workspace", teamId] });
+    },
+  });
+
+  const toggleAutoMutation = useMutation({
+    mutationFn: (next: boolean) => api.patchTeamSettings(teamId, { auto_wiki_enabled: next }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["team", teamId] }),
+  });
+
+  const grouped = useMemo(() => {
+    const buckets = new Map<string, TeamWikiArticleSummary[]>();
+    for (const article of articles) {
+      const key = article.category || copy.otherCategory;
+      const arr = buckets.get(key) ?? [];
+      arr.push(article);
+      buckets.set(key, arr);
+    }
+    return Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [articles, copy.otherCategory]);
+
+  const articleContent = articleQuery.data
+    ? resolveWikilinks(articleQuery.data.content, articles)
+    : "";
+
+  const buildSummary = buildMutation.data;
+  const buildError = buildSummary && !buildSummary.success ? buildSummary.error : null;
+
   return (
-    <div className="flex flex-col items-center gap-3 py-8 text-center text-muted-foreground">
-      <Icon className="size-8" />
-      <p className="text-sm">{text}</p>
-    </div>
+    <>
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm text-muted-foreground">{copy.intro}</p>
+          {teamQuery.data?.last_wiki_built_at && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {copy.lastBuiltPrefix}: {new Date(teamQuery.data.last_wiki_built_at).toLocaleString("ko-KR")}
+            </p>
+          )}
+        </div>
+        {/* Condensed: auto-build toggle + icon-only refresh + labeled build. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              className="size-3.5 accent-primary"
+              checked={Boolean(teamQuery.data?.auto_wiki_enabled)}
+              disabled={!isOwner || toggleAutoMutation.isPending}
+              onChange={(event) => toggleAutoMutation.mutate(event.target.checked)}
+            />
+            {copy.autoBuild}
+          </label>
+          <Button
+            variant="outline"
+            size="icon"
+            title={copy.refresh}
+            aria-label={copy.refresh}
+            onClick={() => articlesQuery.refetch()}
+            disabled={articlesQuery.isFetching}
+          >
+            <RefreshCcw className="size-4" />
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => buildMutation.mutate()}
+            disabled={buildMutation.isPending || !isOwner}
+            title={!isOwner ? copy.ownerOnlyBuild : undefined}
+          >
+            {buildMutation.isPending ? (
+              <>
+                <Loader2 className="me-2 size-4 animate-spin" /> {copy.building}
+              </>
+            ) : (
+              <>
+                <Sparkles className="me-2 size-4" /> {copy.buildNow}
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {buildError && (
+        <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {buildError}
+        </div>
+      )}
+      {buildSummary?.success && (
+        <div className="mb-4 rounded-xl border px-4 py-3 text-sm text-muted-foreground">
+          {buildSummary.articles_built}
+          {copy.builtCountSuffix}
+          {buildSummary.generated_by && ` (${buildSummary.generated_by})`}
+        </div>
+      )}
+
+      <div className="grid items-stretch gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="flex flex-col gap-4">
+          <Card className="flex-1">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <BookOpen className="size-4" /> {copy.articles}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {articlesQuery.isLoading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3, 4].map((i) => (
+                    <Skeleton key={i} className="h-14 rounded-xl" />
+                  ))}
+                </div>
+              ) : articles.length === 0 ? (
+                <div className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
+                  {copy.emptyListHint}
+                </div>
+              ) : (
+                grouped.map(([category, items]) => (
+                  <div key={category} className="space-y-1">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {category}
+                    </p>
+                    <div className="space-y-1">
+                      {items.map((article) => {
+                        const active = selectedSlug === article.slug;
+                        return (
+                          <button
+                            key={article.id}
+                            type="button"
+                            onClick={() => setSelectedSlug(article.slug)}
+                            className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:bg-accent ${
+                              active ? "border-primary bg-primary/5" : "bg-background"
+                            }`}
+                          >
+                            <p className="truncate font-medium">{article.title}</p>
+                            {article.summary && (
+                              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+                                {article.summary}
+                              </p>
+                            )}
+                            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+                              <span>v{article.revision}</span>
+                              {article.generated_by && (
+                                <Badge variant="outline" className="px-1 py-0 text-[10px]">
+                                  {article.generated_by}
+                                </Badge>
+                              )}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+        </aside>
+
+        <section className="flex flex-col">
+          <Card className="flex-1">
+            <CardHeader className="flex flex-row items-center justify-between gap-3">
+              <CardTitle className="min-w-0 truncate text-base">
+                {articleQuery.data?.title ?? (articles.length === 0 ? copy.wikiEmptyTitle : copy.selectArticleTitle)}
+              </CardTitle>
+              {articleQuery.data && (
+                <Button variant="outline" size="sm" onClick={openEdit}>
+                  <Pencil className="me-2 size-4" /> {copy.edit}
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {articleQuery.isLoading ? (
+                <div className="space-y-3">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-4 w-4/5" />
+                  <Skeleton className="h-40 w-full" />
+                </div>
+              ) : articleQuery.data ? (
+                <article className="prose prose-sm max-w-none whitespace-pre-wrap break-words leading-relaxed dark:prose-invert">
+                  {articleQuery.data.summary && (
+                    <p className="text-sm text-muted-foreground">{articleQuery.data.summary}</p>
+                  )}
+                  <div className="mt-3 text-sm">{articleContent}</div>
+                  {articleQuery.data.sources?.length > 0 && (
+                    <div className="mt-6 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
+                      <p className="mb-1 font-medium">{copy.sources}</p>
+                      <ul className="list-inside list-disc">
+                        {articleQuery.data.sources.map((s) => (
+                          <li key={`${s.kind}-${s.id}`}>
+                            <span className="font-mono text-[10px]">[{s.kind}]</span> {s.title || s.id}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </article>
+              ) : articles.length === 0 ? (
+                <div className="flex flex-col items-center gap-6 px-4 py-12 text-center sm:py-20">
+                  <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
+                    <BookOpen className="size-7 text-primary" />
+                  </div>
+                  <div className="space-y-2">
+                    <h2 className="text-lg font-semibold sm:text-xl">{copy.emptyHeadline}</h2>
+                    <p className="mx-auto max-w-md text-sm text-muted-foreground sm:text-[15px]">
+                      {copy.emptyBody}
+                    </p>
+                  </div>
+
+                  <div className="mt-2 grid w-full max-w-xl gap-3 sm:grid-cols-3">
+                    <div className="rounded-xl border bg-card/50 p-4 text-left">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {copy.step1Label}
+                      </p>
+                      <p className="mt-1 text-sm font-medium">{copy.step1Title}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{copy.step1Body}</p>
+                    </div>
+                    <div className="rounded-xl border bg-card/50 p-4 text-left">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {copy.step2Label}
+                      </p>
+                      <p className="mt-1 text-sm font-medium">{copy.step2Title}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{copy.step2Body}</p>
+                    </div>
+                    <div className="rounded-xl border bg-card/50 p-4 text-left">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                        {copy.step3Label}
+                      </p>
+                      <p className="mt-1 text-sm font-medium">{copy.step3Title}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">{copy.step3Body}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button
+                      size="lg"
+                      onClick={() => buildMutation.mutate()}
+                      disabled={buildMutation.isPending || !isOwner}
+                    >
+                      {buildMutation.isPending ? (
+                        <>
+                          <Loader2 className="me-2 size-4 animate-spin" /> {copy.building}
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="me-2 size-4" /> {copy.buildNowLarge}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  {!isOwner && (
+                    <p className="text-xs text-muted-foreground">{copy.ownerOnlyHint}</p>
+                  )}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 px-4 py-12 text-center text-muted-foreground">
+                  <BookOpen className="size-8" />
+                  <p className="text-sm">{copy.selectArticlePrompt}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </section>
+      </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>{copy.editArticle}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="wiki-title">
+                {copy.titleField}
+              </label>
+              <Input
+                id="wiki-title"
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                placeholder={copy.titlePlaceholder}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground" htmlFor="wiki-summary">
+                {copy.summaryField}
+              </label>
+              <Input
+                id="wiki-summary"
+                value={draftSummary}
+                onChange={(e) => setDraftSummary(e.target.value)}
+                placeholder={copy.summaryPlaceholder}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">{copy.bodyField}</label>
+              <MarkdownEditor
+                value={draftContent}
+                onChange={setDraftContent}
+                height={420}
+                imageUploadUrl={`/api/teams/${teamId}/wiki/images`}
+              />
+            </div>
+            <p className="text-[11px] text-muted-foreground">{copy.editNotice}</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)}>
+              {copy.cancel}
+            </Button>
+            <Button onClick={() => editMutation.mutate()} disabled={editMutation.isPending}>
+              {editMutation.isPending ? (
+                <>
+                  <Loader2 className="me-2 size-4 animate-spin" /> {copy.saving}
+                </>
+              ) : (
+                copy.save
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
-function toError(error: unknown, fallback: string): Notice {
-  return { tone: "error", text: error instanceof Error ? error.message : fallback };
+// ---------------------------------------------------------------------------
+// 맥락지도 tab: the context-map graph (inline) + node-info popup.
+// ---------------------------------------------------------------------------
+
+function MapTab({ teamId }: { teamId: string }) {
+  const { t } = useTranslation();
+  const copy = t.teams.wiki;
+  const tabsCopy = t.teams.tabs;
+  const { workspaceQuery, articles } = useWikiData(teamId);
+  const [activeNode, setActiveNode] = useState<GraphNode | null>(null);
+
+  const activeNodeArticle = useMemo(() => {
+    if (!activeNode) return null;
+    const lower = activeNode.label.toLowerCase();
+    return articles.find((a) => a.title.toLowerCase() === lower) ?? null;
+  }, [activeNode, articles]);
+
+  const graph = workspaceQuery.data?.graph;
+  const hasGraph = Boolean(graph && (graph.nodes as GraphNode[]).length > 0);
+
+  return (
+    <>
+      <p className="mb-3 text-sm text-muted-foreground">{tabsCopy.mapHint}</p>
+      {workspaceQuery.isLoading ? (
+        <Skeleton className="h-[60vh] min-h-[360px] w-full rounded-xl" />
+      ) : hasGraph ? (
+        <WikiMiniMap
+          nodes={graph!.nodes as GraphNode[]}
+          edges={graph!.edges as never}
+          onNodeClick={setActiveNode}
+          inline
+        />
+      ) : (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed p-10 text-center text-muted-foreground">
+          <MapIcon className="size-8" />
+          <p className="text-sm">{tabsCopy.mapEmpty}</p>
+        </div>
+      )}
+
+      <Dialog open={Boolean(activeNode)} onOpenChange={(open) => !open && setActiveNode(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="break-words">{activeNode?.label}</DialogTitle>
+          </DialogHeader>
+          {activeNode && (
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{t.teams.nodeKinds[activeNode.kind] ?? activeNode.kind}</Badge>
+                {activeNode.version != null && (
+                  <span className="text-xs text-muted-foreground">v{activeNode.version}</span>
+                )}
+              </div>
+              {activeNode.path && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">{copy.nodePathLabel}</p>
+                  <p className="break-all font-mono text-xs">{activeNode.path}</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setActiveNode(null)}>
+              {copy.close}
+            </Button>
+            {(activeNode?.kind === "doc" || activeNode?.kind === "note") &&
+              activeNode.download_url &&
+              (nodeViewable(activeNode) ? (
+                <Button asChild>
+                  <a href={activeNode.download_url} target="_blank" rel="noreferrer">
+                    <ExternalLink className="me-2 size-4" /> {copy.open}
+                  </a>
+                </Button>
+              ) : (
+                <Button asChild>
+                  <a href={activeNode.download_url} target="_blank" rel="noreferrer">
+                    <Download className="me-2 size-4" /> {copy.download}
+                  </a>
+                </Button>
+              ))}
+            {activeNodeArticle && (
+              <Button asChild variant="secondary">
+                <a href={`/teams?tab=wiki&id=${teamId}`}>
+                  <BookOpen className="me-2 size-4" /> {copy.openInWiki}
+                </a>
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
 }

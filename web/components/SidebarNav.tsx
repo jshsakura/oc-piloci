@@ -92,16 +92,17 @@ function useSidebarGroups(): SidebarGroup[] {
         {
           key: "teams",
           label: labels.teams,
-          href: "/teams",
+          href: "/teams?tab=settings",
           icon: UsersRound,
-          match: { pathname: "/teams" },
+          // Default landing (no tab) and the settings tab both highlight here.
+          match: { pathname: "/teams", search: { tab: "settings" } },
         },
         {
           key: "team-wiki",
           label: labels.teamWiki,
-          href: "/teams/wiki",
+          href: "/teams?tab=wiki",
           icon: BookOpen,
-          match: { pathname: "/teams/wiki" },
+          match: { pathname: "/teams", search: { tab: "wiki" } },
         },
       ],
     },
@@ -129,13 +130,15 @@ function useSidebarGroups(): SidebarGroup[] {
 }
 
 function isActive(item: SidebarItem, pathname: string, params: URLSearchParams): boolean {
-  // Pages are now distinct routes after v0.3.47 — pathname match is
-  // enough. The search-key branch is kept (no-op currently) so callers
-  // can still pin sub-state without restructuring the helper.
+  // Pathname must match first. Items can additionally pin a search param
+  // (e.g. /teams?tab=wiki) so sibling tabs on one route stay distinct.
   if (item.match.pathname !== pathname) return false;
   if (!item.match.search) return true;
   for (const [k, v] of Object.entries(item.match.search)) {
-    if (params.get(k) !== v) return false;
+    // The teams settings tab is also the default landing, so an absent `tab`
+    // param counts as `settings`.
+    const current = params.get(k) ?? (k === "tab" ? "settings" : null);
+    if (current !== v) return false;
   }
   return true;
 }

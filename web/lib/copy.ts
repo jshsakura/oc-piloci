@@ -1152,6 +1152,16 @@ const ko = {
     },
     themeToggle: { toLightAriaLabel: '라이트 모드로 전환', toDarkAriaLabel: '다크 모드로 전환' },
     teams: {
+      tabs: {
+        settings: '설정',
+        wiki: 'LLM 위키',
+        map: '맥락지도',
+        teamSelect: '팀 선택',
+        teamSelectPlaceholder: '팀을 선택하세요',
+        noTeam: '먼저 위쪽에서 팀을 선택하거나 새로 만들어주세요.',
+        mapEmpty: '맥락지도로 그릴 관계가 아직 충분하지 않습니다. 문서와 메모를 더 쌓아주세요.',
+        mapHint: '문서와 메모가 어떻게 이어지는지 묵묵히 정리해 둔 지도입니다. 노드를 누르면 자세히 볼 수 있어요.',
+      },
       page: {
         title: '팀 작업공간',
         newTeamPlaceholder: '새 팀 이름',
@@ -1190,6 +1200,7 @@ const ko = {
         downloadAriaLabel: '다운로드',
         openTitle: '새 탭에서 열기',
         downloadTitle: '다운로드',
+        deleteDoc: '문서 삭제',
         editTitle: '문서 수정',
         newTitle: '새 문서 작성',
         viewableHint: '이 형식은 새 탭에서 바로 열 수 있어요.',
@@ -2446,6 +2457,16 @@ const en: CopyShape = {
     },
     themeToggle: { toLightAriaLabel: 'Switch to light', toDarkAriaLabel: 'Switch to dark' },
     teams: {
+      tabs: {
+        settings: 'Settings',
+        wiki: 'LLM wiki',
+        map: 'Context map',
+        teamSelect: 'Select team',
+        teamSelectPlaceholder: 'Choose a team',
+        noTeam: 'Pick a team above or create a new one to get started.',
+        mapEmpty: 'There aren’t enough connections to draw a context map yet. Add more documents and memories.',
+        mapHint: 'A map that quietly keeps track of how your documents and memories connect. Click a node to look closer.',
+      },
       page: {
         title: 'Team workspace',
         newTeamPlaceholder: 'New team name',
@@ -2484,6 +2505,7 @@ const en: CopyShape = {
         downloadAriaLabel: 'Download',
         openTitle: 'Open in a new tab',
         downloadTitle: 'Download',
+        deleteDoc: 'Delete document',
         editTitle: 'Edit document',
         newTitle: 'New document',
         viewableHint: 'This format opens right in a new tab.',
