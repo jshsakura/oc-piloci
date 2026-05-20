@@ -316,6 +316,16 @@ button {
 
 @media (prefers-reduced-motion: reduce) {
   .pi-flow-line, .pi-float-node, .pi-hub-node { animation: none !important; }
+  /* Neutralize the interaction polish (nav press/accent, drawer slide,
+     header button press, refresh spinner) for motion-sensitive users:
+     no transitions, no transforms, no spin. */
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .active\:scale-95:active,
+  .active\:scale-\[0\.98\]:active { transform: none !important; }
 }
 
 /* Wiki-style markdown rendering. Replaces the <pre>{markdown}</pre> dump

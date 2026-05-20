@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -169,13 +169,22 @@ function NavList({ groups, pathname, params, onNavigate }: NavListProps) {
                 key={item.key}
                 href={item.href}
                 onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
                 className={cn(
-                  "inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "group relative inline-flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors active:scale-[0.98]",
                   active
                     ? "bg-muted text-foreground"
                     : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
                 )}
               >
+                {/* Animated left accent bar — grows in on the active row. */}
+                <span
+                  aria-hidden
+                  className={cn(
+                    "absolute inset-y-1.5 start-0 w-0.5 origin-center rounded-full bg-primary transition-transform duration-200",
+                    active ? "scale-y-100" : "scale-y-0",
+                  )}
+                />
                 <Icon className="size-4 shrink-0" aria-hidden />
                 <span className="truncate">{item.label}</span>
               </Link>
@@ -210,6 +219,25 @@ export function MobileSidebarDrawer({ open, onClose }: MobileDrawerProps) {
   const params = useSearchParams();
   const groups = useSidebarGroups();
 
+  // Two-phase mount so the drawer slides in/out instead of snapping:
+  // `mounted` keeps the node in the tree through the leave transition,
+  // `visible` drives the translate/opacity. On open we mount then flip
+  // visible on the next frame; on close we drop visible, then unmount
+  // after the ~200ms transition finishes.
+  const [mounted, setMounted] = useState(open);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setMounted(true);
+      const id = requestAnimationFrame(() => setVisible(true));
+      return () => cancelAnimationFrame(id);
+    }
+    setVisible(false);
+    const timer = setTimeout(() => setMounted(false), 200);
+    return () => clearTimeout(timer);
+  }, [open]);
+
   // Lock background scroll while the drawer is open so a touch flick can't
   // accidentally scroll the page underneath. Also auto-close on `Escape`
   // for keyboard users.
@@ -227,16 +255,24 @@ export function MobileSidebarDrawer({ open, onClose }: MobileDrawerProps) {
     };
   }, [open, onClose]);
 
-  if (!open) return null;
+  if (!mounted) return null;
 
   return (
     <div className="fixed inset-0 z-50 md:hidden">
       <div
         aria-hidden
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className={cn(
+          "absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity duration-200",
+          visible ? "opacity-100" : "opacity-0",
+        )}
         onClick={onClose}
       />
-      <div className="bg-background absolute inset-y-0 start-0 flex w-72 max-w-[85vw] flex-col border-e shadow-xl">
+      <div
+        className={cn(
+          "bg-background absolute inset-y-0 start-0 flex w-72 max-w-[85vw] flex-col border-e shadow-xl transition-transform duration-200 ease-out",
+          visible ? "translate-x-0" : "-translate-x-full",
+        )}
+      >
         <div className="flex items-center justify-between border-b px-4 py-3">
           <BrandMark />
           <button

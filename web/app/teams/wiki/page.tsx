@@ -14,7 +14,15 @@ import React, {
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import remarkGfm from "remark-gfm";
-import { BookOpen, Loader2, Map as MapIcon, Pencil, RefreshCcw, Sparkles } from "lucide-react";
+import {
+  BookOpen,
+  Loader2,
+  Map as MapIcon,
+  Pencil,
+  RefreshCcw,
+  Sparkles,
+  X,
+} from "lucide-react";
 
 import AppShell from "@/components/AppShell";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
@@ -36,6 +44,7 @@ import { useTranslation } from "@/lib/i18n";
 import type {
   GraphEdge,
   GraphNode,
+  TeamDocumentSummary,
   TeamSummary,
   TeamWikiArticle,
   TeamWikiArticleSummary,
@@ -54,6 +63,49 @@ function resolveWikilinks(markdown: string, articles: TeamWikiArticleSummary[]):
     const slug = titleMap.get(raw.trim().toLowerCase());
     if (slug) return `[${label}](#article-${slug})`;
     return `*${label}*`;
+  });
+}
+
+// Inline raw URL for a doc, opened in a new tab. ?inline=1 asks the server to
+// render the file in-browser (Content-Disposition: inline) rather than force a
+// download — same-origin so the session cookie rides along.
+function inlineRawUrl(teamId: string, docId: string): string {
+  return `/api/teams/${teamId}/documents/${docId}/raw?inline=1`;
+}
+
+// Match a wiki source (or an inline citation path) to a real team document:
+// first by id, then by exact path. Returns the doc summary or null.
+function resolveSourceDoc(
+  key: { id?: string | null; path?: string | null },
+  documents: TeamDocumentSummary[],
+): TeamDocumentSummary | null {
+  if (key.id) {
+    const byId = documents.find((d) => d.id === key.id);
+    if (byId) return byId;
+  }
+  if (key.path) {
+    const byPath = documents.find((d) => d.path === key.path);
+    if (byPath) return byPath;
+  }
+  return null;
+}
+
+// Rewrite inline [출처: <path>] citations whose path resolves to a known doc
+// into a markdown link to that file's inline raw URL (the react-markdown `a`
+// handler opens it in a new tab). Unresolved paths stay as plain text so the
+// citation still reads. Runs AFTER wikilink resolution and never touches
+// [[wikilink]] syntax (the bracket form differs).
+function resolveSourceCitations(
+  markdown: string,
+  teamId: string,
+  documents: TeamDocumentSummary[],
+): string {
+  if (documents.length === 0) return markdown;
+  return markdown.replace(/\[출처:\s*([^\]]+?)\s*\]/g, (whole, rawPath) => {
+    const path = String(rawPath).trim();
+    const doc = resolveSourceDoc({ path }, documents);
+    if (!doc) return whole;
+    return `[출처: ${path}](${inlineRawUrl(teamId, doc.id)})`;
   });
 }
 
@@ -279,6 +331,16 @@ function WikiContent({
   });
 
   const articles = articlesQuery.data ?? [];
+
+  // Team documents back the source-traceability: a source whose id/path matches
+  // a real doc becomes a link that opens the file. Cheap list, always fetched.
+  const documentsQuery = useQuery({
+    queryKey: ["team-documents", teamId],
+    queryFn: () => api.listTeamDocuments(teamId),
+    enabled: Boolean(teamId),
+  });
+  const documents = documentsQuery.data ?? [];
+
   const isOwner = Boolean(currentUser && teamQuery.data?.owner_id === currentUser.user_id);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
 
@@ -386,7 +448,11 @@ function WikiContent({
   }, [articles, copy.otherCategory]);
 
   const articleContent = articleQuery.data
-    ? resolveWikilinks(articleQuery.data.content, articles)
+    ? resolveSourceCitations(
+        resolveWikilinks(articleQuery.data.content, articles),
+        teamId,
+        documents,
+      )
     : "";
 
   // The in-article 목차 box: numbered, nested, clickable. Hidden when there's
@@ -412,6 +478,25 @@ function WikiContent({
     if (selectedSlug) ids.push(`article:${selectedSlug}`);
     return ids;
   }, [articleQuery.data, selectedSlug]);
+
+  // Map node → article. Article nodes open directly; topic/note nodes fall
+  // back to title-matching an article. Shared by the desktop panel and the
+  // mobile sheet.
+  const handleMapNodeClick = useCallback(
+    (node: GraphNode) => {
+      if (node.kind === "article") {
+        const slug =
+          node.slug ??
+          (node.id.startsWith("article:") ? node.id.slice("article:".length) : null);
+        if (slug) setSelectedSlug(slug);
+        return;
+      }
+      const lower = node.label.toLowerCase();
+      const match = articles.find((a) => a.title.toLowerCase() === lower);
+      if (match) setSelectedSlug(match.slug);
+    },
+    [articles],
+  );
 
   // Wikilink anchors (#article-<slug>) jump between articles in-place rather
   // than scrolling to a missing DOM id.
@@ -485,13 +570,16 @@ function WikiContent({
 
   return (
     <>
-      {/* Header action bar: team selector + map toggle + build/refresh/auto. */}
-      <div className="mb-5 flex flex-col gap-3 border-b pb-4 sm:flex-row sm:items-end sm:justify-between">
+      {/* Header action bar: team selector + map toggle + build/refresh/auto.
+          Splits at `lg` so the action row never ragged-wraps on tablet/mobile —
+          the select goes full-width on its own row, long labels collapse to
+          icons/chips, and only "지금 생성" keeps its label. */}
+      <div className="mb-5 flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
             <select
               aria-label={t.teams.tabs.teamSelect}
-              className="h-9 min-w-44 rounded-lg border bg-background px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="h-9 w-full rounded-lg border bg-background px-3 text-sm font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring sm:w-auto sm:min-w-44"
               value={teamId}
               onChange={(event) => onSelectTeam(event.target.value)}
             >
@@ -511,8 +599,13 @@ function WikiContent({
           <p className="text-sm text-muted-foreground">{copy.intro}</p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {/* Auto-build: a compact bordered chip on mobile (icon + short label,
+              full text via title); the full label only unfolds at sm+. */}
+          <label
+            title={copy.autoBuild}
+            className="inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors sm:border-0 sm:px-0 sm:py-0"
+          >
             <input
               type="checkbox"
               className="size-3.5 accent-primary"
@@ -520,7 +613,8 @@ function WikiContent({
               disabled={!isOwner || toggleAutoMutation.isPending}
               onChange={(event) => toggleAutoMutation.mutate(event.target.checked)}
             />
-            {copy.autoBuild}
+            <span className="sm:hidden">{copy.autoBuildShort}</span>
+            <span className="hidden sm:inline">{copy.autoBuild}</span>
           </label>
           <Button
             variant={showMap ? "secondary" : "outline"}
@@ -529,6 +623,7 @@ function WikiContent({
             aria-label={showMap ? copy.hideMap : copy.showMap}
             aria-pressed={showMap}
             onClick={() => setShowMap((v) => !v)}
+            className="active:scale-95"
           >
             <MapIcon className="size-4" />
           </Button>
@@ -539,14 +634,16 @@ function WikiContent({
             aria-label={copy.refresh}
             onClick={() => articlesQuery.refetch()}
             disabled={articlesQuery.isFetching}
+            className="active:scale-95"
           >
-            <RefreshCcw className="size-4" />
+            <RefreshCcw className={`size-4 ${articlesQuery.isFetching ? "animate-spin" : ""}`} />
           </Button>
           <Button
             size="sm"
             onClick={() => buildMutation.mutate()}
             disabled={isBuilding || !isOwner}
             title={!isOwner ? copy.ownerOnlyBuild : undefined}
+            className="active:scale-95"
           >
             {isBuilding ? (
               <>
@@ -738,11 +835,34 @@ function WikiContent({
                 <div className="mt-8 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
                   <p className="mb-1 font-medium">{copy.sources}</p>
                   <ul className="list-inside list-disc">
-                    {articleQuery.data.sources.map((s) => (
-                      <li key={`${s.kind}-${s.id}`}>
-                        <span className="font-mono text-[10px]">[{s.kind}]</span> {s.title || s.id}
-                      </li>
-                    ))}
+                    {articleQuery.data.sources.map((s) => {
+                      // Doc/file sources that resolve to a real document become
+                      // links opening the file inline; memory (and unresolved)
+                      // sources stay plain text.
+                      const doc =
+                        s.kind === "memory"
+                          ? null
+                          : resolveSourceDoc({ id: s.id, path: s.title }, documents);
+                      const label = s.title || s.id;
+                      return (
+                        <li key={`${s.kind}-${s.id}`}>
+                          <span className="font-mono text-[10px]">[{s.kind}]</span>{" "}
+                          {doc ? (
+                            <a
+                              href={inlineRawUrl(teamId, doc.id)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title={copy.openSourceFile}
+                              className="text-primary underline-offset-2 hover:underline"
+                            >
+                              {label}
+                            </a>
+                          ) : (
+                            label
+                          )}
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
@@ -811,29 +931,55 @@ function WikiContent({
         </section>
       </div>
 
-      {/* Secondary context map: floating, non-inline, owned by the header toggle. */}
+      {/* Secondary context map. Desktop: a floating panel (the component is
+          `hidden sm:block` internally). Mobile: a full-screen sheet that
+          reuses the same map in inline mode — the floating panel is invisible
+          on small screens, so the toggle would otherwise show nothing. */}
       {showMap && graph && (graph.nodes as GraphNode[]).length > 0 && (
-        <WikiMiniMap
-          nodes={graph.nodes as GraphNode[]}
-          edges={graph.edges as GraphEdge[]}
-          highlightedIds={highlightedIds}
-          hidden={false}
-          onHiddenChange={(h) => setShowMap(!h)}
-          onNodeClick={(node) => {
-            // Article nodes are first-class: clicking one opens that article.
-            if (node.kind === "article") {
-              const slug =
-                node.slug ??
-                (node.id.startsWith("article:") ? node.id.slice("article:".length) : null);
-              if (slug) setSelectedSlug(slug);
-              return;
-            }
-            // Topic / note nodes fall back to title-matching an article.
-            const lower = node.label.toLowerCase();
-            const match = articles.find((a) => a.title.toLowerCase() === lower);
-            if (match) setSelectedSlug(match.slug);
-          }}
-        />
+        <>
+          {/* Desktop floating panel. */}
+          <WikiMiniMap
+            nodes={graph.nodes as GraphNode[]}
+            edges={graph.edges as GraphEdge[]}
+            highlightedIds={highlightedIds}
+            hidden={false}
+            onHiddenChange={(h) => setShowMap(!h)}
+            onNodeClick={handleMapNodeClick}
+          />
+
+          {/* Mobile full-screen sheet. */}
+          <div className="fixed inset-0 z-50 flex flex-col bg-background sm:hidden">
+            <div className="flex items-center justify-between border-b px-4 py-3">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <MapIcon className="size-4" /> {t.teams.map.title}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                title={copy.closeMap}
+                aria-label={copy.closeMap}
+                onClick={() => setShowMap(false)}
+                className="active:scale-95"
+              >
+                <X className="size-5" />
+              </Button>
+            </div>
+            <div className="flex-1 overflow-hidden p-3">
+              <WikiMiniMap
+                nodes={graph.nodes as GraphNode[]}
+                edges={graph.edges as GraphEdge[]}
+                highlightedIds={highlightedIds}
+                inline
+                onNodeClick={(node) => {
+                  handleMapNodeClick(node);
+                  // A tap on a node also dismisses the sheet so the reader
+                  // lands straight on the chosen article.
+                  setShowMap(false);
+                }}
+              />
+            </div>
+          </div>
+        </>
       )}
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
