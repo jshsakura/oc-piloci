@@ -140,15 +140,23 @@ def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list
 # ---------------------------------------------------------------------------
 
 _WIKI_SYSTEM = (
-    "당신은 팀이 공유한 자료(메모리·문서)를 바탕으로 한국어 위키 아티클을 "
-    "쓰는 편집자입니다. 출력은 반드시 JSON. 사용자의 언어를 그대로 따르되, "
-    "한국어 자료가 다수이면 한국어로 씁니다.\n"
+    "당신은 팀이 공유한 자료(문서·메모리)를 깊이 분석해 한국어 위키 아티클을 "
+    "쓰는 전문 편집자입니다. 단순 요약(약도)이 아니라, 자료를 종합·분석한 "
+    "'룰북/레퍼런스 수준'의 글을 씁니다. 출력은 반드시 JSON. 한국어 자료가 "
+    "다수이면 한국어로 씁니다.\n"
     '스키마: {"title": str, "slug": str, "summary": str, '
-    '"content": str(markdown), "category": str, '
-    '"linked_topics": [str]}\n'
-    "규칙: 1) content는 markdown. 2) 다른 아티클 후보를 가리킬 때 "
-    "`[[topic]]` 위키링크 문법. 3) 사실만, 추측 금지. 4) summary는 1-2문장. "
-    "5) category는 cluster의 폴더/태그 이름을 그대로 사용."
+    '"content": str(markdown), "category": str, "linked_topics": [str]}\n'
+    "content 구조(가능한 한 이 섹션들을 ## 헤딩으로 갖출 것):\n"
+    "  ## 개요 — 이 주제가 무엇이고 왜 중요한지 2~4문장 리드.\n"
+    "  ## 핵심 규칙/결정 — 자료에서 끌어낸 규칙·결정·합의를 항목별로, 구체적으로.\n"
+    "  ## 세부 — 동작 방식·이유·맥락을 분석적으로 서술(자료에 근거).\n"
+    "  ## 예외·주의 — 함정·금기·엣지케이스(자료에 있으면).\n"
+    "  ## 출처 — 근거가 된 문서 경로 목록.\n"
+    "규칙: 1) content는 markdown, 충분히 깊고 구체적으로(요약 금지). "
+    "2) 본문에서 사실을 단언할 때마다 근거 문서를 `[출처: <문서경로>]` 형태로 "
+    "인라인 인용 — 어떤 파일에서 나온 내용인지 추적 가능해야 함. "
+    "3) 다른 아티클 후보는 `[[topic]]` 위키링크. 4) 자료에 없는 사실·추측 금지. "
+    "5) summary는 1~2문장. 6) category는 cluster의 폴더/태그 이름 그대로."
 )
 
 _CRITIQUE_SYSTEM = (
@@ -193,16 +201,18 @@ def _user_prompt(cluster: dict[str, Any], extra_context: list[dict[str, Any]] | 
     """
     parts = [
         f"카테고리: {cluster['category']}/{cluster['label']}",
-        "다음 자료를 종합해 위키 아티클 1개를 작성하세요.",
+        "다음 자료를 깊이 분석·종합해 룰북/레퍼런스 수준의 위키 아티클 1개를 "
+        "작성하세요. 각 문서에는 경로가 붙어 있으니, 본문에서 사실을 단언할 때 "
+        "`[출처: <문서경로>]` 로 인라인 인용해 추적 가능하게 하세요.",
         "",
         "## 1차 출처 (팀 문서 — 정제된 사실)",
     ]
     docs = [s for s in cluster["sources"] if s.get("kind") == "doc"]
     mems = [s for s in cluster["sources"] if s.get("kind") == "memory"]
     if docs:
-        for source in docs[:8]:
+        for source in docs[:10]:
             parts.append(f"### `{source.get('path')}`")
-            parts.append((source.get("content") or "")[:1500])
+            parts.append((source.get("content") or "")[:4000])
             parts.append("")
     else:
         parts.append("_없음_")
@@ -642,7 +652,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             draft = await chat_json(
                 draft_messages,
                 temperature=0.2,
-                max_tokens=1800,
+                max_tokens=3200,
                 targets=targets,
                 record_target=record,
             )
@@ -692,7 +702,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                         },
                     ],
                     temperature=0.15,
-                    max_tokens=1800,
+                    max_tokens=3200,
                     targets=targets,
                 )
             except Exception as exc:
@@ -738,7 +748,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                         },
                     ],
                     temperature=0.2,
-                    max_tokens=1800,
+                    max_tokens=3200,
                     targets=targets,
                 )
                 score = await chat_json(
