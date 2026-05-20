@@ -14,6 +14,7 @@ import {
   Trash2,
   Upload,
   UsersRound,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
@@ -116,6 +117,16 @@ export default function TeamsPage() {
       queryClient.invalidateQueries({ queryKey: ["teams"] });
     },
     onError: (error: unknown) => setNotice(toError(error, "초대 응답에 실패했습니다.")),
+  });
+
+  const cancelInviteMutation = useMutation({
+    mutationFn: (inviteId: string) =>
+      api.cancelTeamInvite(selectedTeamId as string, inviteId),
+    onSuccess: () => {
+      setNotice({ tone: "ok", text: "초대를 취소했습니다." });
+      queryClient.invalidateQueries({ queryKey: ["team-invites", selectedTeamId] });
+    },
+    onError: (error: unknown) => setNotice(toError(error, "초대 취소에 실패했습니다.")),
   });
 
   const createDocMutation = useMutation({
@@ -489,9 +500,21 @@ export default function TeamsPage() {
                                 <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
                                   {invite.invitee_email}
                                 </p>
-                                <Badge variant="outline" className="shrink-0">
-                                  {invite.status}
-                                </Badge>
+                                <div className="flex shrink-0 items-center gap-1">
+                                  <Badge variant="outline">{invite.status}</Badge>
+                                  {invite.status === "pending" && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="sm"
+                                      title="초대 취소"
+                                      disabled={cancelInviteMutation.isPending}
+                                      onClick={() => cancelInviteMutation.mutate(invite.id)}
+                                    >
+                                      <X className="size-4" />
+                                    </Button>
+                                  )}
+                                </div>
                               </div>
                             ))}
                           </div>
