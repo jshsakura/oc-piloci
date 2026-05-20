@@ -108,9 +108,12 @@ def build_loci_md(
         lines.append("")
 
     lines.append("---")
+    # No timestamp here on purpose: the content must be a pure function of the
+    # team's docs/articles so an unchanged team hashes identically and refresh
+    # is idempotent (no version churn, no needless re-index). Freshness lives
+    # in the row's updated_at.
     lines.append(
-        f"_piLoci 자동 생성 · {datetime.now(timezone.utc).isoformat(timespec='seconds')} · "
-        "팀 문서가 바뀌면 다시 그려집니다._"
+        "_piLoci가 자동으로 만들고 유지하는 진입점입니다. 팀 문서가 바뀌면 다시 그려집니다._"
     )
     return "\n".join(lines) + "\n"
 
