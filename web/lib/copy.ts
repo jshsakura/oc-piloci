@@ -679,7 +679,7 @@ const ko = {
         ops: '정리 현황',
         projects: '프로젝트',
         teams: '팀 설정',
-        teamWiki: '팀 위키',
+        teamWiki: 'LLM 위키',
         chat: '대화',
         menuLabel: '메뉴 열기',
         groupPersonal: '개인',
@@ -1154,7 +1154,6 @@ const ko = {
     teams: {
       tabs: {
         settings: '설정',
-        wiki: 'LLM 위키',
         map: '맥락지도',
         teamSelect: '팀 선택',
         teamSelectPlaceholder: '팀을 선택하세요',
@@ -1251,7 +1250,7 @@ const ko = {
         binary: '바이너리',
       },
       wiki: {
-        title: '팀 위키',
+        title: 'LLM 위키',
         titleSuffix: '위키',
         loading: '불러오는 중…',
         intro: '팀이 쌓아둔 메모와 문서를 AI가 한국어 위키 아티클로 정리합니다.',
@@ -1992,7 +1991,7 @@ const en: CopyShape = {
         ops: 'Pipeline',
         projects: 'By project',
         teams: 'Team settings',
-        teamWiki: 'Team wiki',
+        teamWiki: 'LLM Wiki',
         chat: 'Chat',
         menuLabel: 'Open menu',
         groupPersonal: 'Personal',
@@ -2467,7 +2466,6 @@ const en: CopyShape = {
     teams: {
       tabs: {
         settings: 'Settings',
-        wiki: 'LLM wiki',
         map: 'Context map',
         teamSelect: 'Select team',
         teamSelectPlaceholder: 'Choose a team',
@@ -2564,7 +2562,7 @@ const en: CopyShape = {
         binary: 'Binary',
       },
       wiki: {
-        title: 'Team wiki',
+        title: 'LLM Wiki',
         titleSuffix: 'Wiki',
         loading: 'Loading…',
         intro: 'AI organizes the notes and documents your team has gathered into wiki articles.',

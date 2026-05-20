@@ -93,8 +93,15 @@ function useSidebarGroups(): SidebarGroup[] {
           label: labels.teams,
           href: "/teams",
           icon: UsersRound,
-          // Single entry now — settings/LLM위키/맥락지도 are tabs inside /teams.
+          // 설정 + 맥락지도 live here; the LLM 위키 has its own route below.
           match: { pathname: "/teams" },
+        },
+        {
+          key: "team-wiki",
+          label: labels.teamWiki,
+          href: "/teams/wiki",
+          icon: BookOpenCheck,
+          match: { pathname: "/teams/wiki" },
         },
       ],
     },

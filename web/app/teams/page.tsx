@@ -13,19 +13,15 @@ import {
   FileArchive,
   FileText,
   Inbox,
-  Loader2,
   MailPlus,
   Map as MapIcon,
-  Pencil,
   RefreshCcw,
-  Sparkles,
   Trash2,
   Upload,
   UsersRound,
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
-import { MarkdownEditor } from "@/components/MarkdownEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -48,14 +44,11 @@ import {
 } from "@/components/ui/tooltip";
 import { WikiMiniMap } from "@/components/WikiMiniMap";
 import { api } from "@/lib/api";
-import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import type {
   GraphNode,
   TeamDocumentSummary,
   TeamSummary,
-  TeamWikiArticle,
-  TeamWikiArticleSummary,
 } from "@/lib/types";
 
 function humanizeSize(bytes?: number): string {
@@ -130,18 +123,6 @@ function isPdf(path: string, mime?: string | null): boolean {
 function nodeViewable(node: GraphNode): boolean {
   const path = node.path ?? node.label ?? "";
   return _VIEWABLE_EXT.has(fileExt(path));
-}
-
-function resolveWikilinks(markdown: string, articles: TeamWikiArticleSummary[]): string {
-  // Replace [[topic]] with a same-page anchor when a matching slug exists;
-  // otherwise render as italics so the intended link still reads.
-  const titleMap = new Map(articles.map((a) => [a.title.toLowerCase(), a.slug]));
-  return markdown.replace(/\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/g, (_, raw, alias) => {
-    const label = (alias || raw).trim();
-    const slug = titleMap.get(raw.trim().toLowerCase());
-    if (slug) return `[${label}](#article-${slug})`;
-    return `*${label}*`;
-  });
 }
 
 function localPart(email: string): string {
@@ -295,8 +276,8 @@ function toError(error: unknown, fallback: string): Notice {
 }
 
 const EMPTY_TEAMS: TeamSummary[] = [];
-type TabKey = "settings" | "wiki" | "map";
-const TAB_KEYS: TabKey[] = ["settings", "wiki", "map"];
+type TabKey = "settings" | "map";
+const TAB_KEYS: TabKey[] = ["settings", "map"];
 
 function TeamsSuspenseFallback() {
   const { t } = useTranslation();
@@ -389,7 +370,6 @@ function TeamsShell() {
         <Tabs value={activeTab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="settings">{copy.tabs.settings}</TabsTrigger>
-            <TabsTrigger value="wiki">{copy.tabs.wiki}</TabsTrigger>
             <TabsTrigger value="map">{copy.tabs.map}</TabsTrigger>
           </TabsList>
 
@@ -401,13 +381,6 @@ function TeamsShell() {
               selectedTeamId={selectedTeamId}
               onSelectTeam={setTeam}
             />
-          </TabsContent>
-          <TabsContent value="wiki" className="mt-4">
-            {selectedTeamId ? (
-              <WikiTab teamId={selectedTeamId} />
-            ) : (
-              <NoTeamHint text={copy.tabs.noTeam} />
-            )}
           </TabsContent>
           <TabsContent value="map" className="mt-4">
             {selectedTeamId ? (
@@ -1110,449 +1083,6 @@ function SettingsTab({
 }
 
 // ---------------------------------------------------------------------------
-// Shared wiki data hook — both the LLM 위키 and 맥락지도 tabs read from it so
-// the article ↔ graph highlight stays in sync within a tab switch.
-// ---------------------------------------------------------------------------
-
-function useWikiData(teamId: string, refetchInterval: number | false = false) {
-  const currentUser = useAuthStore((s) => s.user);
-
-  // While a wiki build runs in the background the caller passes a poll interval
-  // so the team (last_wiki_built_at) and article list refresh on their own.
-  const teamQuery = useQuery({
-    queryKey: ["team", teamId],
-    queryFn: () => api.getTeam(teamId),
-    enabled: Boolean(teamId),
-    refetchInterval,
-  });
-  const articlesQuery = useQuery({
-    queryKey: ["team-wiki-articles", teamId],
-    queryFn: () => api.listTeamWikiArticles(teamId),
-    enabled: Boolean(teamId),
-    refetchInterval,
-  });
-  const workspaceQuery = useQuery({
-    queryKey: ["team-workspace", teamId],
-    queryFn: () => api.getTeamWorkspace(teamId),
-    enabled: Boolean(teamId),
-  });
-
-  const articles = articlesQuery.data ?? [];
-  const isOwner = Boolean(currentUser && teamQuery.data?.owner_id === currentUser.user_id);
-
-  return { teamQuery, articlesQuery, workspaceQuery, articles, isOwner };
-}
-
-// ---------------------------------------------------------------------------
-// LLM 위키 tab: article list + reader + build + auto-build + edit dialog.
-// ---------------------------------------------------------------------------
-
-function WikiTab({ teamId }: { teamId: string }) {
-  const { t } = useTranslation();
-  const copy = t.teams.wiki;
-  const queryClient = useQueryClient();
-
-  // The build is async (202): we poll the team + article list every ~8s while a
-  // build is in flight and stop once last_wiki_built_at advances past the value
-  // captured at build-start (or after a safety timeout).
-  const [building, setBuilding] = useState(false);
-  const [buildNotice, setBuildNotice] = useState<Notice>(null);
-  const buildBaselineRef = useRef<string | null>(null);
-  const buildDeadlineRef = useRef<number>(0);
-
-  const { teamQuery, articlesQuery, articles, isOwner } = useWikiData(
-    teamId,
-    building ? 8000 : false,
-  );
-  const lastBuiltAt = teamQuery.data?.last_wiki_built_at ?? null;
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!selectedSlug && articles.length > 0) setSelectedSlug(articles[0].slug);
-  }, [articles, selectedSlug]);
-
-  // Detect build completion: stop polling when the timestamp moves, or bail out
-  // after the safety window so a silently-failed build doesn't spin forever.
-  useEffect(() => {
-    if (!building) return;
-    const moved = lastBuiltAt && lastBuiltAt !== buildBaselineRef.current;
-    const timedOut = Date.now() > buildDeadlineRef.current;
-    if (moved || timedOut) {
-      setBuilding(false);
-      if (moved) {
-        queryClient.invalidateQueries({ queryKey: ["team-workspace", teamId] });
-      }
-    }
-  }, [building, lastBuiltAt, queryClient, teamId]);
-
-  const articleQuery = useQuery<TeamWikiArticle>({
-    queryKey: ["team-wiki-article", teamId, selectedSlug],
-    queryFn: () => api.getTeamWikiArticle(teamId, selectedSlug as string),
-    enabled: Boolean(teamId && selectedSlug),
-  });
-
-  const buildMutation = useMutation({
-    mutationFn: () => api.buildTeamWiki(teamId),
-    onSuccess: (res) => {
-      // 202 returns immediately. Start polling regardless of started vs.
-      // already_running; both mean a build is now in flight.
-      buildBaselineRef.current = teamQuery.data?.last_wiki_built_at ?? null;
-      buildDeadlineRef.current = Date.now() + 5 * 60 * 1000;
-      setBuilding(true);
-      setBuildNotice({
-        tone: "ok",
-        text: res.status === "already_running" ? copy.alreadyRunning : copy.buildStarted,
-      });
-    },
-    onError: (error: unknown) =>
-      setBuildNotice({
-        tone: "error",
-        text: error instanceof Error ? error.message : copy.buildStarted,
-      }),
-  });
-
-  const isBuilding = building || buildMutation.isPending;
-
-  const [editOpen, setEditOpen] = useState(false);
-  const [draftTitle, setDraftTitle] = useState("");
-  const [draftSummary, setDraftSummary] = useState("");
-  const [draftContent, setDraftContent] = useState("");
-
-  const openEdit = () => {
-    if (!articleQuery.data) return;
-    setDraftTitle(articleQuery.data.title ?? "");
-    setDraftSummary(articleQuery.data.summary ?? "");
-    setDraftContent(articleQuery.data.content ?? "");
-    setEditOpen(true);
-  };
-
-  const editMutation = useMutation({
-    mutationFn: () =>
-      api.updateTeamWikiArticle(teamId, selectedSlug as string, {
-        title: draftTitle,
-        summary: draftSummary || null,
-        content: draftContent,
-      }),
-    onSuccess: () => {
-      setEditOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["team-wiki-article", teamId, selectedSlug] });
-      queryClient.invalidateQueries({ queryKey: ["team-wiki-articles", teamId] });
-      queryClient.invalidateQueries({ queryKey: ["team-workspace", teamId] });
-    },
-  });
-
-  const toggleAutoMutation = useMutation({
-    mutationFn: (next: boolean) => api.patchTeamSettings(teamId, { auto_wiki_enabled: next }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["team", teamId] }),
-  });
-
-  const grouped = useMemo(() => {
-    const buckets = new Map<string, TeamWikiArticleSummary[]>();
-    for (const article of articles) {
-      const key = article.category || copy.otherCategory;
-      const arr = buckets.get(key) ?? [];
-      arr.push(article);
-      buckets.set(key, arr);
-    }
-    return Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [articles, copy.otherCategory]);
-
-  const articleContent = articleQuery.data
-    ? resolveWikilinks(articleQuery.data.content, articles)
-    : "";
-
-  return (
-    <>
-      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm text-muted-foreground">{copy.intro}</p>
-          {teamQuery.data?.last_wiki_built_at && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {copy.lastBuiltPrefix}: {new Date(teamQuery.data.last_wiki_built_at).toLocaleString("ko-KR")}
-            </p>
-          )}
-        </div>
-        {/* Condensed: auto-build toggle + icon-only refresh + labeled build. */}
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground">
-            <input
-              type="checkbox"
-              className="size-3.5 accent-primary"
-              checked={Boolean(teamQuery.data?.auto_wiki_enabled)}
-              disabled={!isOwner || toggleAutoMutation.isPending}
-              onChange={(event) => toggleAutoMutation.mutate(event.target.checked)}
-            />
-            {copy.autoBuild}
-          </label>
-          <Button
-            variant="outline"
-            size="icon"
-            title={copy.refresh}
-            aria-label={copy.refresh}
-            onClick={() => articlesQuery.refetch()}
-            disabled={articlesQuery.isFetching}
-          >
-            <RefreshCcw className="size-4" />
-          </Button>
-          <Button
-            size="sm"
-            onClick={() => buildMutation.mutate()}
-            disabled={isBuilding || !isOwner}
-            title={!isOwner ? copy.ownerOnlyBuild : undefined}
-          >
-            {isBuilding ? (
-              <>
-                <Loader2 className="me-2 size-4 animate-spin" /> {copy.building}
-              </>
-            ) : (
-              <>
-                <Sparkles className="me-2 size-4" /> {copy.buildNow}
-              </>
-            )}
-          </Button>
-        </div>
-      </div>
-
-      {buildNotice && (
-        <div
-          className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
-            buildNotice.tone === "error"
-              ? "border-destructive/40 bg-destructive/5 text-destructive"
-              : "text-muted-foreground"
-          }`}
-        >
-          {buildNotice.text}
-        </div>
-      )}
-
-      <div className="grid items-stretch gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="flex flex-col gap-4">
-          <Card className="flex-1">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <BookOpen className="size-4" /> {copy.articles}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {articlesQuery.isLoading ? (
-                <div className="space-y-2">
-                  {[1, 2, 3, 4].map((i) => (
-                    <Skeleton key={i} className="h-14 rounded-xl" />
-                  ))}
-                </div>
-              ) : articles.length === 0 ? (
-                <div className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
-                  {copy.emptyListHint}
-                </div>
-              ) : (
-                grouped.map(([category, items]) => (
-                  <div key={category} className="space-y-1">
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {category}
-                    </p>
-                    <div className="space-y-1">
-                      {items.map((article) => {
-                        const active = selectedSlug === article.slug;
-                        return (
-                          <button
-                            key={article.id}
-                            type="button"
-                            onClick={() => setSelectedSlug(article.slug)}
-                            className={`w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:bg-accent ${
-                              active ? "border-primary bg-primary/5" : "bg-background"
-                            }`}
-                          >
-                            <p className="truncate font-medium">{article.title}</p>
-                            {article.summary && (
-                              <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
-                                {article.summary}
-                              </p>
-                            )}
-                            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-                              <span>v{article.revision}</span>
-                              {article.generated_by && (
-                                <Badge variant="outline" className="px-1 py-0 text-[10px]">
-                                  {article.generated_by}
-                                </Badge>
-                              )}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-        </aside>
-
-        <section className="flex flex-col">
-          <Card className="flex-1">
-            <CardHeader className="flex flex-row items-center justify-between gap-3">
-              <CardTitle className="min-w-0 truncate text-base">
-                {articleQuery.data?.title ?? (articles.length === 0 ? copy.wikiEmptyTitle : copy.selectArticleTitle)}
-              </CardTitle>
-              {articleQuery.data && (
-                <Button variant="outline" size="sm" onClick={openEdit}>
-                  <Pencil className="me-2 size-4" /> {copy.edit}
-                </Button>
-              )}
-            </CardHeader>
-            <CardContent>
-              {articleQuery.isLoading ? (
-                <div className="space-y-3">
-                  <Skeleton className="h-4 w-2/3" />
-                  <Skeleton className="h-4 w-4/5" />
-                  <Skeleton className="h-40 w-full" />
-                </div>
-              ) : articleQuery.data ? (
-                <article className="prose prose-sm max-w-none whitespace-pre-wrap break-words leading-relaxed dark:prose-invert">
-                  {articleQuery.data.summary && (
-                    <p className="text-sm text-muted-foreground">{articleQuery.data.summary}</p>
-                  )}
-                  <div className="mt-3 text-sm">{articleContent}</div>
-                  {articleQuery.data.sources?.length > 0 && (
-                    <div className="mt-6 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
-                      <p className="mb-1 font-medium">{copy.sources}</p>
-                      <ul className="list-inside list-disc">
-                        {articleQuery.data.sources.map((s) => (
-                          <li key={`${s.kind}-${s.id}`}>
-                            <span className="font-mono text-[10px]">[{s.kind}]</span> {s.title || s.id}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </article>
-              ) : articles.length === 0 ? (
-                <div className="flex flex-col items-center gap-6 px-4 py-12 text-center sm:py-20">
-                  <div className="flex size-16 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/15">
-                    <BookOpen className="size-7 text-primary" />
-                  </div>
-                  <div className="space-y-2">
-                    <h2 className="text-lg font-semibold sm:text-xl">{copy.emptyHeadline}</h2>
-                    <p className="mx-auto max-w-md text-sm text-muted-foreground sm:text-[15px]">
-                      {copy.emptyBody}
-                    </p>
-                  </div>
-
-                  <div className="mt-2 grid w-full max-w-xl gap-3 sm:grid-cols-3">
-                    <div className="rounded-xl border bg-card/50 p-4 text-left">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        {copy.step1Label}
-                      </p>
-                      <p className="mt-1 text-sm font-medium">{copy.step1Title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{copy.step1Body}</p>
-                    </div>
-                    <div className="rounded-xl border bg-card/50 p-4 text-left">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        {copy.step2Label}
-                      </p>
-                      <p className="mt-1 text-sm font-medium">{copy.step2Title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{copy.step2Body}</p>
-                    </div>
-                    <div className="rounded-xl border bg-card/50 p-4 text-left">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        {copy.step3Label}
-                      </p>
-                      <p className="mt-1 text-sm font-medium">{copy.step3Title}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{copy.step3Body}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap items-center justify-center gap-2">
-                    <Button
-                      size="lg"
-                      onClick={() => buildMutation.mutate()}
-                      disabled={isBuilding || !isOwner}
-                    >
-                      {isBuilding ? (
-                        <>
-                          <Loader2 className="me-2 size-4 animate-spin" /> {copy.building}
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="me-2 size-4" /> {copy.buildNowLarge}
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  {!isOwner && (
-                    <p className="text-xs text-muted-foreground">{copy.ownerOnlyHint}</p>
-                  )}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center gap-3 px-4 py-12 text-center text-muted-foreground">
-                  <BookOpen className="size-8" />
-                  <p className="text-sm">{copy.selectArticlePrompt}</p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </section>
-      </div>
-
-      <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>{copy.editArticle}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground" htmlFor="wiki-title">
-                {copy.titleField}
-              </label>
-              <Input
-                id="wiki-title"
-                value={draftTitle}
-                onChange={(e) => setDraftTitle(e.target.value)}
-                placeholder={copy.titlePlaceholder}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground" htmlFor="wiki-summary">
-                {copy.summaryField}
-              </label>
-              <Input
-                id="wiki-summary"
-                value={draftSummary}
-                onChange={(e) => setDraftSummary(e.target.value)}
-                placeholder={copy.summaryPlaceholder}
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">{copy.bodyField}</label>
-              <MarkdownEditor
-                value={draftContent}
-                onChange={setDraftContent}
-                height={420}
-                imageUploadUrl={`/api/teams/${teamId}/wiki/images`}
-              />
-            </div>
-            <p className="text-[11px] text-muted-foreground">{copy.editNotice}</p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditOpen(false)}>
-              {copy.cancel}
-            </Button>
-            <Button onClick={() => editMutation.mutate()} disabled={editMutation.isPending}>
-              {editMutation.isPending ? (
-                <>
-                  <Loader2 className="me-2 size-4 animate-spin" /> {copy.saving}
-                </>
-              ) : (
-                copy.save
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // 맥락지도 tab: the context-map graph (inline) + node-info popup.
 // ---------------------------------------------------------------------------
 
@@ -1560,7 +1090,17 @@ function MapTab({ teamId }: { teamId: string }) {
   const { t } = useTranslation();
   const copy = t.teams.wiki;
   const tabsCopy = t.teams.tabs;
-  const { workspaceQuery, articles } = useWikiData(teamId);
+  const workspaceQuery = useQuery({
+    queryKey: ["team-workspace", teamId],
+    queryFn: () => api.getTeamWorkspace(teamId),
+    enabled: Boolean(teamId),
+  });
+  const articlesQuery = useQuery({
+    queryKey: ["team-wiki-articles", teamId],
+    queryFn: () => api.listTeamWikiArticles(teamId),
+    enabled: Boolean(teamId),
+  });
+  const articles = articlesQuery.data ?? [];
   const [activeNode, setActiveNode] = useState<GraphNode | null>(null);
 
   const activeNodeArticle = useMemo(() => {
@@ -1633,7 +1173,7 @@ function MapTab({ teamId }: { teamId: string }) {
               ))}
             {activeNodeArticle && (
               <Button asChild variant="secondary">
-                <a href={`/teams?tab=wiki&id=${teamId}`}>
+                <a href={`/teams/wiki?id=${teamId}`}>
                   <BookOpen className="me-2 size-4" /> {copy.openInWiki}
                 </a>
               </Button>
