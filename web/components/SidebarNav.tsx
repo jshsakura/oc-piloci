@@ -5,7 +5,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   Activity,
-  BookOpen,
   BookOpenCheck,
   FolderKanban,
   GanttChart,
@@ -92,17 +91,10 @@ function useSidebarGroups(): SidebarGroup[] {
         {
           key: "teams",
           label: labels.teams,
-          href: "/teams?tab=settings",
+          href: "/teams",
           icon: UsersRound,
-          // Default landing (no tab) and the settings tab both highlight here.
-          match: { pathname: "/teams", search: { tab: "settings" } },
-        },
-        {
-          key: "team-wiki",
-          label: labels.teamWiki,
-          href: "/teams?tab=wiki",
-          icon: BookOpen,
-          match: { pathname: "/teams", search: { tab: "wiki" } },
+          // Single entry now — settings/LLM위키/맥락지도 are tabs inside /teams.
+          match: { pathname: "/teams" },
         },
       ],
     },

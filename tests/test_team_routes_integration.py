@@ -1752,15 +1752,21 @@ async def test_wiki_build_owner_only_and_store_check(team_app: Starlette) -> Non
 
 @pytest.mark.asyncio
 async def test_wiki_build_owner_with_store_runs(team_app: Starlette, tmp_path, monkeypatch) -> None:
-    """Wire a stubbed store + monkeypatch build_team_wiki so the request
-    returns the worker summary without touching real LLMs."""
+    """Wire a stubbed store + monkeypatch build_team_wiki. The build now runs
+    in the background, so the request returns 202 ``started`` immediately and
+    the (stubbed) build is invoked off-request."""
+    import asyncio
+
     from piloci.config import get_settings
     from piloci.curator import team_wiki_worker
 
     settings = get_settings()
     monkeypatch.setattr(settings, "vault_dir", tmp_path / "vault-build")
 
+    called: dict = {}
+
     async def _fake_build(team_id, store):
+        called["team_id"] = team_id
         return {"success": True, "team_id": team_id, "articles_built": 0}
 
     monkeypatch.setattr(team_wiki_worker, "build_team_wiki", _fake_build)
@@ -1776,8 +1782,11 @@ async def test_wiki_build_owner_with_store_runs(team_app: Starlette, tmp_path, m
         owner = _headers("owner", "owner@example.com")
         team_id = await _make_team(client, owner, "BuildOk")
         ok = await client.post(f"/api/teams/{team_id}/wiki/build", headers=owner)
-        assert ok.status_code == 200
-        assert ok.json()["team_id"] == team_id
+        assert ok.status_code == 202
+        assert ok.json()["status"] == "started"
+        # Let the background build task run, then confirm it was invoked.
+        await asyncio.sleep(0.05)
+        assert called.get("team_id") == team_id
 
 
 # ---------------------------------------------------------------------------

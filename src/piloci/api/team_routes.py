@@ -1848,11 +1848,19 @@ async def route_team_export_zip(request: Request) -> Response:
     )
 
 
+# Strong refs to in-flight manual wiki builds so the event loop doesn't GC the
+# task mid-run. A team can have at most one queued here at a time.
+_WIKI_BUILD_TASKS: dict[str, "asyncio.Task"] = {}
+
+
 async def route_team_wiki_build(request: Request) -> Response:
     """POST /api/teams/{tid}/wiki/build — owner-only manual trigger.
 
-    Returns immediately with the build summary; LLM work runs synchronously
-    within the request. UI shows a spinner while the request is in flight.
+    The LLM wiki build is long-running (external model over many docs), so we
+    DON'T block the request on it — that just times out behind Cloudflare and
+    looks frozen. We kick the build off in the background and return 202
+    immediately; the UI polls the article list / ``last_wiki_built_at`` to know
+    when it's done. A build already running for the team is reported as such.
     """
     user = _require_user(request)
     if not user:
@@ -1872,10 +1880,16 @@ async def route_team_wiki_build(request: Request) -> Response:
     if store is None:
         return _json({"error": "memory store unavailable"}, 503)
 
+    existing = _WIKI_BUILD_TASKS.get(team_id)
+    if existing and not existing.done():
+        return _json({"status": "already_running"}, 202)
+
     from piloci.curator.team_wiki_worker import build_team_wiki
 
-    summary = await build_team_wiki(team_id, store)
-    return _json(summary)
+    task = asyncio.create_task(build_team_wiki(team_id, store))
+    _WIKI_BUILD_TASKS[team_id] = task
+    task.add_done_callback(lambda _t, tid=team_id: _WIKI_BUILD_TASKS.pop(tid, None))
+    return _json({"status": "started"}, 202)
 
 
 async def route_download_document(request: Request) -> Response:
@@ -1914,6 +1928,12 @@ async def route_download_document(request: Request) -> Response:
     # folder context when bulk-downloading.
     import os.path
 
+    # ``?inline=1`` lets the in-app viewer render images/PDF in a modal/iframe
+    # instead of forcing a download. Default stays ``attachment`` so existing
+    # download links/buttons are unchanged.
+    inline = request.query_params.get("inline") == "1"
+    disposition = "inline" if inline else "attachment"
+
     headers = {
         "X-Doc-Path": doc.path,
         "X-Content-Hash": doc.content_hash or "",
@@ -1932,7 +1952,7 @@ async def route_download_document(request: Request) -> Response:
             body = read_blob(get_settings().team_files_dir, doc.storage_key)
         except (FileNotFoundError, ValueError):
             return _json({"error": "Blob missing"}, 404)
-        headers["Content-Disposition"] = f'attachment; filename="{safe_filename}"'
+        headers["Content-Disposition"] = f'{disposition}; filename="{safe_filename}"'
         return Response(
             body,
             media_type=doc.mime or "application/octet-stream",
@@ -1942,12 +1962,11 @@ async def route_download_document(request: Request) -> Response:
     filename = os.path.basename(doc.path) or "document.md"
     safe_filename = filename.replace('"', "")
     body = (doc.content or "").encode("utf-8")
-    headers["Content-Disposition"] = f'attachment; filename="{safe_filename}"'
-    return Response(
-        body,
-        media_type="text/markdown; charset=utf-8",
-        headers=headers,
-    )
+    # Text renders in-browser only as text/plain; markdown mime triggers a
+    # download in most browsers. Use plain when serving inline.
+    media_type = "text/plain; charset=utf-8" if inline else "text/markdown; charset=utf-8"
+    headers["Content-Disposition"] = f'{disposition}; filename="{safe_filename}"'
+    return Response(body, media_type=media_type, headers=headers)
 
 
 # ---------------------------------------------------------------------------
