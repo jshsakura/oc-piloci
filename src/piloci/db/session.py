@@ -91,6 +91,7 @@ _SQLITE_ADD_COLUMNS: dict[str, dict[str, str]] = {
     "teams": {
         "auto_wiki_enabled": "INTEGER NOT NULL DEFAULT 0",
         "last_wiki_built_at": "DATETIME",
+        "wiki_building_since": "DATETIME",
     },
     "team_documents": {
         "uploader_id": "TEXT",

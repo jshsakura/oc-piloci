@@ -407,6 +407,9 @@ class Team(Base):
     # skip teams that have no new memories or docs since the last build.
     auto_wiki_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     last_wiki_built_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Set when a wiki build starts, cleared when it finishes/fails. Persisted so
+    # "생성 중" survives navigation/restart and acts as a 1-build-per-team lock.
+    wiki_building_since: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     __table_args__ = (Index("idx_teams_owner", "owner_id"),)
 

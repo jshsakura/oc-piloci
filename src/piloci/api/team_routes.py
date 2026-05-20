@@ -8,6 +8,7 @@ as routes.py. All endpoints require Bearer token authentication.
 
 import asyncio
 import hashlib
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -19,6 +20,8 @@ from starlette.routing import Route
 
 from piloci.api.ratelimit import RATE_MUTATION, limiter
 from piloci.db.session import async_session
+
+logger_team = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Helpers (mirrored from routes.py)
@@ -179,6 +182,13 @@ async def route_get_team(request: Request) -> Response:
             "description": team.description,
             "avatar": team.avatar,
             "color": team.color,
+            "auto_wiki_enabled": bool(team.auto_wiki_enabled),
+            "last_wiki_built_at": (
+                team.last_wiki_built_at.isoformat() if team.last_wiki_built_at else None
+            ),
+            "wiki_building_since": (
+                team.wiki_building_since.isoformat() if team.wiki_building_since else None
+            ),
             "members": members,
         }
     )
@@ -1882,6 +1892,38 @@ async def route_team_export_zip(request: Request) -> Response:
 # task mid-run. A team can have at most one queued here at a time.
 _WIKI_BUILD_TASKS: dict[str, "asyncio.Task"] = {}
 
+# A persisted build older than this is treated as stale (process likely
+# restarted mid-build) so a fresh trigger isn't blocked forever.
+_WIKI_BUILD_STALE_AFTER = timedelta(minutes=20)
+
+
+async def _set_wiki_building(team_id: str, value) -> None:
+    """Set/clear ``Team.wiki_building_since`` (None to clear). Best-effort."""
+    from sqlalchemy import update
+
+    from piloci.db.models import Team
+
+    try:
+        async with async_session() as db:
+            await db.execute(
+                update(Team).where(Team.id == team_id).values(wiki_building_since=value)
+            )
+    except Exception:
+        logger_team.exception("failed to set wiki_building_since team=%s", team_id)
+
+
+async def _run_wiki_build_and_clear(team_id: str, store) -> None:
+    """Run the build, then always clear the persisted building flag — so a
+    crash/exception can't leave the team stuck showing '생성 중' forever."""
+    from piloci.curator.team_wiki_worker import build_team_wiki
+
+    try:
+        await build_team_wiki(team_id, store)
+    except Exception:
+        logger_team.exception("wiki build failed team=%s", team_id)
+    finally:
+        await _set_wiki_building(team_id, None)
+
 
 async def route_team_wiki_build(request: Request) -> Response:
     """POST /api/teams/{tid}/wiki/build — owner-only manual trigger.
@@ -1910,13 +1952,23 @@ async def route_team_wiki_build(request: Request) -> Response:
     if store is None:
         return _json({"error": "memory store unavailable"}, 503)
 
-    existing = _WIKI_BUILD_TASKS.get(team_id)
-    if existing and not existing.done():
-        return _json({"status": "already_running"}, 202)
+    # Persisted lock: one build per team. A non-stale building flag means a
+    # build is genuinely in flight (survives navigation/restart), so report it.
+    from sqlalchemy import select
 
-    from piloci.curator.team_wiki_worker import build_team_wiki
+    from piloci.db.models import Team
 
-    task = asyncio.create_task(build_team_wiki(team_id, store))
+    async with async_session() as db:
+        building_since = (
+            await db.execute(select(Team.wiki_building_since).where(Team.id == team_id))
+        ).scalar_one_or_none()
+    if building_since is not None:
+        age = datetime.utcnow() - building_since
+        if age < _WIKI_BUILD_STALE_AFTER:
+            return _json({"status": "already_running"}, 202)
+
+    await _set_wiki_building(team_id, datetime.utcnow())
+    task = asyncio.create_task(_run_wiki_build_and_clear(team_id, store))
     _WIKI_BUILD_TASKS[team_id] = task
     task.add_done_callback(lambda _t, tid=team_id: _WIKI_BUILD_TASKS.pop(tid, None))
     return _json({"status": "started"}, 202)

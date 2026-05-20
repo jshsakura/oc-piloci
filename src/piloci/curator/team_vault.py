@@ -20,6 +20,10 @@ from typing import Any
 
 import orjson
 
+# Graph schema version. Bump when the node/edge shape changes so stale on-disk
+# vault caches are discarded on load. v2 = wiki article nodes + source/wikilink edges.
+GRAPH_VERSION = 2
+
 _WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
@@ -285,6 +289,10 @@ def build_team_vault(
 
     return {
         "root": f"teams/{team_id}",
+        # Bumped when the graph schema changes (e.g. article nodes added) so
+        # stale on-disk caches are discarded on load instead of serving an old
+        # graph that the UI can't navigate.
+        "graph_version": GRAPH_VERSION,
         "team": {
             "id": team_id,
             "name": team.get("name"),
@@ -324,9 +332,14 @@ def load_cached_team_vault(vault_dir: Path, team_id: str) -> dict[str, Any] | No
     if not path.is_file():
         return None
     try:
-        return orjson.loads(path.read_bytes())
+        cached = orjson.loads(path.read_bytes())
     except (orjson.JSONDecodeError, ValueError):
         return None
+    # Discard caches from an older graph schema so the next GET rebuilds with
+    # the current node/edge set (e.g. article nodes).
+    if not isinstance(cached, dict) or cached.get("graph_version") != GRAPH_VERSION:
+        return None
+    return cached
 
 
 def save_team_vault(vault_dir: Path, team_id: str, workspace: dict[str, Any]) -> None:
