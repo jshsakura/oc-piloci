@@ -92,6 +92,14 @@ _SQLITE_ADD_COLUMNS: dict[str, dict[str, str]] = {
         "auto_wiki_enabled": "INTEGER NOT NULL DEFAULT 0",
         "last_wiki_built_at": "DATETIME",
     },
+    "team_documents": {
+        "uploader_id": "TEXT",
+        "updated_by_id": "TEXT",
+        "size": "INTEGER",
+        "mime": "TEXT",
+        "is_binary": "INTEGER NOT NULL DEFAULT 0",
+        "storage_key": "TEXT",
+    },
 }
 
 
@@ -140,6 +148,11 @@ _SQLITE_BACKFILL: list[str] = [
         0
     FROM raw_analyses
     """,
+    # Team documents predate the uploader/editor split — author_id was the
+    # only attribution. Seed both new columns from it so legacy rows show a
+    # sensible uploader/editor instead of NULL.
+    "UPDATE team_documents SET uploader_id = author_id WHERE uploader_id IS NULL",
+    "UPDATE team_documents SET updated_by_id = author_id WHERE updated_by_id IS NULL",
 ]
 
 

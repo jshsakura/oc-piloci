@@ -469,9 +469,20 @@ class TeamDocument(Base):
     author_id: Mapped[str] = mapped_column(
         Text, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    # Original creator — set once on first upload, NEVER overwritten on edit.
+    uploader_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Last editor — refreshed on every update.
+    updated_by_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     path: Mapped[str] = mapped_column(Text, nullable=False)
+    # Text rows keep inline content (digestible by wiki/search). Binary rows
+    # store "" here and keep their bytes in the content-addressed blob store
+    # (see storage/team_files.py), addressed by ``storage_key``.
     content: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mime: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_binary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    storage_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     parent_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
