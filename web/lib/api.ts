@@ -228,6 +228,38 @@ export const api = {
     }),
   listTeamDocuments: (teamId: string) =>
     request<import("./types").TeamDocumentSummary[]>(`/api/teams/${teamId}/documents`),
+  // Single doc WITH content. Text docs come back with `content`; binary docs
+  // carry metadata only (the UI downloads bytes via the /raw URL below).
+  getTeamDocument: (teamId: string, docId: string) =>
+    request<import("./types").TeamDocumentDetail>(`/api/teams/${teamId}/documents/${docId}`),
+  // Multipart upload — any format. We hand the browser a FormData so it sets
+  // the multipart boundary itself; manually setting Content-Type would break
+  // the boundary. csrfHeaders still attaches the session CSRF token.
+  uploadTeamFile: async (
+    teamId: string,
+    file: File,
+    path?: string,
+  ): Promise<import("./types").TeamFileUploadResult> => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("path", path ?? file.name);
+    const res = await fetch(`${BASE}/api/teams/${teamId}/files`, {
+      method: "POST",
+      credentials: "include",
+      headers: { ...csrfHeaders("POST") },
+      body: form,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: "Upload failed" }));
+      throw Object.assign(new Error(err.error || "Upload failed"), { status: res.status });
+    }
+    return res.json();
+  },
+  // Same-origin URLs (BASE is ""). Session cookies ride along on navigation,
+  // so a plain <a href>/window.open download stays authenticated.
+  teamDocumentRawUrl: (teamId: string, docId: string) =>
+    `${BASE}/api/teams/${teamId}/documents/${docId}/raw`,
+  teamExportZipUrl: (teamId: string) => `${BASE}/api/teams/${teamId}/export.zip`,
   pullTeamDocuments: (teamId: string, manifest: Record<string, string>) =>
     request<import("./types").TeamDocumentPull>(`/api/teams/${teamId}/documents/pull`, {
       method: "POST",

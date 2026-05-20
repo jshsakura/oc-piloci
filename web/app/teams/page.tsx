@@ -1,8 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, FileText, Inbox, MailPlus, RefreshCcw, Trash2, UsersRound } from "lucide-react";
+import {
+  BookOpen,
+  Download,
+  File as FileIcon,
+  FileArchive,
+  FileText,
+  Inbox,
+  MailPlus,
+  RefreshCcw,
+  Trash2,
+  Upload,
+  UsersRound,
+} from "lucide-react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import { Button } from "@/components/ui/button";
@@ -12,7 +24,14 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/lib/api";
-import type { TeamDocumentPull, TeamDocumentSummary, TeamSummary } from "@/lib/types";
+import type { TeamDocumentSummary, TeamSummary } from "@/lib/types";
+
+function humanizeSize(bytes?: number): string {
+  if (bytes == null) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 type Notice = { tone: "ok" | "error"; text: string } | null;
 const EMPTY_TEAMS: TeamSummary[] = [];
@@ -25,7 +44,14 @@ export default function TeamsPage() {
   const [docPath, setDocPath] = useState("notes.md");
   const [docContent, setDocContent] = useState("");
   const [editingDoc, setEditingDoc] = useState<TeamDocumentSummary | null>(null);
+  // True when the open doc is binary — we hide the editor and show a download
+  // panel instead of inlining bytes.
+  const [editingBinary, setEditingBinary] = useState(false);
+  const [loadingDoc, setLoadingDoc] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const teamsQuery = useQuery({ queryKey: ["teams"], queryFn: api.listTeams });
   const pendingInvitesQuery = useQuery({
@@ -99,8 +125,7 @@ export default function TeamsPage() {
         content: docContent,
       }),
     onSuccess: () => {
-      setDocPath("notes.md");
-      setDocContent("");
+      resetEditor();
       setNotice({ tone: "ok", text: "팀 문서를 저장했습니다." });
       queryClient.invalidateQueries({ queryKey: ["team-documents", selectedTeamId] });
     },
@@ -114,9 +139,7 @@ export default function TeamsPage() {
         parent_hash: editingDoc?.content_hash,
       }),
     onSuccess: () => {
-      setEditingDoc(null);
-      setDocPath("notes.md");
-      setDocContent("");
+      resetEditor();
       setNotice({ tone: "ok", text: "팀 문서를 갱신했습니다." });
       queryClient.invalidateQueries({ queryKey: ["team-documents", selectedTeamId] });
     },
@@ -133,25 +156,68 @@ export default function TeamsPage() {
   });
 
   const docs = docsQuery.data ?? [];
-  const manifest = Object.fromEntries(docs.map((doc) => [doc.path, doc.content_hash]));
-  const pullQuery = useQuery<TeamDocumentPull>({
-    queryKey: ["team-documents-pull", selectedTeamId, docs.length],
-    queryFn: () => api.pullTeamDocuments(selectedTeamId as string, manifest),
-    enabled: Boolean(selectedTeamId) && docs.length > 0,
-  });
 
-  const selectDocument = (doc: TeamDocumentSummary) => {
-    const pulled = [...(pullQuery.data?.added ?? []), ...(pullQuery.data?.modified ?? [])].find(
-      (item) => item.id === doc.id,
-    );
+  const resetEditor = () => {
+    setEditingDoc(null);
+    setEditingBinary(false);
+    setDocPath("notes.md");
+    setDocContent("");
+  };
+
+  // v0.3.59: fetch the single doc (with content) instead of fishing the body
+  // out of the pull-diff cache — that cache only held added/modified entries,
+  // so most selections showed an empty editor.
+  const selectDocument = async (doc: TeamDocumentSummary) => {
     setEditingDoc(doc);
     setDocPath(doc.path);
-    setDocContent(pulled?.content ?? "");
-    setNotice(
-      pulled
-        ? null
-        : { tone: "ok", text: "목록 메타데이터만 불러왔습니다. 내용은 다음 동기화 차이에 포함될 때 표시됩니다." },
-    );
+    if (doc.is_binary) {
+      setEditingBinary(true);
+      setDocContent("");
+      setNotice(null);
+      return;
+    }
+    setEditingBinary(false);
+    setLoadingDoc(true);
+    setDocContent("");
+    try {
+      const detail = await api.getTeamDocument(selectedTeamId as string, doc.id);
+      if (detail.is_binary) {
+        setEditingBinary(true);
+        setDocContent("");
+      } else {
+        setDocContent(detail.content ?? "");
+      }
+      setNotice(null);
+    } catch (error) {
+      setNotice(toError(error, "문서를 불러오지 못했습니다."));
+    } finally {
+      setLoadingDoc(false);
+    }
+  };
+
+  const uploadFiles = async (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0 || !selectedTeamId) return;
+    setUploading(true);
+    let ok = 0;
+    try {
+      // Sequential: the Pi backend distills/embeds on write — parallel uploads
+      // would just queue behind each other and spike load.
+      for (const file of list) {
+        try {
+          await api.uploadTeamFile(selectedTeamId, file, file.name);
+          ok += 1;
+        } catch (error) {
+          setNotice(toError(error, `'${file.name}' 업로드에 실패했습니다.`));
+        }
+      }
+      if (ok > 0) {
+        setNotice({ tone: "ok", text: `${ok}개 파일을 올렸습니다.` });
+        queryClient.invalidateQueries({ queryKey: ["team-documents", selectedTeamId] });
+      }
+    } finally {
+      setUploading(false);
+    }
   };
 
   return (
@@ -440,12 +506,59 @@ export default function TeamsPage() {
 
               <div className="grid gap-4 xl:grid-cols-[minmax(0,360px)_minmax(0,1fr)]">
                 <Card>
-                  <CardHeader>
+                  <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <CardTitle className="flex items-center gap-2 text-base">
                       <FileText className="size-4" /> 팀 문서
                     </CardTitle>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={uploading}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Upload className="me-2 size-4" /> 파일 올리기
+                      </Button>
+                      <a
+                        href={api.teamExportZipUrl(selectedTeam.id)}
+                        className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent"
+                      >
+                        <FileArchive className="me-2 size-4" /> 전체 ZIP 다운로드
+                      </a>
+                    </div>
                   </CardHeader>
                   <CardContent className="space-y-2">
+                    {/* hidden picker — drives both the button and the drop zone */}
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        if (event.target.files) uploadFiles(event.target.files);
+                        event.target.value = "";
+                      }}
+                    />
+                    <div
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setDragActive(true);
+                      }}
+                      onDragLeave={() => setDragActive(false)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setDragActive(false);
+                        if (event.dataTransfer.files) uploadFiles(event.dataTransfer.files);
+                      }}
+                      className={`rounded-xl border border-dashed px-3 py-4 text-center text-xs transition-colors ${
+                        dragActive ? "border-primary bg-primary/5 text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      {uploading
+                        ? "올리는 중입니다."
+                        : "여기에 파일을 끌어다 놓으면 팀 문서로 추가됩니다."}
+                    </div>
                     {docsQuery.isLoading ? (
                       [1, 2, 3].map((item) => <Skeleton key={item} className="h-14 rounded-xl" />)
                     ) : docs.length === 0 ? (
@@ -461,21 +574,56 @@ export default function TeamsPage() {
                           }`}
                         >
                           <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0 flex-1">
-                              <p className="break-all text-sm font-medium">{doc.path}</p>
-                              <p className="text-xs text-muted-foreground">v{doc.version}</p>
+                            <div className="flex min-w-0 flex-1 items-start gap-2">
+                              {doc.is_binary ? (
+                                <FileIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                              ) : (
+                                <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                              )}
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <p className="break-all text-sm font-medium">{doc.path}</p>
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <Badge variant="secondary" className="font-normal">
+                                    {doc.mime ?? "텍스트"}
+                                  </Badge>
+                                  <span className="text-xs text-muted-foreground">v{doc.version}</span>
+                                  {doc.size != null && (
+                                    <span className="text-xs text-muted-foreground">
+                                      {humanizeSize(doc.size)}
+                                    </span>
+                                  )}
+                                </div>
+                                {(doc.uploader_email || doc.updated_by_email) && (
+                                  <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                                    {doc.uploader_email && <p>올린 사람 {doc.uploader_email}</p>}
+                                    {doc.updated_by_email && <p>수정한 사람 {doc.updated_by_email}</p>}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                deleteDocMutation.mutate(doc.id);
-                              }}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
+                            <div className="flex shrink-0 items-center">
+                              <a
+                                href={api.teamDocumentRawUrl(selectedTeam.id, doc.id)}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(event) => event.stopPropagation()}
+                                className="inline-flex size-8 items-center justify-center rounded-md hover:bg-accent"
+                                aria-label="다운로드"
+                              >
+                                <Download className="size-4" />
+                              </a>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  deleteDocMutation.mutate(doc.id);
+                                }}
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </div>
                           </div>
                         </button>
                       ))
@@ -488,54 +636,79 @@ export default function TeamsPage() {
                     <CardTitle className="text-base">{editingDoc ? "문서 수정" : "새 문서 작성"}</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <form
-                      className="space-y-4"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        if (!docPath.trim()) return setNotice({ tone: "error", text: "문서 경로를 입력하세요." });
-                        if (editingDoc) updateDocMutation.mutate();
-                        else createDocMutation.mutate();
-                      }}
-                    >
-                      <div className="space-y-2">
-                        <Label htmlFor="team-doc-path">경로</Label>
-                        <Input
-                          id="team-doc-path"
-                          value={docPath}
-                          disabled={Boolean(editingDoc)}
-                          onChange={(event) => setDocPath(event.target.value)}
-                          placeholder="notes.md"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="team-doc-content">내용</Label>
-                        <textarea
-                          id="team-doc-content"
-                          value={docContent}
-                          onChange={(event) => setDocContent(event.target.value)}
-                          placeholder="팀이 함께 볼 내용을 적어두세요."
-                          className="min-h-64 w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                        />
-                      </div>
-                      <div className="flex flex-wrap justify-end gap-2">
-                        {editingDoc && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                              setEditingDoc(null);
-                              setDocPath("notes.md");
-                              setDocContent("");
-                            }}
+                    {editingDoc && editingBinary ? (
+                      // Binary docs aren't editable inline — bytes never enter the
+                      // textarea. We point the user at the raw download instead.
+                      <div className="space-y-4">
+                        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed py-10 text-center">
+                          <FileIcon className="size-8 text-muted-foreground" />
+                          <div className="space-y-1">
+                            <p className="break-all text-sm font-medium">{editingDoc.path}</p>
+                            <p className="text-xs text-muted-foreground">
+                              바이너리 파일 — 다운로드
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {editingDoc.mime ?? "binary"} · {humanizeSize(editingDoc.size)}
+                            </p>
+                          </div>
+                          <a
+                            href={api.teamDocumentRawUrl(selectedTeam.id, editingDoc.id)}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
                           >
+                            <Download className="me-2 size-4" /> 다운로드
+                          </a>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button type="button" variant="outline" onClick={resetEditor}>
                             새 문서로 전환
                           </Button>
-                        )}
-                        <Button type="submit" disabled={createDocMutation.isPending || updateDocMutation.isPending}>
-                          {editingDoc ? "갱신" : "저장"}
-                        </Button>
+                        </div>
                       </div>
-                    </form>
+                    ) : (
+                      <form
+                        className="space-y-4"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          if (!docPath.trim()) return setNotice({ tone: "error", text: "문서 경로를 입력하세요." });
+                          if (editingDoc) updateDocMutation.mutate();
+                          else createDocMutation.mutate();
+                        }}
+                      >
+                        <div className="space-y-2">
+                          <Label htmlFor="team-doc-path">경로</Label>
+                          <Input
+                            id="team-doc-path"
+                            value={docPath}
+                            disabled={Boolean(editingDoc)}
+                            onChange={(event) => setDocPath(event.target.value)}
+                            placeholder="notes.md"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="team-doc-content">내용</Label>
+                          <textarea
+                            id="team-doc-content"
+                            value={docContent}
+                            disabled={loadingDoc}
+                            onChange={(event) => setDocContent(event.target.value)}
+                            placeholder={loadingDoc ? "문서를 불러오는 중입니다." : "팀이 함께 볼 내용을 적어두세요."}
+                            className="min-h-64 w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                          />
+                        </div>
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {editingDoc && (
+                            <Button type="button" variant="outline" onClick={resetEditor}>
+                              새 문서로 전환
+                            </Button>
+                          )}
+                          <Button type="submit" disabled={createDocMutation.isPending || updateDocMutation.isPending}>
+                            {editingDoc ? "갱신" : "저장"}
+                          </Button>
+                        </div>
+                      </form>
+                    )}
                   </CardContent>
                 </Card>
               </div>

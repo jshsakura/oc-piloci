@@ -126,8 +126,30 @@ export interface TeamDocumentSummary {
   content_hash: string;
   version: number;
   author_email?: string;
+  // v0.3.59: list rows now carry attribution + file shape. All optional so
+  // older cached payloads (and the pull-diff projections) stay valid.
+  uploader_email?: string;
+  updated_by_email?: string;
+  size?: number;
+  mime?: string;
+  is_binary?: boolean;
   updated_at?: string;
   created_at?: string;
+}
+
+// Single document fetched with its body. Binary docs omit `content` (the
+// client downloads via /raw instead of inlining bytes into the editor).
+export interface TeamDocumentDetail extends TeamDocumentSummary {
+  content?: string;
+}
+
+export interface TeamFileUploadResult {
+  id: string;
+  path: string;
+  version: number;
+  is_binary: boolean;
+  size: number;
+  mime: string;
 }
 
 export interface TeamDocumentPull {
