@@ -406,6 +406,47 @@ async def test_recall_preview_surfaces_doc_chunk_path_and_lines(
 
 
 @pytest.mark.asyncio
+async def test_recall_preview_surfaces_binary_file_stub(fake_store, fake_embed, monkeypatch):
+    """A ``doc_file`` stub becomes a kind='file' preview with path/mime/size
+    and a pull hint instead of an excerpt."""
+    monkeypatch.setattr(
+        "piloci.tools.memory_tools._ensure_team_member", AsyncMock(return_value=None)
+    )
+    fake_store.team_hybrid_search.return_value = [
+        {
+            "id": "doc::f1::0",
+            "memory_id": "doc::f1::0",
+            "content": "[파일] assets/report.pdf (application/pdf, 2048 bytes)",
+            "tags": [],
+            "score": 0.88,
+            "metadata": {
+                "kind": "doc_file",
+                "doc_id": "f1",
+                "path": "assets/report.pdf",
+                "mime": "application/pdf",
+                "size": 2048,
+            },
+        }
+    ]
+
+    result = await handle_recall(
+        RecallInput(query="report", team_id="team-1"),
+        user_id="alice",
+        project_id=None,
+        store=fake_store,
+        embed_fn=fake_embed,
+    )
+
+    item = result["memories"][0]
+    assert item["kind"] == "file"
+    assert item["path"] == "assets/report.pdf"
+    assert item["mime"] == "application/pdf"
+    assert item["size"] == 2048
+    assert "piloci pull --path assets/report.pdf" in item["hint"]
+    assert "excerpt" not in item
+
+
+@pytest.mark.asyncio
 async def test_recall_preview_truncates_and_flags_when_over_cap(
     fake_store, fake_embed, monkeypatch
 ):

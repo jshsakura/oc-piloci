@@ -67,6 +67,24 @@ def test_cluster_drops_documents_without_path() -> None:
     assert clusters == []
 
 
+def test_cluster_skips_binary_documents() -> None:
+    """Binary uploads have empty inline content; feeding them to the LLM only
+    yields empty articles, so digestion drops them entirely."""
+    docs = [
+        {"id": "d1", "path": "docs/a.md", "content": "real text"},
+        {"id": "b1", "path": "assets/logo.png", "content": "", "is_binary": True},
+    ]
+    clusters = _cluster([], docs)
+    all_ids = {s["id"] for c in clusters for s in c["sources"]}
+    assert "d1" in all_ids
+    assert "b1" not in all_ids
+
+
+def test_cluster_skips_empty_content_documents() -> None:
+    clusters = _cluster([], [{"id": "e", "path": "docs/empty.md", "content": "   "}])
+    assert clusters == []
+
+
 def test_user_prompt_includes_category_label_and_sources() -> None:
     cluster = {
         "category": "folder",

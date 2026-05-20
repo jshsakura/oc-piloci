@@ -134,6 +134,56 @@ def test_pack_team_zip_layout() -> None:
         assert zf.read("YKO/docs/docs/api/auth.md").decode("utf-8") == "# auth body"
 
 
+def test_pack_team_zip_writes_binary_bytes_at_path(tmp_path) -> None:
+    """A binary doc's real bytes (read from the blob store via storage_key)
+    land at its path inside the ZIP — not its empty inline content."""
+    from piloci.storage.team_files import save_blob
+
+    team = {"id": "tid", "name": "YKO"}
+    blob = b"\x89PNG\r\n\x1a\n binary payload \x00\xff"
+    _sha, storage_key, _size = save_blob(tmp_path, "tid", blob)
+
+    documents = [
+        {"path": "docs/text.md", "content": "# text body"},
+        {
+            "path": "assets/logo.png",
+            "content": "",
+            "is_binary": True,
+            "storage_key": storage_key,
+        },
+    ]
+    _, payload = pack_team_zip(team, documents, [], [], team_files_dir=tmp_path)
+
+    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+        names = set(zf.namelist())
+        assert "YKO/docs/docs/text.md" in names
+        assert "YKO/docs/assets/logo.png" in names
+        # Real bytes, not the empty inline content.
+        assert zf.read("YKO/docs/assets/logo.png") == blob
+
+
+def test_pack_team_zip_skips_missing_blob(tmp_path) -> None:
+    """A binary doc whose blob is gone (deleted/never written) is silently
+    skipped — the bundle still builds with the remaining files."""
+    team = {"id": "tid", "name": "YKO"}
+    documents = [
+        {"path": "kept.md", "content": "ok"},
+        {
+            "path": "gone.bin",
+            "content": "",
+            "is_binary": True,
+            # Valid-shaped key, but no blob on disk → FileNotFoundError → skip.
+            "storage_key": "tid/" + ("a" * 64),
+        },
+    ]
+    _, payload = pack_team_zip(team, documents, [], [], team_files_dir=tmp_path)
+
+    with zipfile.ZipFile(io.BytesIO(payload)) as zf:
+        names = set(zf.namelist())
+        assert "YKO/docs/kept.md" in names
+        assert "YKO/docs/gone.bin" not in names
+
+
 def test_pack_team_zip_skips_blank_paths_and_slugs() -> None:
     """Empty path or slug rows shouldn't blow up the packer — they're just
     silently dropped, since the alternative is a zip entry with no name."""

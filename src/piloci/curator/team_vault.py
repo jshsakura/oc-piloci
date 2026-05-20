@@ -118,8 +118,45 @@ def build_team_vault(
             add_edge(prev, folder_node_id, "contains")
             prev = folder_node_id
 
+        is_binary = bool(doc.get("is_binary"))
         doc_node_id = f"doc:{doc_id}"
         filename = path.rsplit("/", 1)[-1] or path
+        # Binary uploads (PDF/img/zip) have no inline text — render them as
+        # ``file`` nodes (downloadable, no body) and skip wiki-link parsing so
+        # an empty body never spawns phantom topic edges.
+        if is_binary:
+            add_node(
+                doc_node_id,
+                filename,
+                "file",
+                path=path,
+                doc_id=doc_id,
+                version=doc.get("version"),
+                mime=doc.get("mime"),
+                size=doc.get("size"),
+                download_url=f"/api/teams/{team_id}/documents/{doc_id}/raw",
+            )
+            add_edge(prev, doc_node_id, "contains")
+            notes.append(
+                {
+                    "kind": "file",
+                    "doc_id": doc_id,
+                    "title": filename,
+                    "path": path,
+                    "version": doc.get("version"),
+                    "mime": doc.get("mime"),
+                    "size": doc.get("size"),
+                    "author_email": doc.get("author_email"),
+                    "updated_at": (
+                        doc["updated_at"].isoformat()
+                        if hasattr(doc.get("updated_at"), "isoformat")
+                        else str(doc.get("updated_at") or "")
+                    ),
+                    "download_url": f"/api/teams/{team_id}/documents/{doc_id}/raw",
+                }
+            )
+            continue
+
         add_node(
             doc_node_id,
             filename,
@@ -205,7 +242,7 @@ def build_team_vault(
         },
         "generated_at": generated_at,
         "stats": {
-            "documents": sum(1 for n in notes if n["kind"] == "doc"),
+            "documents": sum(1 for n in notes if n["kind"] in ("doc", "file")),
             "memories": sum(1 for n in notes if n["kind"] == "memory"),
             "nodes": len(nodes),
             "edges": len(edges),

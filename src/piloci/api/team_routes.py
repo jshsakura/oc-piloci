@@ -716,9 +716,12 @@ async def route_upload_file(request: Request) -> Response:
             version = 1
 
     await _invalidate_team_vault(team_id)
-    # Only text documents feed the wiki/search pipeline. Binary blobs are never
-    # indexed.
-    if not is_binary:
+    # Text documents are chunked + embedded in full. Binary blobs get a single
+    # filename/mime/size descriptor stub so they're still discoverable in recall
+    # without ever embedding their bytes.
+    if is_binary:
+        _schedule_file_stub(request, team_id, doc_id, path, mime, size)
+    else:
         _schedule_doc_index(request, team_id, doc_id, path, content)
 
     return _json(
@@ -769,6 +772,34 @@ def _schedule_doc_index(
             doc_id,
             path,
             content,
+            settings=get_settings(),
+        )
+    )
+
+
+def _schedule_file_stub(
+    request: Request, team_id: str, doc_id: str, path: str, mime: str, size: int
+) -> None:
+    """Fire-and-forget: index a one-line search stub for a binary upload.
+
+    Mirrors ``_schedule_doc_index`` but for binary files — embeds only a short
+    descriptor (no bytes) so the file surfaces in recall by name. Skips silently
+    if the store isn't wired; ``index_team_file_stub`` swallows runtime errors.
+    """
+    store = getattr(request.app.state, "store", None)
+    if store is None:
+        return
+    from piloci.config import get_settings
+    from piloci.curator.team_doc_index import index_team_file_stub
+
+    asyncio.create_task(
+        index_team_file_stub(
+            store,
+            team_id,
+            doc_id,
+            path,
+            mime,
+            size,
             settings=get_settings(),
         )
     )
@@ -1277,6 +1308,9 @@ async def route_team_workspace(request: Request) -> Response:
                 "content": d.content,
                 "version": d.version,
                 "updated_at": d.updated_at,
+                "is_binary": d.is_binary,
+                "mime": d.mime,
+                "size": d.size,
             }
             for d in doc_rows
         ]
@@ -1740,6 +1774,8 @@ async def route_team_export_zip(request: Request) -> Response:
             "content": d.content,
             "version": d.version,
             "updated_at": d.updated_at,
+            "is_binary": d.is_binary,
+            "storage_key": d.storage_key,
         }
         for d in doc_rows
     ]
@@ -1767,7 +1803,15 @@ async def route_team_export_zip(request: Request) -> Response:
         )
     member_emails = [row.email for row in email_rows if row.email]
 
-    filename, payload = pack_team_zip(team, documents, articles, member_emails)
+    from piloci.config import get_settings
+
+    filename, payload = pack_team_zip(
+        team,
+        documents,
+        articles,
+        member_emails,
+        team_files_dir=get_settings().team_files_dir,
+    )
     safe_filename = filename.replace('"', "")
     return Response(
         payload,

@@ -142,6 +142,56 @@ async def index_team_document(
         return 0
 
 
+async def index_team_file_stub(
+    store: "MemoryStore",
+    team_id: str,
+    doc_id: str,
+    path: str,
+    mime: str,
+    size: int,
+    *,
+    settings: "Settings",
+) -> int:
+    """Make a binary upload discoverable WITHOUT embedding its bytes.
+
+    A binary blob (PDF/img/zip) has no text to chunk, so instead we embed ONE
+    short descriptor — filename + mime + size — and store it as a single chunk
+    at ``doc::<doc_id>::0``. ``recall`` then surfaces the file by name and the
+    agent can ``piloci pull`` the real bytes. Returns 1 on success, 0 on skip.
+
+    Safe as a fire-and-forget task: any failure is logged, never raised.
+    """
+    try:
+        descriptor = f"[파일] {path} ({mime}, {size} bytes)"
+        vector = await embed_one(
+            descriptor,
+            model=settings.embed_model,
+            cache_dir=settings.embed_cache_dir,
+            lru_size=settings.embed_lru_size,
+            executor_workers=settings.embed_executor_workers,
+            max_concurrency=settings.embed_max_concurrency,
+        )
+        chunks = [
+            {
+                "content": descriptor,
+                "vector": vector,
+                "metadata": {
+                    "kind": "doc_file",
+                    "doc_id": doc_id,
+                    "path": path,
+                    "mime": mime,
+                    "size": size,
+                },
+            }
+        ]
+        await store.team_index_doc_chunks(team_id, doc_id, chunks)
+        logger.info("indexed team file stub team=%s doc=%s path=%s", team_id, doc_id, path)
+        return 1
+    except Exception:
+        logger.exception("index_team_file_stub failed team=%s doc=%s", team_id, doc_id)
+        return 0
+
+
 async def remove_team_document(store: "MemoryStore", team_id: str, doc_id: str) -> int:
     """Remove all indexed chunks for a team document. Returns rows deleted.
 

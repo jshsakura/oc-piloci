@@ -1656,6 +1656,68 @@ async def test_export_zip_member_only_with_articles(
         assert any("wiki/zipped" in n for n in names)
 
 
+@pytest.mark.asyncio
+async def test_export_zip_includes_binary_bytes(team_app: Starlette, tmp_path, monkeypatch) -> None:
+    """A binary team document exports as its real bytes (read from the blob
+    store) at its path, alongside text docs."""
+    import io
+    import zipfile
+    from datetime import datetime, timezone
+
+    from piloci.api import team_routes
+    from piloci.config import Settings
+    from piloci.db.models import TeamDocument
+    from piloci.storage.team_files import save_blob
+
+    files_dir = tmp_path / "team-files"
+    files_dir.mkdir()
+    settings = Settings(
+        team_files_dir=files_dir,
+        jwt_secret="test-secret-32-characters-minimum!",
+        session_secret="test-secret-32-characters-minimum!",
+    )
+    monkeypatch.setattr("piloci.config.get_settings", lambda: settings)
+
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        team_id = await _make_team(client, owner, "Bin")
+
+        blob = b"\x89PNG\r\n\x1a\n binary export payload"
+        _sha, storage_key, size = save_blob(files_dir, team_id, blob)
+
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        async with team_routes.async_session() as db:
+            db.add(
+                TeamDocument(
+                    id="bindoc",
+                    team_id=team_id,
+                    author_id="owner",
+                    uploader_id="owner",
+                    updated_by_id="owner",
+                    path="assets/logo.png",
+                    content="",
+                    content_hash=_sha,
+                    size=size,
+                    mime="image/png",
+                    is_binary=True,
+                    storage_key=storage_key,
+                    version=1,
+                    parent_hash=None,
+                    updated_at=now,
+                    created_at=now,
+                    is_deleted=False,
+                )
+            )
+            await db.commit()
+
+        ok = await client.get(f"/api/teams/{team_id}/export.zip", headers=owner)
+        assert ok.status_code == 200
+        zf = zipfile.ZipFile(io.BytesIO(ok.content))
+        target = next(n for n in zf.namelist() if n.endswith("assets/logo.png"))
+        assert zf.read(target) == blob
+
+
 # ---------------------------------------------------------------------------
 # Manual wiki build — owner-only gate + no-store branch.
 # ---------------------------------------------------------------------------

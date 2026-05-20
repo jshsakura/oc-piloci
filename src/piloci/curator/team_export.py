@@ -27,10 +27,16 @@ bytes. Route handlers do the SQL + auth + streaming wrapper.
 """
 
 import io
+import logging
 import re
 import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Iterable
+
+from piloci.storage.team_files import read_blob
+
+logger = logging.getLogger(__name__)
 
 _SAFE_PATH_RE = re.compile(r"[^A-Za-z0-9가-힣._\-/]+")
 
@@ -213,12 +219,19 @@ def pack_team_zip(
     documents: Iterable[dict[str, Any]],
     articles: list[dict[str, Any]],
     member_emails: list[str],
+    *,
+    team_files_dir: Path | None = None,
 ) -> tuple[str, bytes]:
     """Build the ZIP in memory; return ``(filename, bytes)``.
 
     Pi 5 RAM is fine for typical team sizes (single-digit MB). If a team
     ever crosses ~50MB worth of docs we can swap to a streamed writer; for
     now keeping it simple wins.
+
+    Binary documents (``is_binary``) write their real bytes — read from the
+    content-addressed blob store at ``team_files_dir`` via ``storage_key``.
+    A missing blob is skipped (logged) so a stale row never crashes the bundle.
+    Text documents keep their inline ``content`` as before.
     """
     docs = list(documents)
     team_slug = _slugify_team_name(team.get("name") or team.get("id", "team"))
@@ -236,6 +249,25 @@ def pack_team_zip(
         for doc in docs:
             path = _safe_path(doc.get("path") or "")
             if not path:
+                continue
+            if doc.get("is_binary"):
+                storage_key = doc.get("storage_key")
+                if not storage_key or team_files_dir is None:
+                    continue
+                try:
+                    data = read_blob(team_files_dir, storage_key)
+                except FileNotFoundError:
+                    logger.warning(
+                        "export skip missing blob team=%s path=%s key=%s",
+                        team.get("id"),
+                        path,
+                        storage_key,
+                    )
+                    continue
+                except ValueError:
+                    logger.warning("export skip bad storage_key key=%s", storage_key)
+                    continue
+                zf.writestr(f"{root}/docs/{path}", data)
                 continue
             content = doc.get("content") or ""
             zf.writestr(f"{root}/docs/{path}", content)

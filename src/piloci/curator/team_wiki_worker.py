@@ -89,6 +89,11 @@ def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list
         path = _safe_text(doc.get("path"))
         if not path:
             continue
+        # Binary uploads (PDF/img/zip) have no inline text — feeding their empty
+        # content to the LLM only produces empty/garbage articles, so skip them
+        # from wiki digestion. They stay discoverable via the recall file stub.
+        if doc.get("is_binary") or not _safe_text(doc.get("content")):
+            continue
         bucket = ("folder", _doc_top_folder(path))
         clusters[bucket].append(
             {
@@ -410,6 +415,7 @@ async def _list_team_documents(team_id: str) -> list[dict[str, Any]]:
             "content": row.content,
             "version": row.version,
             "updated_at": row.updated_at,
+            "is_binary": row.is_binary,
         }
         for row in rows
     ]

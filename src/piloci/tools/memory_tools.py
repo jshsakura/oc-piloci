@@ -714,29 +714,52 @@ def _doc_preview(row: dict[str, Any], meta: dict[str, Any], excerpt_len: int) ->
     }
 
 
+def _file_preview(row: dict[str, Any], meta: dict[str, Any]) -> dict[str, Any]:
+    """Preview for a binary file stub (``kind="doc_file"``). No bytes — just
+    enough metadata for the agent to recognise the file and pull it down."""
+    path = meta.get("path", "")
+    return {
+        "kind": "file",
+        "path": path,
+        "mime": meta.get("mime", ""),
+        "size": meta.get("size"),
+        "score": row.get("score", 0.0),
+        "hint": f"piloci pull --path {path} 로 받기",
+    }
+
+
 def _build_team_previews(results: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], bool]:
     """Build token-bounded recall previews, tagging doc chunks vs memories.
 
     Walks results in (already ranked) order, accumulating excerpt characters
     against ``_RECALL_CHAR_CAP``. Once the cap is hit we stop emitting further
     previews and flag ``truncated`` so the agent knows to narrow the query.
+
+    Binary file stubs (``kind="doc_file"``) emit a ``kind="file"`` preview with
+    a pull hint instead of an excerpt; the hint length is charged against the
+    same char cap so a flood of files can't overflow the response either.
     """
     previews: list[dict[str, Any]] = []
     used = 0
     truncated = False
     for row in results:
         meta = _result_metadata(row)
-        if meta.get("kind") == "doc_chunk":
+        kind = meta.get("kind")
+        if kind == "doc_file":
+            item = _file_preview(row, meta)
+            charged = len(item.get("hint", ""))
+        elif kind == "doc_chunk":
             item = _doc_preview(row, meta, _DOC_EXCERPT_LEN)
+            charged = len(item.get("excerpt", ""))
         else:
             item = {"kind": "memory", **_preview(row)}
-        excerpt_len = len(item.get("excerpt", ""))
-        if used + excerpt_len > _RECALL_CHAR_CAP and previews:
+            charged = len(item.get("excerpt", ""))
+        if used + charged > _RECALL_CHAR_CAP and previews:
             # Cap reached — drop the rest rather than overflow the response.
             truncated = True
             break
         previews.append(item)
-        used += excerpt_len
+        used += charged
     return previews, truncated
 
 

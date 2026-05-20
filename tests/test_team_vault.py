@@ -86,6 +86,55 @@ def test_build_team_vault_assembles_folder_tree_and_doc_nodes() -> None:
     assert doc_note["download_url"].endswith("/documents/d1/raw")
 
 
+def test_build_team_vault_renders_binary_doc_as_file_node() -> None:
+    """A binary doc becomes a ``file`` node (downloadable, with mime/size) and
+    its empty body never spawns topic edges or an excerpt note."""
+    team = {"id": "team-bin", "name": "YKO"}
+    workspace = build_team_vault(
+        team,
+        memories=[],
+        documents=[
+            {
+                "id": "b1",
+                "path": "assets/logo.png",
+                "content": "",
+                "version": 1,
+                "updated_at": "2026-05-19T00:00:00",
+                "is_binary": True,
+                "mime": "image/png",
+                "size": 4096,
+            }
+        ],
+    )
+
+    nodes = {n["id"]: n for n in workspace["graph"]["nodes"]}
+    assert "doc:b1" in nodes
+    assert nodes["doc:b1"]["kind"] == "file"
+    assert nodes["doc:b1"]["mime"] == "image/png"
+    assert nodes["doc:b1"]["size"] == 4096
+    assert nodes["doc:b1"]["download_url"].endswith("/documents/b1/raw")
+
+    # No topic nodes/edges from an empty body.
+    assert not any(nid.startswith("topic:") for nid in nodes)
+
+    file_note = next(n for n in workspace["notes"] if n["kind"] == "file")
+    assert file_note["path"] == "assets/logo.png"
+    assert "excerpt" not in file_note
+    # Binary still counts toward the document tally.
+    assert workspace["stats"]["documents"] == 1
+
+
+def test_build_team_vault_binary_doc_does_not_crash_without_mime() -> None:
+    """Missing mime/size on a binary doc is tolerated — no KeyError."""
+    workspace = build_team_vault(
+        {"id": "t", "name": "T"},
+        memories=[],
+        documents=[{"id": "b", "path": "x.bin", "is_binary": True}],
+    )
+    note = next(n for n in workspace["notes"] if n["kind"] == "file")
+    assert note["mime"] is None
+
+
 def test_build_team_vault_emits_tag_and_wikilink_edges_for_memories() -> None:
     team = {"id": "team-2", "name": "Team"}
     workspace = build_team_vault(
