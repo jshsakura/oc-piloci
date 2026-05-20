@@ -66,6 +66,11 @@ function TeamWikiContent() {
   const queryClient = useQueryClient();
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
 
+  const teamsQuery = useQuery({
+    queryKey: ["teams"],
+    queryFn: () => api.listTeams(),
+  });
+
   const teamQuery = useQuery({
     queryKey: ["team", teamId],
     queryFn: () => api.getTeam(teamId),
@@ -213,6 +218,24 @@ function TeamWikiContent() {
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="h-9 rounded-lg border bg-background px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            value={teamId}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (next) router.push(`/teams/wiki?id=${next}`);
+            }}
+            title="팀 선택"
+          >
+            <option value="" disabled>
+              팀 선택…
+            </option>
+            {(teamsQuery.data ?? []).map((team) => (
+              <option key={team.id} value={team.id}>
+                {team.name}
+              </option>
+            ))}
+          </select>
           <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
