@@ -1298,7 +1298,7 @@ async def route_team_workspace(request: Request) -> Response:
         # Cold rebuild — fetch the source rows and assemble. No LLM call.
         from sqlalchemy import select
 
-        from piloci.db.models import Team, TeamDocument
+        from piloci.db.models import Team, TeamDocument, TeamWikiArticle
 
         async with async_session() as db:
             team_row = (
@@ -1311,6 +1311,17 @@ async def route_team_workspace(request: Request) -> Response:
                             TeamDocument.team_id == team_id,
                             TeamDocument.is_deleted == False,  # noqa: E712
                         )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            article_rows = (
+                (
+                    await db.execute(
+                        select(TeamWikiArticle)
+                        .where(TeamWikiArticle.team_id == team_id)
+                        .order_by(TeamWikiArticle.category, TeamWikiArticle.title)
                     )
                 )
                 .scalars()
@@ -1348,7 +1359,26 @@ async def route_team_workspace(request: Request) -> Response:
             except Exception:
                 memories = []
 
-        workspace = build_team_vault(team_dict, memories, documents)
+        articles: list[dict[str, Any]] = []
+        for a in article_rows:
+            sources: list[dict[str, Any]] = []
+            if a.sources_json:
+                try:
+                    sources = orjson.loads(a.sources_json)
+                except Exception:
+                    sources = []
+            articles.append(
+                {
+                    "slug": a.slug,
+                    "title": a.title,
+                    "category": a.category,
+                    "summary": a.summary,
+                    "content": a.content,
+                    "sources": sources,
+                }
+            )
+
+        workspace = build_team_vault(team_dict, memories, documents, articles=articles)
         save_team_vault(settings.vault_dir, team_id, workspace)
 
     return _json(workspace)

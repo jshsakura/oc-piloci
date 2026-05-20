@@ -34,6 +34,8 @@ const KIND_COLOR: Record<GraphNode["kind"], string> = {
   team: "#0ea5e9",
   folder: "#fb7185",
   doc: "#16a34a",
+  file: "#94a3b8",
+  article: "#f59e0b",
 };
 
 const KIND_LABEL: Record<GraphNode["kind"], string> = {
@@ -44,6 +46,8 @@ const KIND_LABEL: Record<GraphNode["kind"], string> = {
   team: "팀",
   folder: "폴더",
   doc: "문서",
+  file: "파일",
+  article: "위키 글",
 };
 
 function hexToRgba(hex: string, alpha: number): string {

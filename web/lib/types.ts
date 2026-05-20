@@ -358,9 +358,20 @@ export interface VaultNote {
 export interface GraphNode {
   id: string;
   label: string;
-  kind: "project" | "note" | "tag" | "topic" | "team" | "folder" | "doc";
+  kind:
+    | "project"
+    | "note"
+    | "tag"
+    | "topic"
+    | "team"
+    | "folder"
+    | "doc"
+    | "file"
+    | "article";
   path?: string;
   slug?: string;
+  category?: string;
+  summary?: string;
   team_id?: string;
   doc_id?: string;
   memory_id?: string;
@@ -371,7 +382,7 @@ export interface GraphNode {
 export interface GraphEdge {
   source: string;
   target: string;
-  kind: "contains" | "tagged" | "links";
+  kind: "contains" | "tagged" | "links" | "source" | "wikilink";
 }
 
 export interface ProjectWorkspace {

@@ -1314,6 +1314,8 @@ const ko = {
         team: '팀',
         folder: '폴더',
         doc: '문서',
+        file: '파일',
+        article: '위키 글',
       },
       map: {
         title: '맥락 지도',
@@ -2626,6 +2628,8 @@ const en: CopyShape = {
         team: 'Team',
         folder: 'Folder',
         doc: 'Document',
+        file: 'File',
+        article: 'Wiki article',
       },
       map: {
         title: 'Context map',

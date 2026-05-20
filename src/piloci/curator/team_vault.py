@@ -70,8 +70,15 @@ def build_team_vault(
     team: dict[str, Any],
     memories: list[dict[str, Any]],
     documents: list[dict[str, Any]],
+    articles: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Assemble graph + notes + folder tree for a team workspace."""
+    """Assemble graph + notes + folder tree for a team workspace.
+
+    When ``articles`` is supplied each wiki article becomes a first-class
+    ``article`` node so the map *is* the wiki. Article nodes link to the
+    doc/memory rows they were distilled from (``source`` edges) and to each
+    other via ``[[wikilink]]`` references in their body (``wikilink`` edges).
+    """
 
     generated_at = datetime.now(timezone.utc).isoformat()
     notes: list[dict[str, Any]] = []
@@ -231,6 +238,50 @@ def build_team_vault(
                 "updated_at": memory.get("updated_at"),
             }
         )
+
+    # ---- Wiki articles (first-class nodes) -------------------------------
+    # Built last so doc:/memory: source nodes already exist; edges are only
+    # drawn to source nodes that are actually present in the graph.
+    article_list = articles or []
+    # title (lower-cased) → slug, used to resolve [[wikilinks]] to articles.
+    title_to_slug: dict[str, str] = {}
+    for article in article_list:
+        slug = str(article.get("slug") or "").strip()
+        if not slug:
+            continue
+        title = (article.get("title") or slug).strip()
+        title_to_slug[title.lower()] = slug
+
+    for article in article_list:
+        slug = str(article.get("slug") or "").strip()
+        if not slug:
+            continue
+        title = (article.get("title") or slug).strip()
+        article_node_id = f"article:{slug}"
+        add_node(
+            article_node_id,
+            title,
+            "article",
+            slug=slug,
+            category=article.get("category"),
+            summary=article.get("summary"),
+        )
+
+        # article → source doc/memory rows (only when the node exists)
+        for source in article.get("sources") or []:
+            kind = source.get("kind")
+            source_id = str(source.get("id") or "")
+            if not source_id:
+                continue
+            source_node_id = f"doc:{source_id}" if kind == "doc" else f"memory:{source_id}"
+            if source_node_id in node_ids:
+                add_edge(article_node_id, source_node_id, "source")
+
+        # article → article via [[wikilink]] references in the body
+        for link in _extract_links(article.get("content") or ""):
+            target_slug = title_to_slug.get(link.lower())
+            if target_slug and target_slug != slug:
+                add_edge(article_node_id, f"article:{target_slug}", "wikilink")
 
     return {
         "root": f"teams/{team_id}",
