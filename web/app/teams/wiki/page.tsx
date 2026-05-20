@@ -1,7 +1,16 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  Children,
+  isValidElement,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import remarkGfm from "remark-gfm";
@@ -45,6 +54,78 @@ function resolveWikilinks(markdown: string, articles: TeamWikiArticleSummary[]):
     const slug = titleMap.get(raw.trim().toLowerCase());
     if (slug) return `[${label}](#article-${slug})`;
     return `*${label}*`;
+  });
+}
+
+// Slugify a heading's text into a stable DOM id. Kept deliberately simple and
+// Unicode-friendly so Korean headings keep their characters (CJK is valid in
+// ids) — strip markdown emphasis/punctuation, collapse whitespace to dashes.
+function slugifyHeading(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[`*_~]/g, "")
+    .replace(/[\]\[(){}<>.,!?;:"'/\\|]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+// Flatten a heading's React children back to plain text so the rendered id can
+// be slugified identically to the markdown-scanned TOC (handles bold/links/etc).
+function nodeToText(node: React.ReactNode): string {
+  if (node == null || typeof node === "boolean") return "";
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(nodeToText).join("");
+  if (isValidElement(node)) {
+    return Children.toArray((node.props as { children?: React.ReactNode }).children)
+      .map(nodeToText)
+      .join("");
+  }
+  return "";
+}
+
+type TocEntry = { level: number; text: string; slug: string };
+
+// Scan the (wikilink-resolved) markdown for ## / ### / #### headings, skipping
+// any inside fenced code blocks so a `## comment` in a snippet never becomes a
+// TOC row. Duplicate slugs get a numeric suffix to stay unique + matchable.
+function buildToc(markdown: string): TocEntry[] {
+  const entries: TocEntry[] = [];
+  const seen = new Map<string, number>();
+  let inFence = false;
+  for (const line of markdown.split("\n")) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
+    const match = /^(#{2,4})\s+(.+?)\s*#*$/.exec(line);
+    if (!match) continue;
+    const level = match[1].length;
+    const text = match[2].trim();
+    let slug = slugifyHeading(text) || "section";
+    const count = seen.get(slug) ?? 0;
+    seen.set(slug, count + 1);
+    if (count > 0) slug = `${slug}-${count}`;
+    entries.push({ level, text, slug });
+  }
+  return entries;
+}
+
+// Build Namuwiki-style hierarchical numbers (1, 1.1, 2, …) from the heading
+// levels, normalizing so the shallowest heading present becomes depth 0.
+function numberToc(entries: TocEntry[]): { entry: TocEntry; label: string }[] {
+  if (entries.length === 0) return [];
+  const minLevel = Math.min(...entries.map((e) => e.level));
+  const counters: number[] = [];
+  return entries.map((entry) => {
+    const depth = entry.level - minLevel;
+    counters.length = depth + 1;
+    counters[depth] = (counters[depth] ?? 0) + 1;
+    for (let i = depth + 1; i < counters.length; i += 1) counters[i] = 0;
+    const label = counters.slice(0, depth + 1).join(".");
+    return { entry, label };
   });
 }
 
@@ -308,6 +389,22 @@ function WikiContent({
     ? resolveWikilinks(articleQuery.data.content, articles)
     : "";
 
+  // The in-article 목차 box: numbered, nested, clickable. Hidden when there's
+  // too little to navigate (< 2 headings reads as noise, not a TOC).
+  const tocEntries = useMemo(() => buildToc(articleContent), [articleContent]);
+  const numberedToc = useMemo(() => numberToc(tocEntries), [tocEntries]);
+  const minTocLevel = useMemo(
+    () => (tocEntries.length ? Math.min(...tocEntries.map((e) => e.level)) : 2),
+    [tocEntries],
+  );
+
+  // Smooth-scroll to a heading id; scroll-margin-top on the heading clears the
+  // sticky app header so the title isn't tucked underneath it.
+  const scrollToHeading = useCallback((slug: string) => {
+    const el = document.getElementById(slug);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   // The open article's own node + its source nodes get a highlight ring on the
   // floating map so the reader can locate the article and its origins spatially.
   const highlightedIds = useMemo(() => {
@@ -330,6 +427,61 @@ function WikiContent({
     },
     [articles],
   );
+
+  // Heading renderers inject the same slug ids the TOC links to. A per-article
+  // counter mirrors buildToc's duplicate-suffixing so #anchor targets line up
+  // exactly. Rebuilt per article so the counter resets between articles.
+  const markdownComponents = useMemo(() => {
+    const seen = new Map<string, number>();
+    const slugFor = (children: React.ReactNode): string => {
+      const text = nodeToText(children).trim();
+      let slug = slugifyHeading(text) || "section";
+      const count = seen.get(slug) ?? 0;
+      seen.set(slug, count + 1);
+      if (count > 0) slug = `${slug}-${count}`;
+      return slug;
+    };
+    const headingClass = "group scroll-mt-20";
+    return {
+      a: ({ href, children, ...rest }: { href?: string; children?: React.ReactNode }) => {
+        if (href?.startsWith("#article-")) {
+          return (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                jumpToSlug(href);
+              }}
+              className="text-primary underline-offset-2 hover:underline"
+            >
+              {children}
+            </button>
+          );
+        }
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
+            {children}
+          </a>
+        );
+      },
+      h2: ({ children }: { children?: React.ReactNode }) => (
+        <h2 id={slugFor(children)} className={headingClass}>
+          {children}
+        </h2>
+      ),
+      h3: ({ children }: { children?: React.ReactNode }) => (
+        <h3 id={slugFor(children)} className={headingClass}>
+          {children}
+        </h3>
+      ),
+      h4: ({ children }: { children?: React.ReactNode }) => (
+        <h4 id={slugFor(children)} className={headingClass}>
+          {children}
+        </h4>
+      ),
+    };
+    // articleContent resets the slug-dedupe counter between articles.
+  }, [articleContent, jumpToSlug]);
 
   return (
     <>
@@ -503,7 +655,7 @@ function WikiContent({
               <Skeleton className="h-48 w-full" />
             </div>
           ) : articleQuery.data ? (
-            <article className="min-w-0">
+            <article className="mx-auto min-w-0 max-w-3xl">
               <header className="mb-5 flex items-start justify-between gap-4 border-b pb-4">
                 <div className="min-w-0 space-y-1.5">
                   <h1 className="break-words text-2xl font-bold leading-tight tracking-tight">
@@ -535,39 +687,51 @@ function WikiContent({
                 </Button>
               </header>
 
-              <div className="pi-prose prose prose-sm max-w-none break-words dark:prose-invert">
-                {articleContent.trim() ? (
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      a: ({ href, children, ...rest }) => {
-                        if (href?.startsWith("#article-")) {
-                          return (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                jumpToSlug(href);
-                              }}
-                              className="text-primary underline-offset-2 hover:underline"
-                            >
-                              {children}
-                            </button>
-                          );
-                        }
-                        return (
-                          <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>
-                            {children}
-                          </a>
-                        );
-                      },
-                    }}
+              <div>
+                {/* 목차: Namuwiki-style boxed, numbered, nested table of contents.
+                    Hidden when there's too little to navigate. */}
+                {numberedToc.length >= 2 && (
+                  <nav
+                    aria-label={copy.toc}
+                    className="mb-6 inline-block max-w-full rounded-lg border bg-muted/40 p-3 text-sm"
                   >
-                    {articleContent}
-                  </ReactMarkdown>
-                ) : (
-                  <p className="text-sm text-muted-foreground">{copy.selectArticlePrompt}</p>
+                    <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {copy.toc}
+                    </p>
+                    <ol className="space-y-0.5">
+                      {numberedToc.map(({ entry, label }) => (
+                        <li
+                          key={`${entry.slug}-${label}`}
+                          style={{ paddingInlineStart: `${(entry.level - minTocLevel) * 0.85}rem` }}
+                        >
+                          <a
+                            href={`#${entry.slug}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              scrollToHeading(entry.slug);
+                            }}
+                            className="flex gap-1.5 rounded px-1 py-0.5 text-muted-foreground transition-colors hover:bg-accent/60 hover:text-foreground"
+                          >
+                            <span className="shrink-0 tabular-nums text-muted-foreground/70">
+                              {label}.
+                            </span>
+                            <span className="break-words">{entry.text}</span>
+                          </a>
+                        </li>
+                      ))}
+                    </ol>
+                  </nav>
                 )}
+
+                <div className="wiki-article pi-prose prose prose-base max-w-none break-words leading-relaxed dark:prose-invert">
+                  {articleContent.trim() ? (
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                      {articleContent}
+                    </ReactMarkdown>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">{copy.selectArticlePrompt}</p>
+                  )}
+                </div>
               </div>
 
               {articleQuery.data.sources?.length > 0 && (
