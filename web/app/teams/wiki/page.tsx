@@ -392,8 +392,8 @@ function WikiContent({
         <div
           className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
             buildNotice.tone === "error"
-              ? "border-destructive/40 bg-destructive/5 text-destructive"
-              : "text-muted-foreground"
+              ? "border-destructive/40 bg-destructive/10 text-destructive"
+              : "bg-card text-muted-foreground"
           }`}
         >
           {buildNotice.text}
@@ -456,7 +456,7 @@ function WikiContent({
           )}
         </aside>
 
-        <section className="min-w-0 flex-1">
+        <section className="min-w-0 flex-1 rounded-xl border bg-card p-5 sm:p-6">
           {articleQuery.isLoading ? (
             <div className="space-y-3">
               <Skeleton className="h-7 w-2/3" />
