@@ -7,6 +7,7 @@ import {
   Check,
   Copy,
   Download,
+  ExternalLink,
   File as FileIcon,
   FileArchive,
   FileText,
@@ -40,6 +41,44 @@ function humanizeSize(bytes?: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileExt(path: string): string {
+  const dot = path.lastIndexOf(".");
+  return dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
+}
+
+const _TYPE_LABELS: Record<string, string> = {
+  md: "마크다운", txt: "텍스트", py: "Python", js: "JS", ts: "TS", tsx: "TSX",
+  jsx: "JSX", json: "JSON", yaml: "YAML", yml: "YAML", toml: "TOML", csv: "CSV",
+  html: "HTML", css: "CSS", sql: "SQL", sh: "Shell", rst: "reST", pdf: "PDF",
+  png: "이미지", jpg: "이미지", jpeg: "이미지", gif: "이미지", webp: "이미지", svg: "이미지",
+  xlsx: "Excel", xls: "Excel", docx: "Word", doc: "Word", pptx: "PowerPoint", zip: "ZIP",
+};
+
+// Friendly type chip. Extension wins (a .md uploaded as text has no mime, so
+// "텍스트" used to leak through); fall back to mime, then a coarse default.
+function fileTypeLabel(path: string, mime?: string | null, isBinary?: boolean): string {
+  const label = _TYPE_LABELS[fileExt(path)];
+  if (label) return label;
+  if (mime) return mime;
+  return isBinary ? "바이너리" : "텍스트";
+}
+
+// Browser can render these inline in a new tab; everything else just downloads.
+// (xlsx/docx aren't browser-renderable without a public Office viewer, which a
+// self-hosted instance can't use — so they fall through to download.)
+const _VIEWABLE_EXT = new Set([
+  "md", "txt", "py", "js", "ts", "tsx", "jsx", "json", "yaml", "yml", "toml",
+  "csv", "html", "css", "sql", "sh", "rst", "ini", "cfg", "log", "pdf",
+  "png", "jpg", "jpeg", "gif", "webp", "svg",
+]);
+
+function isViewable(path: string, mime?: string | null): boolean {
+  if (_VIEWABLE_EXT.has(fileExt(path))) return true;
+  if (mime && (mime.startsWith("text/") || mime === "application/pdf" || mime.startsWith("image/")))
+    return true;
+  return false;
 }
 
 function localPart(email: string): string {
@@ -664,7 +703,7 @@ export default function TeamsPage() {
                                 <p className="break-all text-sm font-medium">{doc.path}</p>
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <Badge variant="secondary" className="font-normal">
-                                    {doc.mime ?? "텍스트"}
+                                    {fileTypeLabel(doc.path, doc.mime, doc.is_binary)}
                                   </Badge>
                                   <span className="text-xs text-muted-foreground">v{doc.version}</span>
                                   {doc.size != null && (
@@ -692,9 +731,14 @@ export default function TeamsPage() {
                                 rel="noreferrer"
                                 onClick={(event) => event.stopPropagation()}
                                 className="inline-flex size-8 items-center justify-center rounded-md hover:bg-accent"
-                                aria-label="다운로드"
+                                aria-label={isViewable(doc.path, doc.mime) ? "열기" : "다운로드"}
+                                title={isViewable(doc.path, doc.mime) ? "새 탭에서 열기" : "다운로드"}
                               >
-                                <Download className="size-4" />
+                                {isViewable(doc.path, doc.mime) ? (
+                                  <ExternalLink className="size-4" />
+                                ) : (
+                                  <Download className="size-4" />
+                                )}
                               </a>
                               <Button
                                 type="button"
@@ -729,10 +773,13 @@ export default function TeamsPage() {
                           <div className="space-y-1">
                             <p className="break-all text-sm font-medium">{editingDoc.path}</p>
                             <p className="text-xs text-muted-foreground">
-                              바이너리 파일 — 다운로드
+                              {isViewable(editingDoc.path, editingDoc.mime)
+                                ? "이 형식은 새 탭에서 바로 열 수 있어요."
+                                : "이 형식은 미리보기를 지원하지 않아요 — 받아서 여세요."}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {editingDoc.mime ?? "binary"} · {humanizeSize(editingDoc.size)}
+                              {fileTypeLabel(editingDoc.path, editingDoc.mime, true)} ·{" "}
+                              {humanizeSize(editingDoc.size)}
                             </p>
                           </div>
                           <a
@@ -741,7 +788,15 @@ export default function TeamsPage() {
                             rel="noreferrer"
                             className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
                           >
-                            <Download className="me-2 size-4" /> 다운로드
+                            {isViewable(editingDoc.path, editingDoc.mime) ? (
+                              <>
+                                <ExternalLink className="me-2 size-4" /> 열기
+                              </>
+                            ) : (
+                              <>
+                                <Download className="me-2 size-4" /> 다운로드
+                              </>
+                            )}
                           </a>
                         </div>
                         <div className="flex justify-end">

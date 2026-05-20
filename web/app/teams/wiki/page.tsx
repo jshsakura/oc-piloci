@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
   Download,
+  ExternalLink,
   Loader2,
   Map as MapIcon,
   Pencil,
@@ -56,6 +57,20 @@ const NODE_KIND_LABEL: Record<GraphNode["kind"], string> = {
   folder: "폴더",
   doc: "문서",
 };
+
+const _VIEWABLE_EXT = new Set([
+  "md", "txt", "py", "js", "ts", "tsx", "jsx", "json", "yaml", "yml", "toml",
+  "csv", "html", "css", "sql", "sh", "rst", "ini", "cfg", "log", "pdf",
+  "png", "jpg", "jpeg", "gif", "webp", "svg",
+]);
+
+// A node's file is browser-viewable when its path extension renders inline;
+// otherwise the popup offers a download instead of an "open".
+function nodeViewable(node: GraphNode): boolean {
+  const path = node.path ?? node.label ?? "";
+  const dot = path.lastIndexOf(".");
+  return dot >= 0 && _VIEWABLE_EXT.has(path.slice(dot + 1).toLowerCase());
+}
 
 function ArticleListSkeleton() {
   return (
@@ -605,13 +620,20 @@ function TeamWikiContent() {
               </Button>
             )}
             {(activeNode?.kind === "doc" || activeNode?.kind === "note") &&
-              activeNode.download_url && (
+              activeNode.download_url &&
+              (nodeViewable(activeNode) ? (
+                <Button asChild>
+                  <a href={activeNode.download_url} target="_blank" rel="noreferrer">
+                    <ExternalLink className="me-2 size-4" /> 열기
+                  </a>
+                </Button>
+              ) : (
                 <Button asChild>
                   <a href={activeNode.download_url} target="_blank" rel="noreferrer">
                     <Download className="me-2 size-4" /> 다운로드
                   </a>
                 </Button>
-              )}
+              ))}
           </DialogFooter>
         </DialogContent>
       </Dialog>
