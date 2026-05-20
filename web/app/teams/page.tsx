@@ -114,6 +114,17 @@ function isViewable(path: string, mime?: string | null): boolean {
   return false;
 }
 
+const _IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+
+function isImage(path: string, mime?: string | null): boolean {
+  if (_IMAGE_EXT.has(fileExt(path))) return true;
+  return Boolean(mime && mime.startsWith("image/"));
+}
+
+function isPdf(path: string, mime?: string | null): boolean {
+  return fileExt(path) === "pdf" || mime === "application/pdf";
+}
+
 // A node's file is browser-viewable when its path extension renders inline;
 // otherwise the popup offers a download instead of an "open".
 function nodeViewable(node: GraphNode): boolean {
@@ -189,6 +200,92 @@ function EmptyState({ icon: Icon, text }: { icon: typeof UsersRound; text: strin
       <Icon className="size-8" />
       <p className="text-sm">{text}</p>
     </div>
+  );
+}
+
+// In-app preview for team documents. Text/markdown/code render inline (fetched
+// via getTeamDocument); images and PDFs load through the /raw?inline=1 URL so
+// the browser displays rather than downloads them. Non-viewable formats show a
+// short "no preview" note. Every type keeps a download affordance in the footer.
+function DocPreviewDialog({
+  teamId,
+  doc,
+  onClose,
+}: {
+  teamId: string;
+  doc: TeamDocumentSummary | null;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const copy = t.teams.docs.preview;
+  const open = Boolean(doc);
+  const path = doc?.path ?? "";
+  const mime = doc?.mime;
+  const viewable = doc ? isViewable(path, mime) : false;
+  const image = doc ? isImage(path, mime) : false;
+  const pdf = doc ? isPdf(path, mime) : false;
+  // Text/markdown/code: anything viewable that isn't an image or pdf.
+  const textual = viewable && !image && !pdf;
+
+  const rawUrl = doc ? api.teamDocumentRawUrl(teamId, doc.id) : "";
+  const inlineUrl = rawUrl ? `${rawUrl}?inline=1` : "";
+
+  const contentQuery = useQuery({
+    queryKey: ["team-document-preview", teamId, doc?.id],
+    queryFn: () => api.getTeamDocument(teamId, doc!.id),
+    enabled: open && textual,
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="break-all">{copy.title}: {path}</DialogTitle>
+        </DialogHeader>
+        <div className="max-h-[70vh] overflow-auto">
+          {!viewable ? (
+            <p className="py-8 text-center text-sm text-muted-foreground">{copy.unsupported}</p>
+          ) : image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={inlineUrl}
+              alt={path}
+              className="mx-auto max-h-[70vh] w-auto object-contain"
+            />
+          ) : pdf ? (
+            <iframe src={inlineUrl} title={path} className="h-[70vh] w-full rounded-md border" />
+          ) : contentQuery.isLoading ? (
+            <div className="space-y-3 py-2">
+              <Skeleton className="h-4 w-2/3" />
+              <Skeleton className="h-4 w-4/5" />
+              <Skeleton className="h-40 w-full" />
+            </div>
+          ) : contentQuery.isError ? (
+            <p className="py-8 text-center text-sm text-destructive">
+              {contentQuery.error instanceof Error
+                ? contentQuery.error.message
+                : copy.unsupported}
+            </p>
+          ) : (
+            <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/40 p-3 font-mono text-xs leading-relaxed">
+              {contentQuery.data?.content ?? ""}
+            </pre>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>
+            {copy.close}
+          </Button>
+          {doc && (
+            <Button asChild>
+              <a href={rawUrl} target="_blank" rel="noreferrer">
+                <Download className="me-2 size-4" /> {copy.download}
+              </a>
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -365,6 +462,7 @@ function SettingsTab({
   const [uploading, setUploading] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [notice, setNotice] = useState<Notice>(null);
+  const [previewDoc, setPreviewDoc] = useState<TeamDocumentSummary | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const pendingInvitesQuery = useQuery({
@@ -864,21 +962,32 @@ function SettingsTab({
                               </div>
                             </div>
                             <div className="flex shrink-0 items-center gap-1">
-                              <a
-                                href={api.teamDocumentRawUrl(selectedTeam.id, doc.id)}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(event) => event.stopPropagation()}
-                                className="inline-flex size-8 items-center justify-center rounded-md border hover:bg-accent"
-                                aria-label={isViewable(doc.path, doc.mime) ? copy.docs.openAriaLabel : copy.docs.downloadAriaLabel}
-                                title={isViewable(doc.path, doc.mime) ? copy.docs.openTitle : copy.docs.downloadTitle}
-                              >
-                                {isViewable(doc.path, doc.mime) ? (
+                              {isViewable(doc.path, doc.mime) ? (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    setPreviewDoc(doc);
+                                  }}
+                                  className="inline-flex size-8 items-center justify-center rounded-md border hover:bg-accent"
+                                  aria-label={copy.docs.openAriaLabel}
+                                  title={copy.docs.openTitle}
+                                >
                                   <ExternalLink className="size-4" />
-                                ) : (
+                                </button>
+                              ) : (
+                                <a
+                                  href={api.teamDocumentRawUrl(selectedTeam.id, doc.id)}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(event) => event.stopPropagation()}
+                                  className="inline-flex size-8 items-center justify-center rounded-md border hover:bg-accent"
+                                  aria-label={copy.docs.downloadAriaLabel}
+                                  title={copy.docs.downloadTitle}
+                                >
                                   <Download className="size-4" />
-                                )}
-                              </a>
+                                </a>
+                              )}
                               <Button
                                 type="button"
                                 variant="outline"
@@ -922,22 +1031,20 @@ function SettingsTab({
                               {humanizeSize(editingDoc.size)}
                             </p>
                           </div>
-                          <a
-                            href={api.teamDocumentRawUrl(selectedTeam.id, editingDoc.id)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-                          >
-                            {isViewable(editingDoc.path, editingDoc.mime) ? (
-                              <>
-                                <ExternalLink className="me-2 size-4" /> {copy.docs.open}
-                              </>
-                            ) : (
-                              <>
-                                <Download className="me-2 size-4" /> {copy.docs.download}
-                              </>
-                            )}
-                          </a>
+                          {isViewable(editingDoc.path, editingDoc.mime) ? (
+                            <Button type="button" onClick={() => setPreviewDoc(editingDoc)}>
+                              <ExternalLink className="me-2 size-4" /> {copy.docs.open}
+                            </Button>
+                          ) : (
+                            <a
+                              href={api.teamDocumentRawUrl(selectedTeam.id, editingDoc.id)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex h-9 items-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+                            >
+                              <Download className="me-2 size-4" /> {copy.docs.download}
+                            </a>
+                          )}
                         </div>
                         <div className="flex justify-end">
                           <Button type="button" variant="outline" onClick={resetEditor}>
@@ -996,6 +1103,8 @@ function SettingsTab({
           )}
         </section>
       </div>
+
+      <DocPreviewDialog teamId={selectedTeamId} doc={previewDoc} onClose={() => setPreviewDoc(null)} />
     </>
   );
 }
@@ -1005,18 +1114,22 @@ function SettingsTab({
 // the article ↔ graph highlight stays in sync within a tab switch.
 // ---------------------------------------------------------------------------
 
-function useWikiData(teamId: string) {
+function useWikiData(teamId: string, refetchInterval: number | false = false) {
   const currentUser = useAuthStore((s) => s.user);
 
+  // While a wiki build runs in the background the caller passes a poll interval
+  // so the team (last_wiki_built_at) and article list refresh on their own.
   const teamQuery = useQuery({
     queryKey: ["team", teamId],
     queryFn: () => api.getTeam(teamId),
     enabled: Boolean(teamId),
+    refetchInterval,
   });
   const articlesQuery = useQuery({
     queryKey: ["team-wiki-articles", teamId],
     queryFn: () => api.listTeamWikiArticles(teamId),
     enabled: Boolean(teamId),
+    refetchInterval,
   });
   const workspaceQuery = useQuery({
     queryKey: ["team-workspace", teamId],
@@ -1038,12 +1151,39 @@ function WikiTab({ teamId }: { teamId: string }) {
   const { t } = useTranslation();
   const copy = t.teams.wiki;
   const queryClient = useQueryClient();
-  const { teamQuery, articlesQuery, articles, isOwner } = useWikiData(teamId);
+
+  // The build is async (202): we poll the team + article list every ~8s while a
+  // build is in flight and stop once last_wiki_built_at advances past the value
+  // captured at build-start (or after a safety timeout).
+  const [building, setBuilding] = useState(false);
+  const [buildNotice, setBuildNotice] = useState<Notice>(null);
+  const buildBaselineRef = useRef<string | null>(null);
+  const buildDeadlineRef = useRef<number>(0);
+
+  const { teamQuery, articlesQuery, articles, isOwner } = useWikiData(
+    teamId,
+    building ? 8000 : false,
+  );
+  const lastBuiltAt = teamQuery.data?.last_wiki_built_at ?? null;
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
 
   useEffect(() => {
     if (!selectedSlug && articles.length > 0) setSelectedSlug(articles[0].slug);
   }, [articles, selectedSlug]);
+
+  // Detect build completion: stop polling when the timestamp moves, or bail out
+  // after the safety window so a silently-failed build doesn't spin forever.
+  useEffect(() => {
+    if (!building) return;
+    const moved = lastBuiltAt && lastBuiltAt !== buildBaselineRef.current;
+    const timedOut = Date.now() > buildDeadlineRef.current;
+    if (moved || timedOut) {
+      setBuilding(false);
+      if (moved) {
+        queryClient.invalidateQueries({ queryKey: ["team-workspace", teamId] });
+      }
+    }
+  }, [building, lastBuiltAt, queryClient, teamId]);
 
   const articleQuery = useQuery<TeamWikiArticle>({
     queryKey: ["team-wiki-article", teamId, selectedSlug],
@@ -1053,11 +1193,25 @@ function WikiTab({ teamId }: { teamId: string }) {
 
   const buildMutation = useMutation({
     mutationFn: () => api.buildTeamWiki(teamId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["team-wiki-articles", teamId] });
-      queryClient.invalidateQueries({ queryKey: ["team", teamId] });
+    onSuccess: (res) => {
+      // 202 returns immediately. Start polling regardless of started vs.
+      // already_running; both mean a build is now in flight.
+      buildBaselineRef.current = teamQuery.data?.last_wiki_built_at ?? null;
+      buildDeadlineRef.current = Date.now() + 5 * 60 * 1000;
+      setBuilding(true);
+      setBuildNotice({
+        tone: "ok",
+        text: res.status === "already_running" ? copy.alreadyRunning : copy.buildStarted,
+      });
     },
+    onError: (error: unknown) =>
+      setBuildNotice({
+        tone: "error",
+        text: error instanceof Error ? error.message : copy.buildStarted,
+      }),
   });
+
+  const isBuilding = building || buildMutation.isPending;
 
   const [editOpen, setEditOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
@@ -1107,9 +1261,6 @@ function WikiTab({ teamId }: { teamId: string }) {
     ? resolveWikilinks(articleQuery.data.content, articles)
     : "";
 
-  const buildSummary = buildMutation.data;
-  const buildError = buildSummary && !buildSummary.success ? buildSummary.error : null;
-
   return (
     <>
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1146,10 +1297,10 @@ function WikiTab({ teamId }: { teamId: string }) {
           <Button
             size="sm"
             onClick={() => buildMutation.mutate()}
-            disabled={buildMutation.isPending || !isOwner}
+            disabled={isBuilding || !isOwner}
             title={!isOwner ? copy.ownerOnlyBuild : undefined}
           >
-            {buildMutation.isPending ? (
+            {isBuilding ? (
               <>
                 <Loader2 className="me-2 size-4 animate-spin" /> {copy.building}
               </>
@@ -1162,16 +1313,15 @@ function WikiTab({ teamId }: { teamId: string }) {
         </div>
       </div>
 
-      {buildError && (
-        <div className="mb-4 rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-          {buildError}
-        </div>
-      )}
-      {buildSummary?.success && (
-        <div className="mb-4 rounded-xl border px-4 py-3 text-sm text-muted-foreground">
-          {buildSummary.articles_built}
-          {copy.builtCountSuffix}
-          {buildSummary.generated_by && ` (${buildSummary.generated_by})`}
+      {buildNotice && (
+        <div
+          className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
+            buildNotice.tone === "error"
+              ? "border-destructive/40 bg-destructive/5 text-destructive"
+              : "text-muted-foreground"
+          }`}
+        >
+          {buildNotice.text}
         </div>
       )}
 
@@ -1315,9 +1465,9 @@ function WikiTab({ teamId }: { teamId: string }) {
                     <Button
                       size="lg"
                       onClick={() => buildMutation.mutate()}
-                      disabled={buildMutation.isPending || !isOwner}
+                      disabled={isBuilding || !isOwner}
                     >
-                      {buildMutation.isPending ? (
+                      {isBuilding ? (
                         <>
                           <Loader2 className="me-2 size-4 animate-spin" /> {copy.building}
                         </>

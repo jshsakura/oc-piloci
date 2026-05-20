@@ -97,10 +97,14 @@ export interface TeamWorkspace {
   wiki_built_at?: string;
 }
 
+// Wiki build is now async: POST returns 202 immediately with a status flag
+// and runs the LLM build in the background. The legacy summary fields linger
+// as optional so older cached payloads stay valid.
 export interface TeamWikiBuildResponse {
-  success: boolean;
+  status?: "started" | "already_running";
+  success?: boolean;
   team_id?: string;
-  articles_built: number;
+  articles_built?: number;
   clusters?: number;
   failures?: string[];
   generated_by?: string | null;

@@ -1215,6 +1215,12 @@ const ko = {
         contentPlaceholder: '팀이 함께 볼 내용을 적어두세요.',
         update: '갱신',
         save: '저장',
+        preview: {
+          title: '문서 미리보기',
+          download: '다운로드',
+          unsupported: '이 형식은 미리보기를 지원하지 않습니다. 받아서 확인해 주세요.',
+          close: '닫기',
+        },
       },
       notices: {
         teamCreated: '팀을 만들었습니다.',
@@ -1260,6 +1266,8 @@ const ko = {
         buildNow: '지금 생성',
         ownerOnlyBuild: '팀 소유자만 수동 생성 가능',
         builtCountSuffix: '개의 아티클을 갱신했습니다.',
+        buildStarted: '위키 생성을 시작했어요. 완료되면 목록이 자동으로 갱신됩니다.',
+        alreadyRunning: '이미 생성 중입니다. 완료되면 목록이 자동으로 갱신됩니다.',
         articles: '아티클',
         emptyListHint: '아직 생성된 위키가 없습니다. 팀 메모리나 공용 문서를 쌓은 뒤 ‘지금 생성’을 눌러주세요.',
         otherCategory: '기타',
@@ -2520,6 +2528,12 @@ const en: CopyShape = {
         contentPlaceholder: 'Write what your team should see together.',
         update: 'Update',
         save: 'Save',
+        preview: {
+          title: 'Document preview',
+          download: 'Download',
+          unsupported: 'This format has no preview. Download it to take a look.',
+          close: 'Close',
+        },
       },
       notices: {
         teamCreated: 'Team created.',
@@ -2565,6 +2579,8 @@ const en: CopyShape = {
         buildNow: 'Build now',
         ownerOnlyBuild: 'Only the team owner can build manually',
         builtCountSuffix: ' article(s) updated.',
+        buildStarted: 'Wiki build started. The list refreshes on its own once it finishes.',
+        alreadyRunning: 'A build is already running. The list refreshes on its own once it finishes.',
         articles: 'Articles',
         emptyListHint: 'No wiki has been built yet. Gather some team memories or shared documents, then press ‘Build now’.',
         otherCategory: 'Other',
