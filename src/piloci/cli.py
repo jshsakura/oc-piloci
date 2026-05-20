@@ -158,6 +158,52 @@ def main() -> None:
         help="Wipe the existing piloci plugin folder(s) and reinstall fresh.",
     )
 
+    push_p = sub.add_parser(
+        "push",
+        help="Upload local text files to a team as documents (token-free, Bearer auth).",
+    )
+    push_p.add_argument("paths", nargs="*", help="Files / globs / directories to upload.")
+    push_p.add_argument(
+        "--team", default=None, help="Target team id (required unless --spec sets it)."
+    )
+    push_p.add_argument(
+        "--spec",
+        default=None,
+        help="JSON spec (single {path,local_path} or bulk {root,include,exclude}); '-' reads stdin.",
+    )
+    push_p.add_argument("--server", default=None, help="Override server base URL.")
+    push_p.add_argument(
+        "--base-dir", default=None, help="Strip this leading dir from stored paths."
+    )
+    push_p.add_argument("--prefix", default=None, help="Prepend this path prefix to every file.")
+    push_p.add_argument(
+        "--include",
+        action="append",
+        default=None,
+        help="Only push paths matching this glob (repeatable).",
+    )
+    push_p.add_argument(
+        "--exclude",
+        action="append",
+        default=None,
+        help="Skip paths matching this glob (repeatable).",
+    )
+
+    pull_p = sub.add_parser(
+        "pull",
+        help="Download a team's bundle (zip) and unpack it locally (token-free).",
+    )
+    pull_p.add_argument("--team", required=True, help="Source team id.")
+    pull_p.add_argument(
+        "--out", default="./team-files", help="Output dir/file (default ./team-files)."
+    )
+    pull_p.add_argument(
+        "--path",
+        default=None,
+        help="Download just this one document path (instead of the full zip).",
+    )
+    pull_p.add_argument("--server", default=None, help="Override server base URL.")
+
     args = parser.parse_args()
 
     if args.command == "stdio":
@@ -191,6 +237,14 @@ def main() -> None:
         _run_setup(args)
     elif args.command == "backfill-cwd":
         _run_backfill_cwd(args)
+    elif args.command == "push":
+        from piloci.cli_files import run_push
+
+        run_push(args)
+    elif args.command == "pull":
+        from piloci.cli_files import run_pull
+
+        run_pull(args)
     elif args.command == "serve":
         if args.host or args.port or args.reload:
             import os
