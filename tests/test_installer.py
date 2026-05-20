@@ -503,6 +503,128 @@ def test_install_codex_mcp_preserves_user_content(tmp_path: Path) -> None:
     assert "[mcp_servers.piloci]" in raw
 
 
+def test_install_codex_mcp_cleans_legacy_unmarked_block(tmp_path: Path) -> None:
+    """A pre-marker [mcp_servers.piloci] block from an old install must be
+    removed before the new marker-wrapped block is appended — otherwise Codex
+    refuses the TOML with a duplicate key error."""
+
+    cfg_path = tmp_path / installer.CODEX_DIR_NAME / "config.toml"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(
+        "[mcp_servers.piloci]\n"
+        'url = "https://old.example/mcp/http"\n'
+        "[mcp_servers.piloci.http_headers]\n"
+        'Authorization = "Bearer OLD"\n'
+    )
+    installer.install_codex_mcp("https://new.example", "NEW", home=tmp_path)
+    raw = cfg_path.read_text()
+    # Exactly one piloci section header (the new marker-wrapped one).
+    assert raw.count("[mcp_servers.piloci]") == 1
+    assert raw.count("[mcp_servers.piloci.http_headers]") == 1
+    assert "OLD" not in raw
+    assert "NEW" in raw
+    assert installer._CODEX_BLOCK_BEGIN in raw
+
+
+def test_install_codex_mcp_cleans_both_legacy_and_marker(tmp_path: Path) -> None:
+    """Legacy unmarked piloci + marker-wrapped block coexist (the broken state
+    that produced the duplicate-key error in v0.3.98). Install must wipe both."""
+
+    cfg_path = tmp_path / installer.CODEX_DIR_NAME / "config.toml"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(
+        "[mcp_servers.piloci]\n"
+        'url = "https://legacy.example/mcp/http"\n'
+        "[mcp_servers.piloci.http_headers]\n"
+        'Authorization = "Bearer LEGACY"\n'
+        "\n"
+        f"{installer._CODEX_BLOCK_BEGIN}\n"
+        "[mcp_servers.piloci]\n"
+        'url = "https://prev.example/mcp/http"\n'
+        "[mcp_servers.piloci.http_headers]\n"
+        'Authorization = "Bearer PREV"\n'
+        f"{installer._CODEX_BLOCK_END}\n"
+    )
+    installer.install_codex_mcp("https://new.example", "NEW", home=tmp_path)
+    raw = cfg_path.read_text()
+    assert raw.count("[mcp_servers.piloci]") == 1
+    assert "LEGACY" not in raw
+    assert "PREV" not in raw
+    assert "NEW" in raw
+
+
+def test_install_codex_mcp_preserves_other_mcp_servers(tmp_path: Path) -> None:
+    """A user-owned [mcp_servers.something] table must be left intact even when
+    a legacy piloci block is being cleaned up next to it."""
+
+    cfg_path = tmp_path / installer.CODEX_DIR_NAME / "config.toml"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(
+        "[mcp_servers.piloci]\n"
+        'url = "https://old.example/mcp/http"\n'
+        "\n"
+        "[mcp_servers.foobar]\n"
+        'url = "https://foobar.example/mcp"\n'
+        "[mcp_servers.foobar.http_headers]\n"
+        'X-Key = "user-token"\n'
+    )
+    installer.install_codex_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+    raw = cfg_path.read_text()
+    assert "[mcp_servers.foobar]" in raw
+    assert "user-token" in raw
+    assert raw.count("[mcp_servers.piloci]") == 1
+    assert "https://old.example" not in raw
+
+
+def test_install_codex_mcp_preserves_user_session_start(tmp_path: Path) -> None:
+    """A user-owned [[SessionStart]] hook (not from piloci) must survive."""
+
+    cfg_path = tmp_path / installer.CODEX_DIR_NAME / "config.toml"
+    cfg_path.parent.mkdir(parents=True)
+    cfg_path.write_text(
+        "[[SessionStart]]\n"
+        "[[SessionStart.hooks]]\n"
+        'type = "command"\n'
+        'command = "echo hello-from-user"\n'
+        "\n"
+        "[mcp_servers.piloci]\n"
+        'url = "https://old.example/mcp/http"\n'
+    )
+    installer.install_codex_mcp("https://piloci.example", "JWT.tok", home=tmp_path)
+    raw = cfg_path.read_text()
+    assert "echo hello-from-user" in raw
+    assert raw.count("[mcp_servers.piloci]") == 1
+
+
+def test_strip_legacy_codex_piloci_counts_removed_headers() -> None:
+    """The helper reports how many piloci section headers it removed so
+    callers can surface the cleanup in install reports if desired."""
+
+    raw = (
+        "[unrelated]\n"
+        "x = 1\n"
+        "[mcp_servers.piloci]\n"
+        'url = "x"\n'
+        "[mcp_servers.piloci.http_headers]\n"
+        'Authorization = "y"\n'
+        "[other]\n"
+        "y = 2\n"
+    )
+    cleaned, removed = installer._strip_legacy_codex_piloci(raw)
+    assert removed == 2
+    assert "[mcp_servers.piloci]" not in cleaned
+    assert "[mcp_servers.piloci.http_headers]" not in cleaned
+    assert "[unrelated]" in cleaned
+    assert "[other]" in cleaned
+
+
+def test_strip_legacy_codex_piloci_no_op_on_clean_file() -> None:
+    raw = '[profile]\nname = "alice"\n'
+    cleaned, removed = installer._strip_legacy_codex_piloci(raw)
+    assert removed == 0
+    assert cleaned == raw
+
+
 def test_detect_all_targets_reports_per_kind(tmp_path: Path) -> None:
     (tmp_path / installer.CURSOR_DIR_NAME).mkdir(parents=True)
     (tmp_path / installer.ZED_DIR_NAME).mkdir(parents=True)

@@ -638,6 +638,40 @@ _CODEX_BLOCK_RE = re.compile(
     re.DOTALL,
 )
 
+# Matches a Codex TOML section header line: [name], [[name]], [a.b], etc.
+_CODEX_SECTION_HEADER_RE = re.compile(r"^\s*\[\[?[^\]\n]+\]\]?\s*(?:#.*)?$")
+
+
+def _strip_legacy_codex_piloci(raw: str) -> tuple[str, int]:
+    """Remove pre-marker ``[mcp_servers.piloci]`` / ``[mcp_servers.piloci.<x>]`` tables.
+
+    Older piLoci installs appended these without the ``# >>> piloci managed >>>``
+    markers; if a new install adds the marker-wrapped block on top, Codex
+    refuses to load the file with a ``duplicate key`` error.
+
+    Walks the file line by line. When a piloci section header is found, drops
+    every following line until the next section header (or EOF). Non-piloci
+    sections, blank lines, and user comments outside piloci tables stay
+    verbatim — never touch ``[[SessionStart]]``, ``[mcp_servers.<other>]``,
+    or any block the user owns.
+
+    Returns the cleaned text and the number of piloci section headers removed.
+    """
+    out: list[str] = []
+    inside_piloci = False
+    removed = 0
+    for line in raw.splitlines(keepends=True):
+        if _CODEX_SECTION_HEADER_RE.match(line):
+            header = line.strip().split("#", 1)[0].strip()
+            if header == "[mcp_servers.piloci]" or header.startswith("[mcp_servers.piloci."):
+                inside_piloci = True
+                removed += 1
+                continue
+            inside_piloci = False
+        if not inside_piloci:
+            out.append(line)
+    return "".join(out), removed
+
 
 def install_codex_mcp(base_url: str, token: str, *, home: Path | None = None) -> Path:
     """Append piloci's MCP server + lifecycle hooks to Codex CLI's ``~/.codex/config.toml``."""
@@ -692,7 +726,9 @@ def install_codex_mcp(base_url: str, token: str, *, home: Path | None = None) ->
         f'commandWindows = "python {stop_hook_py_path}"\n'
         f"{_CODEX_BLOCK_END}\n"
     )
-    stripped = _CODEX_BLOCK_RE.sub("\n", raw).rstrip()
+    stripped = _CODEX_BLOCK_RE.sub("\n", raw)
+    stripped, _legacy_removed = _strip_legacy_codex_piloci(stripped)
+    stripped = stripped.rstrip()
     cfg.write_text((stripped + block) if stripped else block.lstrip("\n"))
     try:
         cfg.chmod(0o600)
@@ -867,7 +903,9 @@ def run_uninstall(*, home: Path | None = None, restore: bool = True) -> list[str
     codex_cfg = h / CODEX_DIR_NAME / "config.toml"
     if codex_cfg.exists():
         raw = codex_cfg.read_text()
-        stripped = _CODEX_BLOCK_RE.sub("\n", raw).rstrip()
+        stripped = _CODEX_BLOCK_RE.sub("\n", raw)
+        stripped, _legacy_removed = _strip_legacy_codex_piloci(stripped)
+        stripped = stripped.rstrip()
         if stripped != raw.rstrip():
             codex_cfg.write_text(stripped + ("\n" if stripped else ""))
             report.append(f"{codex_cfg} (mcp_servers.piloci 제거)")
@@ -990,12 +1028,17 @@ def run_install(
             if kind == "claude":
                 report.claude_configured = True
                 report.notes.append(
-                    f"Claude Code 플러그인 설치: {path} " "(hooks + ~/.claude.json mcpServers 등록)"
+                    f"Claude Code 플러그인 설치: {path} "
+                    "(SessionStart/Stop 자동 캡처 + MCP — .claude/plugins 자동 로드)"
                 )
             elif kind == "opencode":
                 report.opencode_configured = True
                 report.notes.append(
                     f"OpenCode 플러그인 설치: {path} " "(자동 캡처 + opencode.json MCP 등록)"
+                )
+            elif kind == "codex":
+                report.notes.append(
+                    f"{label} 설정 머지: {path} (SessionStart/Stop 자동 캡처 + MCP)"
                 )
             else:
                 report.notes.append(f"{label} MCP 설정 머지: {path}")
