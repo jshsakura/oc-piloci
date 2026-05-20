@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WikiMiniMap } from "@/components/WikiMiniMap";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import type { GraphNode, TeamWikiArticle, TeamWikiArticleSummary } from "@/lib/types";
 
@@ -95,6 +96,7 @@ export default function TeamWikiPage() {
 function TeamWikiContent() {
   const { t } = useTranslation();
   const copy = t.teams.wiki;
+  const currentUser = useAuthStore((s) => s.user);
   const searchParams = useSearchParams();
   const router = useRouter();
   const teamId = searchParams?.get("id") ?? "";
@@ -109,6 +111,14 @@ function TeamWikiContent() {
     queryKey: ["teams"],
     queryFn: () => api.listTeams(),
   });
+
+  // Reached via the sidebar with no ?id — fall back to the first team so the
+  // page is actually usable instead of showing an empty, disabled shell.
+  useEffect(() => {
+    if (!teamId && (teamsQuery.data?.length ?? 0) > 0) {
+      router.replace(`/teams/wiki?id=${teamsQuery.data![0].id}`);
+    }
+  }, [teamId, teamsQuery.data, router]);
 
   const teamQuery = useQuery({
     queryKey: ["team", teamId],
@@ -201,10 +211,10 @@ function TeamWikiContent() {
     return Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [articles, copy.otherCategory]);
 
-  const isOwner =
-    teamQuery.data?.members?.some(
-      (m) => m.user_id === teamQuery.data?.owner_id && m.role === "owner",
-    ) ?? false;
+  // Owner = the logged-in user owns this team. (The old check compared the
+  // owner to itself among members, so it never reflected the viewer — leaving
+  // the auto-build toggle / 지금 생성 disabled even for the actual owner.)
+  const isOwner = Boolean(currentUser && teamQuery.data?.owner_id === currentUser.user_id);
 
   const articleContent = articleQuery.data
     ? resolveWikilinks(articleQuery.data.content, articles)
