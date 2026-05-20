@@ -568,6 +568,7 @@ async def route_create_document(request: Request) -> Response:
 
     await _invalidate_team_vault(team_id)
     _schedule_doc_index(request, team_id, doc_id, path, content)
+    _schedule_index_refresh(request, team_id, path)
 
     return _json(
         {
@@ -723,6 +724,7 @@ async def route_upload_file(request: Request) -> Response:
         _schedule_file_stub(request, team_id, doc_id, path, mime, size)
     else:
         _schedule_doc_index(request, team_id, doc_id, path, content)
+    _schedule_index_refresh(request, team_id, path)
 
     return _json(
         {
@@ -813,6 +815,26 @@ def _schedule_doc_remove(request: Request, team_id: str, doc_id: str) -> None:
     from piloci.curator.team_doc_index import remove_team_document
 
     asyncio.create_task(remove_team_document(store, team_id, doc_id))
+
+
+def _schedule_index_refresh(request: Request, team_id: str, changed_path: str | None) -> None:
+    """Fire-and-forget: rebuild the team's ``LOCI.md`` entry-point map.
+
+    Skips when the change *is* ``LOCI.md`` (the refresh writes it via a direct
+    DB upsert, not this route, so there is no self-trigger loop — this guard is
+    a belt-and-suspenders against an agent editing LOCI.md by hand). Skips
+    silently if the store isn't wired."""
+    from piloci.curator.team_index import LOCI_FILENAME
+
+    if changed_path == LOCI_FILENAME:
+        return
+    store = getattr(request.app.state, "store", None)
+    if store is None:
+        return
+    from piloci.config import get_settings
+    from piloci.curator.team_index import refresh_team_index
+
+    asyncio.create_task(refresh_team_index(store, team_id, settings=get_settings()))
 
 
 async def route_list_documents(request: Request) -> Response:
@@ -1009,6 +1031,7 @@ async def route_update_document(request: Request) -> Response:
 
     await _invalidate_team_vault(team_id)
     _schedule_doc_index(request, team_id, doc_id, doc_path, content)
+    _schedule_index_refresh(request, team_id, doc_path)
 
     return _json(
         {
@@ -1068,6 +1091,7 @@ async def route_delete_document(request: Request) -> Response:
 
     await _invalidate_team_vault(team_id)
     _schedule_doc_remove(request, team_id, doc_id)
+    _schedule_index_refresh(request, team_id, None)
     return _json({"deleted": True})
 
 
