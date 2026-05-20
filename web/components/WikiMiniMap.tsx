@@ -21,6 +21,10 @@ const KIND_COLOR: Record<GraphNode["kind"], string> = {
   // green doc-leaves at a glance.
   folder: "#fb7185",
   doc: "#16a34a",
+  file: "#94a3b8",
+  // Wiki articles are the headline nodes — a bright amber so they pop out of
+  // the doc/memory substrate as the "real" wiki layer.
+  article: "#f59e0b",
 };
 
 interface WikiMiniMapProps {
@@ -132,7 +136,7 @@ export function WikiMiniMap({
     () => ({
       nodes: nodes.map((n) => ({
         ...n,
-        val: n.kind === "team" ? 6 : n.kind === "folder" ? 3 : 2,
+        val: n.kind === "team" ? 6 : n.kind === "article" ? 4 : n.kind === "folder" ? 3 : 2,
       })),
       links: edges.map((e) => ({ source: e.source, target: e.target, kind: e.kind })),
     }),

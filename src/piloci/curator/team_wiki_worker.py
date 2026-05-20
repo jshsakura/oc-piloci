@@ -606,6 +606,8 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
     targets = list(fallbacks)
 
     articles_built: list[dict[str, Any]] = []
+    # Article dicts (with body + sources) for the wiki graph rebuild below.
+    graph_articles: list[dict[str, Any]] = []
     failures: list[str] = []
     flagged: list[dict[str, Any]] = []
     unchanged_count = 0
@@ -784,6 +786,22 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
         elif not passes:
             flagged.append(persisted)
         articles_built.append(persisted)
+        graph_articles.append(
+            {
+                "slug": persisted["slug"],
+                "title": persisted["title"],
+                "category": persisted.get("category"),
+                "summary": persisted.get("summary"),
+                "content": revised.get("content") or "",
+                "sources": persisted.get("sources") or [],
+            }
+        )
+
+    # Rebuild the graph with article nodes now that they exist, so the cached
+    # vault's map *is* the wiki (article nodes + source/wikilink edges).
+    if graph_articles:
+        workspace = build_team_vault(team, memories, documents, articles=graph_articles)
+        save_team_vault(settings.vault_dir, team_id, workspace)
 
     # Push the freshly-built article list into the cached vault so frontend
     # `/api/teams/{tid}/workspace` can render it without an extra DB hop.

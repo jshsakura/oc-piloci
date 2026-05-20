@@ -1105,6 +1105,16 @@ function MapTab({ teamId }: { teamId: string }) {
 
   const activeNodeArticle = useMemo(() => {
     if (!activeNode) return null;
+    // Article nodes carry their slug directly; everything else falls back to
+    // title-matching against the article list.
+    if (activeNode.kind === "article") {
+      const slug =
+        activeNode.slug ??
+        (activeNode.id.startsWith("article:")
+          ? activeNode.id.slice("article:".length)
+          : null);
+      return articles.find((a) => a.slug === slug) ?? null;
+    }
     const lower = activeNode.label.toLowerCase();
     return articles.find((a) => a.title.toLowerCase() === lower) ?? null;
   }, [activeNode, articles]);

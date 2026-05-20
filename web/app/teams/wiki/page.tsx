@@ -288,12 +288,13 @@ function WikiContent({
     ? resolveWikilinks(articleQuery.data.content, articles)
     : "";
 
-  // Sources of the open article get a highlight ring on the floating map so the
-  // reader can locate them spatially.
-  const highlightedIds = useMemo(
-    () => (articleQuery.data?.sources ?? []).map((s) => s.id),
-    [articleQuery.data],
-  );
+  // The open article's own node + its source nodes get a highlight ring on the
+  // floating map so the reader can locate the article and its origins spatially.
+  const highlightedIds = useMemo(() => {
+    const ids = (articleQuery.data?.sources ?? []).map((s) => s.id);
+    if (selectedSlug) ids.push(`article:${selectedSlug}`);
+    return ids;
+  }, [articleQuery.data, selectedSlug]);
 
   // Wikilink anchors (#article-<slug>) jump between articles in-place rather
   // than scrolling to a missing DOM id.
@@ -635,6 +636,15 @@ function WikiContent({
           hidden={false}
           onHiddenChange={(h) => setShowMap(!h)}
           onNodeClick={(node) => {
+            // Article nodes are first-class: clicking one opens that article.
+            if (node.kind === "article") {
+              const slug =
+                node.slug ??
+                (node.id.startsWith("article:") ? node.id.slice("article:".length) : null);
+              if (slug) setSelectedSlug(slug);
+              return;
+            }
+            // Topic / note nodes fall back to title-matching an article.
             const lower = node.label.toLowerCase();
             const match = articles.find((a) => a.title.toLowerCase() === lower);
             if (match) setSelectedSlug(match.slug);
