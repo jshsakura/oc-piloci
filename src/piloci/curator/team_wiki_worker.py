@@ -190,6 +190,15 @@ _JUDGE_SYSTEM = (
 _JUDGE_MIN_AVG = 3.5
 _MAX_RETRIES = 1
 
+# Output budget for article body generation (draft / revise / retry). The
+# prompt asks for "rulebook-level, deep, no summarizing" Korean articles, and a
+# thorough one wrapped in a JSON string easily blows past a few thousand tokens.
+# At 3200 the response was truncated mid-body — or the cut JSON failed to parse
+# and the article was saved empty ("본문이 안 나온다"). These are external-GLM
+# calls (the worker requires an external provider), so the Pi-local llama-server
+# limits don't apply here.
+_ARTICLE_MAX_TOKENS = 8000
+
 
 def _user_prompt(cluster: dict[str, Any], extra_context: list[dict[str, Any]] | None = None) -> str:
     """Build the draft / revise user prompt.
@@ -652,7 +661,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             draft = await chat_json(
                 draft_messages,
                 temperature=0.2,
-                max_tokens=3200,
+                max_tokens=_ARTICLE_MAX_TOKENS,
                 targets=targets,
                 record_target=record,
             )
@@ -702,7 +711,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                         },
                     ],
                     temperature=0.15,
-                    max_tokens=3200,
+                    max_tokens=_ARTICLE_MAX_TOKENS,
                     targets=targets,
                 )
             except Exception as exc:
@@ -748,7 +757,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                         },
                     ],
                     temperature=0.2,
-                    max_tokens=3200,
+                    max_tokens=_ARTICLE_MAX_TOKENS,
                     targets=targets,
                 )
                 score = await chat_json(

@@ -143,20 +143,6 @@ export function WikiMiniMap({
     [nodes, edges],
   );
 
-  // Density guard: hide the map automatically when the graph has too many
-  // nodes to be useful in a small canvas. The user can still toggle it back
-  // on from the header, but we don't insist on rendering a hairball by default.
-  const dismissedRef = useRef(false);
-  useEffect(() => {
-    // Inline mode lives inside a dedicated tab — never auto-dismiss, the user
-    // came here on purpose.
-    if (inline) return;
-    if (nodes.length > 400 && !dismissedRef.current) {
-      dismissedRef.current = true;
-      setHidden(true);
-    }
-  }, [nodes.length, setHidden, inline]);
-
   // Inline mode tracks its container width so the canvas fills the tab.
   useEffect(() => {
     if (!inline) return;
@@ -201,11 +187,15 @@ export function WikiMiniMap({
           }}
           onNodeHover={(node: any) => setHovered((node as GraphNode) ?? null)}
           onNodeClick={(node: any) => {
+            // Touch devices have no hover, so a tap reveals the node's label
+            // (lets the user read the map) *before* delegating. The parent
+            // decides whether the tap also navigates/closes the sheet.
+            setHovered(node as GraphNode);
             if (onNodeClick) onNodeClick(node as GraphNode);
           }}
         />
         {hovered && (
-          <div className="pointer-events-none absolute inset-x-2 bottom-2 truncate rounded bg-background/90 px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur">
+          <div className="absolute inset-x-2 bottom-2 truncate rounded bg-background/90 px-3 py-1.5 text-xs font-medium shadow-sm backdrop-blur">
             <span
               className="me-1.5 inline-block size-2 rounded-full align-middle"
               style={{ backgroundColor: KIND_COLOR[hovered.kind] ?? "#94a3b8" }}

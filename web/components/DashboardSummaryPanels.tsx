@@ -14,6 +14,8 @@ import {
   Lightbulb,
   MessageSquare,
   Sparkles,
+  TrendingDown,
+  TrendingUp,
   Zap,
 } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip } from "recharts";
@@ -221,30 +223,14 @@ export function DashboardSummaryPanels({
     }
     return s;
   })();
-  // v0.3.51: "화난 순간" was tag-keyword based — tags are usually work
-  // categories (architecture, ui, security) so the count was almost
-  // always 0 even when feedback memories / reaction instincts clearly
-  // captured frustration. Rebuilt to match against the actual carriers:
-  //   1. top_instincts where domain === "reaction" — every one counts
-  //      as an emotional reaction (positive or negative).
-  //   2. recent_memories that the curator tagged as feedback (we don't
-  //      get category from this endpoint directly, so fall back to
-  //      keyword sniffing the content).
-  // Label flipped to "감정 반응" so users don't expect strictly-anger.
-  const NEG_KW = ['화', '분노', '짜증', '불만', '답답', '열받', '멘붕', '빡침', 'angry', 'frustrated', 'annoyed', 'upset'];
-  const matchesEmotion = (text: string): boolean => {
-    const lower = text.toLowerCase();
-    return NEG_KW.some((k) => lower.includes(k));
-  };
-  const reactionInstinctCount = (data?.top_instincts ?? []).filter(
-    (i) => i.domain === 'reaction',
-  ).reduce((sum, i) => sum + (i.instinct_count || 1), 0);
-  const feedbackContentMatches = (data?.recent_memories ?? []).filter((m) =>
-    matchesEmotion(m.content || ''),
-  ).length;
-  // Sum the two signals; instincts capture repeated patterns, memories
-  // capture single sharp moments.
-  const angryCount = reactionInstinctCount + feedbackContentMatches;
+  // "감정 반응": the real this-week aggregate the server computes from the
+  // actual carriers — feedback-category memories + reaction-domain instincts.
+  // (Earlier versions re-derived this from the 10-row display sample, so it
+  // read 0 even when emotion memos clearly existed.) We also show the trend
+  // versus last week so the card answers "지난주엔 화가 많이 났구나" at a glance.
+  const emoThisWeek = data?.emotion?.this_week ?? 0;
+  const emoLastWeek = data?.emotion?.last_week ?? 0;
+  const emoDelta = emoThisWeek - emoLastWeek;
 
   const memPager = usePager(memories, 4);
   const instPager = usePager(instincts, 4);
@@ -281,18 +267,29 @@ export function DashboardSummaryPanels({
       {/* Fun stats */}
       {showOverview && <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { icon: MessageSquare, label: summary.funStats.today, value: isLoading ? "…" : String(todayCount), color: "text-blue-500", bg: "bg-blue-500/10" },
-          { icon: Zap, label: summary.funStats.week, value: isLoading ? "…" : String(weekCount), color: "text-violet-500", bg: "bg-violet-500/10" },
-          { icon: Flame, label: summary.funStats.streak, value: isLoading ? "…" : streak > 0 ? `${streak}${summary.funStats.streakUnit}` : "–", color: "text-orange-500", bg: "bg-orange-500/10" },
-          { icon: Activity, label: summary.funStats.anger, value: isLoading ? "…" : angryCount > 0 ? `${angryCount}${summary.funStats.angerUnit}` : summary.funStats.angerNone, color: "text-rose-500", bg: "bg-rose-500/10" },
-        ].map(({ icon: Icon, label, value, color, bg }) => (
+          { icon: MessageSquare, label: summary.funStats.today, value: isLoading ? "…" : String(todayCount), color: "text-blue-500", bg: "bg-blue-500/10", delta: null as number | null },
+          { icon: Zap, label: summary.funStats.week, value: isLoading ? "…" : String(weekCount), color: "text-violet-500", bg: "bg-violet-500/10", delta: null as number | null },
+          { icon: Flame, label: summary.funStats.streak, value: isLoading ? "…" : streak > 0 ? `${streak}${summary.funStats.streakUnit}` : "–", color: "text-orange-500", bg: "bg-orange-500/10", delta: null as number | null },
+          { icon: Activity, label: summary.funStats.anger, value: isLoading ? "…" : emoThisWeek > 0 ? `${emoThisWeek}${summary.funStats.angerUnit}` : summary.funStats.angerNone, color: "text-rose-500", bg: "bg-rose-500/10", delta: isLoading ? null : emoDelta },
+        ].map(({ icon: Icon, label, value, color, bg, delta }) => (
           <div key={label} className="flex items-center gap-3 rounded-xl border bg-card px-4 py-3">
             <span className={`flex size-8 shrink-0 items-center justify-center rounded-full ${bg}`}>
               <Icon className={`size-4 ${color}`} />
             </span>
             <div className="min-w-0">
               <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-              <p className="text-xl font-semibold tabular-nums leading-tight">{value}</p>
+              <p className="flex items-baseline gap-1.5 text-xl font-semibold tabular-nums leading-tight">
+                {value}
+                {delta != null && delta !== 0 && (
+                  <span
+                    title={summary.funStats.angerTrend}
+                    className={`inline-flex items-center text-[11px] font-medium ${delta > 0 ? "text-rose-500" : "text-emerald-500"}`}
+                  >
+                    {delta > 0 ? <TrendingUp className="size-3" /> : <TrendingDown className="size-3" />}
+                    {Math.abs(delta)}
+                  </span>
+                )}
+              </p>
             </div>
           </div>
         ))}

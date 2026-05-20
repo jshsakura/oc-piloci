@@ -875,6 +875,7 @@ const ko = {
           anger: '감정 반응',
           angerNone: '없음',
           angerUnit: '건',
+          angerTrend: '지난주 대비',
         },
         cols: {
           memory: '메모리',
@@ -1273,6 +1274,8 @@ const ko = {
         hideMap: '맥락지도 숨기기',
         closeMap: '맥락지도 닫기',
         openSourceFile: '원본 파일 열기',
+        memoryGroup: '메모 {count}개',
+        docPreviewError: '문서를 불러오지 못했습니다.',
         refresh: '새로고침',
         building: '생성 중…',
         buildNow: '지금 생성',
@@ -2205,6 +2208,7 @@ const en: CopyShape = {
           anger: 'Emotional reactions',
           angerNone: 'none',
           angerUnit: '',
+          angerTrend: 'vs last week',
         },
         cols: {
           memory: 'Memory',
@@ -2603,6 +2607,8 @@ const en: CopyShape = {
         hideMap: 'Hide context map',
         closeMap: 'Close context map',
         openSourceFile: 'Open source file',
+        memoryGroup: '{count} memories',
+        docPreviewError: 'Failed to load the document.',
         refresh: 'Refresh',
         building: 'Building…',
         buildNow: 'Build now',

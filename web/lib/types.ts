@@ -296,6 +296,7 @@ export interface DashboardSummary {
   }[];
   activity: { date: string; count: number }[];
   top_tags: { tag: string; count: number }[];
+  emotion: { this_week: number; last_week: number };
 }
 
 export interface LLMProvider {

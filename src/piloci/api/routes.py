@@ -425,15 +425,45 @@ async def route_dashboard_summary(request: Request) -> Response:
     top_instincts: list[dict[str, Any]] = []
     tag_counts: dict[str, int] = {}
 
+    # Real emotion aggregate. The old "감정 반응" funstat re-derived a count from
+    # the 10-row display sample (top-8 instincts + 10 recent memories), so it was
+    # almost always 0 even when feedback memories / reaction instincts existed.
+    # Count the actual carriers — feedback-category memories + reaction-domain
+    # instincts — bucketed into the current vs previous ISO week so the dashboard
+    # can show a genuine "이번 주 N건 (지난주 대비 ↑↓)".
+    from piloci.storage.privacy import PRIVATE_INSTINCT_DOMAINS, PRIVATE_MEMORY_CATEGORIES
+
+    _today = datetime.now(timezone.utc).date()
+    _this_mon = _today - timedelta(days=_today.weekday())
+    _prev_mon = _this_mon - timedelta(days=7)
+
+    def _week_unix(monday: Any) -> tuple[int, int]:
+        start = datetime(monday.year, monday.month, monday.day, tzinfo=timezone.utc)
+        return int(start.timestamp()), int((start + timedelta(days=7)).timestamp())
+
+    _tw_start, _tw_end = _week_unix(_this_mon)
+    _lw_start, _lw_end = _week_unix(_prev_mon)
+    emotion_this = 0
+    emotion_last = 0
+
     for p in proj_rows:
         try:
-            mems = await store.list(user_id=user_id, project_id=p.id, limit=25, offset=0)
+            # Wider window than the display needs: feedback memories are sparse,
+            # so a small limit would miss last week's rows for the trend bucket.
+            mems = await store.list(user_id=user_id, project_id=p.id, limit=200, offset=0)
         except Exception:
             mems = []
         for m in mems:
             tags = m.get("tags") or []
             for t in tags:
                 tag_counts[t] = tag_counts.get(t, 0) + 1
+            meta = m.get("metadata") or {}
+            if isinstance(meta, dict) and meta.get("category") in PRIVATE_MEMORY_CATEGORIES:
+                ca = int(m.get("created_at") or 0)
+                if _tw_start <= ca < _tw_end:
+                    emotion_this += 1
+                elif _lw_start <= ca < _lw_end:
+                    emotion_last += 1
             recent_memories.append(
                 {
                     "memory_id": m.get("memory_id"),
@@ -467,6 +497,22 @@ async def route_dashboard_summary(request: Request) -> Response:
                     }
                 )
 
+            # Reaction-domain instincts rarely make the confidence-ranked top 8
+            # above, so count them with a dedicated domain-filtered pass.
+            for domain in PRIVATE_INSTINCT_DOMAINS:
+                try:
+                    react = await instincts_store.list_instincts(
+                        user_id=user_id, project_id=p.id, domain=domain, limit=100
+                    )
+                except Exception:
+                    react = []
+                for inst in react:
+                    ts = int(inst.get("updated_at") or inst.get("created_at") or 0)
+                    if _tw_start <= ts < _tw_end:
+                        emotion_this += 1
+                    elif _lw_start <= ts < _lw_end:
+                        emotion_last += 1
+
     recent_memories.sort(key=lambda r: r.get("updated_at") or 0, reverse=True)
     recent_memories = recent_memories[:10]
 
@@ -485,8 +531,6 @@ async def route_dashboard_summary(request: Request) -> Response:
     # Recent ingested sessions + activity buckets — single SQL pass. Window
     # matches raw_session_retention_days so the chart doesn't show fake zeros
     # past the retention edge.
-    from datetime import timedelta
-
     settings = get_settings()
     activity_window = getattr(settings, "raw_session_retention_days", 90)
     now = datetime.now(timezone.utc)
@@ -541,6 +585,7 @@ async def route_dashboard_summary(request: Request) -> Response:
             "recent_sessions": recent_sessions,
             "activity": activity,
             "top_tags": top_tags,
+            "emotion": {"this_week": emotion_this, "last_week": emotion_last},
         }
     )
 

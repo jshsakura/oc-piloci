@@ -16,6 +16,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import remarkGfm from "remark-gfm";
 import {
   BookOpen,
+  ChevronDown,
+  FileText,
   Loader2,
   Map as MapIcon,
   Pencil,
@@ -403,6 +405,15 @@ function WikiContent({
 
   const isBuilding = serverBuilding || buildMutation.isPending;
 
+  // Inline doc-source preview: clicking a document source opens its full text
+  // in a dialog instead of forcing a file download.
+  const [previewDoc, setPreviewDoc] = useState<TeamDocumentSummary | null>(null);
+  const previewQuery = useQuery({
+    queryKey: ["team-document-preview", teamId, previewDoc?.id],
+    queryFn: () => api.getTeamDocument(teamId, previewDoc!.id),
+    enabled: Boolean(previewDoc),
+  });
+
   const [editOpen, setEditOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftSummary, setDraftSummary] = useState("");
@@ -480,20 +491,28 @@ function WikiContent({
   }, [articleQuery.data, selectedSlug]);
 
   // Map node → article. Article nodes open directly; topic/note nodes fall
-  // back to title-matching an article. Shared by the desktop panel and the
-  // mobile sheet.
+  // back to title-matching an article. Returns true when the tap resolved to
+  // an article (i.e. it navigated) so the mobile sheet can close *only* on a
+  // real navigation — exploratory taps on topic/doc/note nodes keep it open.
   const handleMapNodeClick = useCallback(
-    (node: GraphNode) => {
+    (node: GraphNode): boolean => {
       if (node.kind === "article") {
         const slug =
           node.slug ??
           (node.id.startsWith("article:") ? node.id.slice("article:".length) : null);
-        if (slug) setSelectedSlug(slug);
-        return;
+        if (slug) {
+          setSelectedSlug(slug);
+          return true;
+        }
+        return false;
       }
       const lower = node.label.toLowerCase();
       const match = articles.find((a) => a.title.toLowerCase() === lower);
-      if (match) setSelectedSlug(match.slug);
+      if (match) {
+        setSelectedSlug(match.slug);
+        return true;
+      }
+      return false;
     },
     [articles],
   );
@@ -831,41 +850,66 @@ function WikiContent({
                 </div>
               </div>
 
-              {articleQuery.data.sources?.length > 0 && (
-                <div className="mt-8 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
-                  <p className="mb-1 font-medium">{copy.sources}</p>
-                  <ul className="list-inside list-disc">
-                    {articleQuery.data.sources.map((s) => {
-                      // Doc/file sources that resolve to a real document become
-                      // links opening the file inline; memory (and unresolved)
-                      // sources stay plain text.
-                      const doc =
-                        s.kind === "memory"
-                          ? null
-                          : resolveSourceDoc({ id: s.id, path: s.title }, documents);
-                      const label = s.title || s.id;
-                      return (
-                        <li key={`${s.kind}-${s.id}`}>
-                          <span className="font-mono text-[10px]">[{s.kind}]</span>{" "}
-                          {doc ? (
-                            <a
-                              href={inlineRawUrl(teamId, doc.id)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              title={copy.openSourceFile}
-                              className="text-primary underline-offset-2 hover:underline"
-                            >
-                              {label}
-                            </a>
-                          ) : (
-                            label
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
+              {articleQuery.data.sources?.length > 0 &&
+                (() => {
+                  // Document/file sources are few and worth surfacing as
+                  // openable chips. Memory sources are the noisy part — the
+                  // curator attaches every memory row it drew from, so a flat
+                  // bullet list reads as dozens of truncated fragments. Bundle
+                  // them under one collapsible count instead.
+                  const allSources = articleQuery.data.sources;
+                  const docSources = allSources.filter((s) => s.kind !== "memory");
+                  const memorySources = allSources.filter((s) => s.kind === "memory");
+                  return (
+                    <div className="mt-8 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
+                      <p className="mb-2 font-medium">{copy.sources}</p>
+
+                      {docSources.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-1.5">
+                          {docSources.map((s) => {
+                            const doc = resolveSourceDoc({ id: s.id, path: s.title }, documents);
+                            const label = (s.title || s.id).split("/").pop() || s.title || s.id;
+                            const chipClass =
+                              "inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 font-mono text-[11px]";
+                            return doc ? (
+                              <button
+                                key={`${s.kind}-${s.id}`}
+                                type="button"
+                                onClick={() => setPreviewDoc(doc)}
+                                title={s.title || s.id}
+                                className={`${chipClass} transition-colors hover:border-primary/40 hover:text-foreground`}
+                              >
+                                <FileText className="size-3" />
+                                {label}
+                              </button>
+                            ) : (
+                              <span key={`${s.kind}-${s.id}`} className={chipClass} title={s.title || s.id}>
+                                <FileText className="size-3 opacity-50" />
+                                {label}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {memorySources.length > 0 && (
+                        <details className="group">
+                          <summary className="flex cursor-pointer list-none items-center gap-1 select-none rounded px-1 py-0.5 hover:text-foreground">
+                            <ChevronDown className="size-3 transition-transform group-open:rotate-180" />
+                            {copy.memoryGroup.replace("{count}", String(memorySources.length))}
+                          </summary>
+                          <ul className="mt-1.5 ms-4 list-inside list-disc space-y-0.5">
+                            {memorySources.map((s) => (
+                              <li key={`${s.kind}-${s.id}`} className="break-words">
+                                {s.title || s.id}
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      )}
+                    </div>
+                  );
+                })()}
             </article>
           ) : articles.length === 0 ? (
             <div className="flex flex-col items-center gap-6 px-4 py-12 text-center sm:py-20">
@@ -971,16 +1015,58 @@ function WikiContent({
                 highlightedIds={highlightedIds}
                 inline
                 onNodeClick={(node) => {
-                  handleMapNodeClick(node);
-                  // A tap on a node also dismisses the sheet so the reader
-                  // lands straight on the chosen article.
-                  setShowMap(false);
+                  // Close only when the tap actually opens an article. Tapping
+                  // topic/doc/note nodes just reveals their label (handled in
+                  // the map) so the user can explore without the sheet snapping
+                  // shut on every touch.
+                  if (handleMapNodeClick(node)) setShowMap(false);
                 }}
               />
             </div>
           </div>
         </>
       )}
+
+      {/* Inline preview for a document source — full text in a dialog, with a
+          download fallback in the footer. No more "click = download". */}
+      <Dialog open={Boolean(previewDoc)} onOpenChange={(open) => !open && setPreviewDoc(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="break-all font-mono text-sm">{previewDoc?.path}</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[60vh] overflow-auto rounded-lg border bg-muted/30 p-3">
+            {previewQuery.isLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-32 w-full" />
+              </div>
+            ) : previewQuery.isError ? (
+              <p className="text-sm text-destructive">{copy.docPreviewError}</p>
+            ) : (
+              <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed">
+                {previewQuery.data?.content ?? ""}
+              </pre>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPreviewDoc(null)}>
+              {copy.close}
+            </Button>
+            {previewDoc && (
+              <Button asChild>
+                <a
+                  href={inlineRawUrl(teamId, previewDoc.id)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {copy.open}
+                </a>
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-3xl">
