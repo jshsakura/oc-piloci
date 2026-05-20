@@ -1,8 +1,8 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Maximize2, Minimize2, Map as MapIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { GripVertical, Maximize2, Minimize2, Map as MapIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { GraphEdge, GraphNode } from "@/lib/types";
@@ -52,6 +52,55 @@ export function WikiMiniMap({ nodes, edges, highlightedIds = [], onNodeClick }: 
   // small floating panel (user reported "툴팁이 좌측으로 나온다").
   const [hovered, setHovered] = useState<GraphNode | null>(null);
 
+  // Desktop-only drag offset from the default top-right anchor. Deliberately
+  // NOT persisted: every fresh mount/reopen starts at {0,0} so the map snaps
+  // back to its default corner — the dragged spot is a temporary convenience,
+  // not a saved preference.
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ startX: number; startY: number; baseX: number; baseY: number } | null>(
+    null,
+  );
+
+  // Reset the offset whenever the panel re-mounts or comes back from hidden,
+  // so reopening always returns to the default corner.
+  useEffect(() => {
+    if (!hidden) setOffset({ x: 0, y: 0 });
+  }, [hidden]);
+
+  const handleDragPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      // Pointer-fine guard: only mice/trackpads get drag. Touch/coarse
+      // pointers (mobile, tablet) keep the panel anchored.
+      if (typeof window !== "undefined" && !window.matchMedia("(pointer: fine)").matches) {
+        return;
+      }
+      event.preventDefault();
+      dragRef.current = {
+        startX: event.clientX,
+        startY: event.clientY,
+        baseX: offset.x,
+        baseY: offset.y,
+      };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [offset.x, offset.y],
+  );
+
+  const handleDragPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    setOffset({
+      x: drag.baseX + (event.clientX - drag.startX),
+      y: drag.baseY + (event.clientY - drag.startY),
+    });
+  }, []);
+
+  const handleDragPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  }, []);
+
   const highlightSet = useMemo(() => new Set(highlightedIds), [highlightedIds]);
 
   // Stable graphData reference so the d3 simulation doesn't restart on every
@@ -77,14 +126,14 @@ export function WikiMiniMap({ nodes, edges, highlightedIds = [], onNodeClick }: 
 
   if (hidden) {
     return (
-      <div className="fixed right-4 top-20 z-30">
+      <div className="fixed right-4 top-44 z-30 hidden sm:block">
         <Button
           variant="outline"
           size="sm"
           onClick={() => setHidden(false)}
           className="shadow-md"
         >
-          <MapIcon className="me-2 size-4" /> 지도 보기
+          <MapIcon className="me-2 size-4" /> 맥락지도 보기
         </Button>
       </div>
     );
@@ -96,17 +145,25 @@ export function WikiMiniMap({ nodes, edges, highlightedIds = [], onNodeClick }: 
   return (
     <div
       ref={containerRef}
-      className="fixed right-4 top-20 z-30 hidden overflow-hidden rounded-xl border bg-background/95 shadow-lg backdrop-blur sm:block"
-      style={{ width, height }}
+      className="fixed right-4 top-44 z-30 hidden overflow-hidden rounded-xl border bg-background/95 shadow-lg backdrop-blur sm:block"
+      style={{ width, height, transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
-      <div className="flex items-center justify-between border-b px-2 py-1 text-[11px] text-muted-foreground">
+      <div
+        className="flex touch-none select-none items-center justify-between border-b px-2 py-1 text-[11px] text-muted-foreground sm:cursor-grab sm:active:cursor-grabbing"
+        onPointerDown={handleDragPointerDown}
+        onPointerMove={handleDragPointerMove}
+        onPointerUp={handleDragPointerUp}
+        onPointerCancel={handleDragPointerUp}
+      >
         <span className="flex items-center gap-1">
+          <GripVertical className="size-3 opacity-50" />
           <MapIcon className="size-3" /> 맥락 지도
         </span>
         <div className="flex items-center gap-1">
           <button
             type="button"
             className="rounded hover:bg-accent"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setExpanded((v) => !v)}
             title={expanded ? "줄이기" : "넓히기"}
           >
@@ -115,6 +172,7 @@ export function WikiMiniMap({ nodes, edges, highlightedIds = [], onNodeClick }: 
           <button
             type="button"
             className="rounded px-1 hover:bg-accent"
+            onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setHidden(true)}
             title="숨기기"
           >

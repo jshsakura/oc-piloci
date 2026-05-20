@@ -545,9 +545,15 @@ async def route_create_document(request: Request) -> Response:
             id=doc_id,
             team_id=team_id,
             author_id=user_id,
+            uploader_id=user_id,
+            updated_by_id=user_id,
             path=path,
             content=content,
             content_hash=ch,
+            size=len(content.encode("utf-8")),
+            mime="text/markdown",
+            is_binary=False,
+            storage_key=None,
             version=1,
             parent_hash=parent_hash,
             updated_at=now,
@@ -571,6 +577,158 @@ async def route_create_document(request: Request) -> Response:
             "content_hash": ch,
             "version": 1,
             "created_at": now.isoformat(),
+        },
+        201,
+    )
+
+
+_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB ceiling per file
+
+
+async def route_upload_file(request: Request) -> Response:
+    """POST /api/teams/{team_id}/files — multipart upload of any file type.
+
+    Form fields: ``file`` (the uploaded file) + optional ``path`` (defaults to
+    the uploaded filename). UTF-8-decodable bytes are stored inline as a text
+    document (and scheduled for indexing); everything else is stashed in the
+    content-addressed blob store and left out of the search/wiki pipeline.
+
+    Upserts by (team_id, path): an existing non-deleted row at that path is
+    updated in place (version bumps, ``updated_by_id`` set, ``uploader_id``
+    preserved); otherwise a new row is created with the caller as uploader.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    user_id = _uid(user)
+
+    try:
+        form = await request.form()
+    except Exception:
+        return _json({"error": "Invalid multipart form"}, 400)
+
+    upload = form.get("file")
+    # Starlette returns an UploadFile for file parts; a plain str means the
+    # client sent the field as a text value, which we reject.
+    if upload is None or not hasattr(upload, "read"):
+        return _json({"error": "file field is required"}, 400)
+
+    data: bytes = await upload.read()
+    if len(data) > _MAX_UPLOAD_BYTES:
+        return _json({"error": "File exceeds 50MB limit"}, 413)
+
+    raw_path = form.get("path")
+    if isinstance(raw_path, str) and raw_path.strip():
+        path = raw_path.strip()
+    else:
+        path = (getattr(upload, "filename", None) or "").strip()
+    if not path:
+        return _json({"error": "path is required"}, 400)
+
+    # Decide text vs binary by attempting a UTF-8 decode.
+    is_binary = False
+    text_content = ""
+    try:
+        text_content = data.decode("utf-8")
+    except UnicodeDecodeError:
+        is_binary = True
+
+    from sqlalchemy import select
+
+    from piloci.config import get_settings
+    from piloci.db.models import TeamDocument
+
+    now = _utcnow()
+    storage_key: str | None = None
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+        result = await db.execute(
+            select(TeamDocument).where(
+                TeamDocument.team_id == team_id,
+                TeamDocument.path == path,
+                TeamDocument.is_deleted == False,  # noqa: E712
+            )
+        )
+        existing = result.scalar_one_or_none()
+
+        if is_binary:
+            from piloci.storage.team_files import save_blob
+
+            sha, storage_key, size = save_blob(get_settings().team_files_dir, team_id, data)
+            content = ""
+            content_hash = sha
+            mime = (
+                (isinstance(form.get("mime"), str) and form.get("mime"))
+                or getattr(upload, "content_type", None)
+                or "application/octet-stream"
+            )
+        else:
+            content = text_content
+            content_hash = _content_hash(text_content)
+            size = len(text_content.encode("utf-8"))
+            mime = getattr(upload, "content_type", None) or "text/plain"
+
+        if existing is not None:
+            existing.content = content
+            existing.content_hash = content_hash
+            existing.size = size
+            existing.mime = mime
+            existing.is_binary = is_binary
+            existing.storage_key = storage_key
+            existing.version = existing.version + 1
+            existing.updated_by_id = user_id
+            existing.author_id = user_id
+            if existing.uploader_id is None:
+                existing.uploader_id = user_id
+            existing.updated_at = now
+            db.add(existing)
+            doc_id = existing.id
+            version = existing.version
+        else:
+            doc_id = str(uuid.uuid4())
+            db.add(
+                TeamDocument(
+                    id=doc_id,
+                    team_id=team_id,
+                    author_id=user_id,
+                    uploader_id=user_id,
+                    updated_by_id=user_id,
+                    path=path,
+                    content=content,
+                    content_hash=content_hash,
+                    size=size,
+                    mime=mime,
+                    is_binary=is_binary,
+                    storage_key=storage_key,
+                    version=1,
+                    parent_hash=None,
+                    updated_at=now,
+                    created_at=now,
+                    is_deleted=False,
+                )
+            )
+            version = 1
+
+    await _invalidate_team_vault(team_id)
+    # Only text documents feed the wiki/search pipeline. Binary blobs are never
+    # indexed.
+    if not is_binary:
+        _schedule_doc_index(request, team_id, doc_id, path, content)
+
+    return _json(
+        {
+            "id": doc_id,
+            "path": path,
+            "version": version,
+            "is_binary": is_binary,
+            "size": size,
+            "mime": mime,
         },
         201,
     )
@@ -635,8 +793,12 @@ async def route_list_documents(request: Request) -> Response:
     user_id = _uid(user)
 
     from sqlalchemy import select
+    from sqlalchemy.orm import aliased
 
     from piloci.db.models import TeamDocument, User
+
+    uploader = aliased(User)
+    editor = aliased(User)
 
     async with async_session() as db:
         member = await _get_team_member(db, team_id, user_id)
@@ -644,8 +806,9 @@ async def route_list_documents(request: Request) -> Response:
             return _json({"error": "Not found"}, 404)
 
         result = await db.execute(
-            select(TeamDocument, User.email)
-            .join(User, TeamDocument.author_id == User.id)
+            select(TeamDocument, uploader.email, editor.email)
+            .outerjoin(uploader, TeamDocument.uploader_id == uploader.id)
+            .outerjoin(editor, TeamDocument.updated_by_id == editor.id)
             .where(TeamDocument.team_id == team_id, TeamDocument.is_deleted == False)  # noqa: E712
             .order_by(TeamDocument.path)
         )
@@ -658,7 +821,13 @@ async def route_list_documents(request: Request) -> Response:
                 "path": row.TeamDocument.path,
                 "content_hash": row.TeamDocument.content_hash,
                 "version": row.TeamDocument.version,
-                "author_email": row.email,
+                # author_email kept for back-compat; it now means "last editor".
+                "author_email": row[2] or row[1],
+                "uploader_email": row[1],
+                "updated_by_email": row[2],
+                "size": row.TeamDocument.size,
+                "mime": row.TeamDocument.mime,
+                "is_binary": bool(row.TeamDocument.is_binary),
                 "updated_at": row.TeamDocument.updated_at.isoformat(),
             }
             for row in rows
@@ -793,9 +962,15 @@ async def route_update_document(request: Request) -> Response:
         old_hash = doc.content_hash
         doc.content = content
         doc.content_hash = new_hash
+        doc.size = len(content.encode("utf-8"))
         doc.version = doc.version + 1
         doc.parent_hash = old_hash
+        # Record the editor without clobbering the original uploader. author_id
+        # keeps mirroring the last editor for back-compat with older clients.
+        doc.updated_by_id = user_id
         doc.author_id = user_id
+        if doc.uploader_id is None:
+            doc.uploader_id = doc.author_id
         doc.updated_at = now
         db.add(doc)
         doc_path = doc.path
@@ -846,6 +1021,19 @@ async def route_delete_document(request: Request) -> Response:
         doc.is_deleted = True
         doc.updated_at = _utcnow()
         db.add(doc)
+        was_binary = bool(doc.is_binary)
+        blob_key = doc.storage_key
+
+    if was_binary and blob_key:
+        # Blob is content-addressed and not shared across rows here, so a soft
+        # delete can safely drop the bytes. Fail-open: a missing blob is fine.
+        try:
+            from piloci.config import get_settings
+            from piloci.storage.team_files import delete_blob
+
+            delete_blob(get_settings().team_files_dir, blob_key)
+        except Exception:
+            pass
 
     await _invalidate_team_vault(team_id)
     _schedule_doc_remove(request, team_id, doc_id)
@@ -973,8 +1161,12 @@ async def route_get_document(request: Request) -> Response:
     user_id = _uid(user)
 
     from sqlalchemy import select
+    from sqlalchemy.orm import aliased
 
     from piloci.db.models import TeamDocument, User
+
+    uploader = aliased(User)
+    editor = aliased(User)
 
     async with async_session() as db:
         member = await _get_team_member(db, team_id, user_id)
@@ -982,8 +1174,9 @@ async def route_get_document(request: Request) -> Response:
             return _json({"error": "Not found"}, 404)
 
         result = await db.execute(
-            select(TeamDocument, User.email)
-            .join(User, TeamDocument.author_id == User.id)
+            select(TeamDocument, uploader.email, editor.email)
+            .outerjoin(uploader, TeamDocument.uploader_id == uploader.id)
+            .outerjoin(editor, TeamDocument.updated_by_id == editor.id)
             .where(
                 TeamDocument.id == doc_id,
                 TeamDocument.team_id == team_id,
@@ -996,17 +1189,29 @@ async def route_get_document(request: Request) -> Response:
         return _json({"error": "Not found"}, 404)
 
     doc = row.TeamDocument
+    uploader_email = row[1]
+    updated_by_email = row[2]
     return _json(
         {
             "id": doc.id,
             "team_id": doc.team_id,
             "path": doc.path,
-            "content": doc.content,
+            # Binary rows carry no inline body; clients fetch bytes via /raw.
+            "content": "" if doc.is_binary else doc.content,
             "content_hash": doc.content_hash,
             "version": doc.version,
-            "author_email": row.email,
+            "author_email": updated_by_email or uploader_email,
+            "uploader_email": uploader_email,
+            "updated_by_email": updated_by_email,
+            "size": doc.size,
+            "mime": doc.mime,
+            "is_binary": bool(doc.is_binary),
             "updated_at": doc.updated_at.isoformat(),
-            "bytes": len(doc.content.encode()) if doc.content else 0,
+            "bytes": (
+                doc.size
+                if doc.size is not None
+                else (len(doc.content.encode()) if doc.content else 0)
+            ),
         }
     )
 
@@ -1641,18 +1846,39 @@ async def route_download_document(request: Request) -> Response:
     # folder context when bulk-downloading.
     import os.path
 
+    headers = {
+        "X-Doc-Path": doc.path,
+        "X-Content-Hash": doc.content_hash or "",
+        "X-Doc-Version": str(doc.version or 1),
+    }
+
+    if doc.is_binary:
+        filename = os.path.basename(doc.path) or "download"
+        safe_filename = filename.replace('"', "")
+        from piloci.config import get_settings
+        from piloci.storage.team_files import read_blob
+
+        if not doc.storage_key:
+            return _json({"error": "Blob missing"}, 404)
+        try:
+            body = read_blob(get_settings().team_files_dir, doc.storage_key)
+        except (FileNotFoundError, ValueError):
+            return _json({"error": "Blob missing"}, 404)
+        headers["Content-Disposition"] = f'attachment; filename="{safe_filename}"'
+        return Response(
+            body,
+            media_type=doc.mime or "application/octet-stream",
+            headers=headers,
+        )
+
     filename = os.path.basename(doc.path) or "document.md"
     safe_filename = filename.replace('"', "")
     body = (doc.content or "").encode("utf-8")
+    headers["Content-Disposition"] = f'attachment; filename="{safe_filename}"'
     return Response(
         body,
         media_type="text/markdown; charset=utf-8",
-        headers={
-            "Content-Disposition": f'attachment; filename="{safe_filename}"',
-            "X-Doc-Path": doc.path,
-            "X-Content-Hash": doc.content_hash or "",
-            "X-Doc-Version": str(doc.version or 1),
-        },
+        headers=headers,
     )
 
 
@@ -1670,6 +1896,7 @@ _accept_invite_limited = limiter.limit(RATE_MUTATION)(route_accept_invite)
 _reject_invite_limited = limiter.limit(RATE_MUTATION)(route_reject_invite)
 _remove_member_limited = limiter.limit(RATE_MUTATION)(route_remove_member)
 _create_document_limited = limiter.limit(RATE_MUTATION)(route_create_document)
+_upload_file_limited = limiter.limit(RATE_MUTATION)(route_upload_file)
 _pull_documents_limited = limiter.limit(RATE_MUTATION)(route_pull_documents)
 _update_document_limited = limiter.limit(RATE_MUTATION)(route_update_document)
 _delete_document_limited = limiter.limit(RATE_MUTATION)(route_delete_document)
@@ -1703,6 +1930,7 @@ TEAM_ROUTES = [
         methods=["DELETE"],
     ),
     # Documents
+    Route("/api/teams/{team_id}/files", _upload_file_limited, methods=["POST"]),
     Route("/api/teams/{team_id}/documents", _create_document_limited, methods=["POST"]),
     Route("/api/teams/{team_id}/documents", route_list_documents, methods=["GET"]),
     Route(

@@ -122,6 +122,7 @@ class Settings(BaseSettings):
     maintenance_interval_sec: int = 3600
     export_dir: Path = Path("/data/exports")
     vault_dir: Path = Path("/data/vaults")
+    team_files_dir: Path = Path("/data/team-files")
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
     telegram_min_duration_sec: int = 300

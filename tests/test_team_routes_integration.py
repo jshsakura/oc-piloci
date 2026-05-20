@@ -1891,3 +1891,251 @@ async def test_list_teams_returns_all_memberships(team_app: Starlette) -> None:
         listing = await client.get("/api/teams", headers=owner)
         assert listing.status_code == 200
         assert sorted(t["name"] for t in listing.json()) == ["Alpha", "Bravo"]
+
+
+# ---------------------------------------------------------------------------
+# Team files: multipart upload (text + binary), blob streaming, attribution
+# split (uploader vs editor), and the 50MB cap.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _team_files_dir(tmp_path, monkeypatch):
+    """Point the blob store at tmp for the duration of a test."""
+    from piloci.config import get_settings
+
+    blob_dir = tmp_path / "team-files"
+    monkeypatch.setattr(get_settings(), "team_files_dir", blob_dir)
+    return blob_dir
+
+
+@pytest.mark.asyncio
+async def test_upload_text_file_stores_inline_and_schedules_index(
+    team_app: Starlette, _team_files_dir, monkeypatch
+) -> None:
+    """A UTF-8 file is stored as a text document (inline content, is_binary
+    False) and routed through the indexing scheduler."""
+    scheduled: list[tuple[str, str, str]] = []
+
+    def _capture(request, team_id, doc_id, path, content):
+        scheduled.append((team_id, path, content))
+
+    monkeypatch.setattr(team_routes, "_schedule_doc_index", _capture)
+
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        team_id = await _make_team(client, owner, "Files")
+
+        res = await client.post(
+            f"/api/teams/{team_id}/files",
+            headers=owner,
+            files={"file": ("readme.md", b"# hello\nworld", "text/markdown")},
+        )
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert body["path"] == "readme.md"
+        assert body["is_binary"] is False
+        assert body["size"] == len(b"# hello\nworld")
+        assert body["version"] == 1
+
+        # Indexed-schedule path was taken with the inline content.
+        assert scheduled == [(team_id, "readme.md", "# hello\nworld")]
+
+        # GET exposes the inline content.
+        single = await client.get(f"/api/teams/{team_id}/documents/{body['id']}", headers=owner)
+        assert single.json()["content"] == "# hello\nworld"
+        assert single.json()["is_binary"] is False
+
+
+@pytest.mark.asyncio
+async def test_upload_binary_file_stores_blob_and_raw_streams(
+    team_app: Starlette, _team_files_dir, monkeypatch
+) -> None:
+    """Non-UTF-8 bytes are written to the blob store, never indexed, and /raw
+    streams them back with the declared mime + attachment filename."""
+    not_indexed = True
+
+    def _fail_index(*args, **kwargs):
+        nonlocal not_indexed
+        not_indexed = False
+
+    monkeypatch.setattr(team_routes, "_schedule_doc_index", _fail_index)
+
+    payload = b"\x89PNG\r\n\x1a\n\x00\x01\x02\xff\xfe"
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        team_id = await _make_team(client, owner, "Bin")
+
+        res = await client.post(
+            f"/api/teams/{team_id}/files",
+            headers=owner,
+            files={"file": ("logo.png", payload, "image/png")},
+        )
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert body["is_binary"] is True
+        assert body["mime"] == "image/png"
+        assert body["size"] == len(payload)
+        # Binary uploads are never scheduled for indexing.
+        assert not_indexed is True
+
+        # Blob landed on disk under the team dir.
+        team_blobs = list((_team_files_dir / team_id).iterdir())
+        assert len(team_blobs) == 1
+        assert team_blobs[0].read_bytes() == payload
+
+        # GET masks content but reports binary metadata.
+        single = await client.get(f"/api/teams/{team_id}/documents/{body['id']}", headers=owner)
+        assert single.json()["content"] == ""
+        assert single.json()["is_binary"] is True
+        assert single.json()["mime"] == "image/png"
+
+        # /raw streams the original bytes with mime + attachment name.
+        raw = await client.get(f"/api/teams/{team_id}/documents/{body['id']}/raw", headers=owner)
+        assert raw.status_code == 200
+        assert raw.content == payload
+        assert raw.headers["content-type"].startswith("image/png")
+        assert raw.headers["content-disposition"] == 'attachment; filename="logo.png"'
+
+
+@pytest.mark.asyncio
+async def test_upload_preserves_uploader_on_update(team_app: Starlette, _team_files_dir) -> None:
+    """Re-uploading at the same path bumps version + records the new editor
+    but keeps the original uploader. list/get expose both emails."""
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        member = _headers("member", "member@example.com")
+        team_id = await _make_team(client, owner, "Attr")
+        await _add_member(team_id, "member")
+
+        first = await client.post(
+            f"/api/teams/{team_id}/files",
+            headers=owner,
+            files={"file": ("doc.txt", b"v1", "text/plain")},
+            data={"path": "doc.txt"},
+        )
+        assert first.status_code == 201
+        doc_id = first.json()["id"]
+
+        # Member edits the same path -> upsert update.
+        second = await client.post(
+            f"/api/teams/{team_id}/files",
+            headers=member,
+            files={"file": ("doc.txt", b"v2-edited", "text/plain")},
+            data={"path": "doc.txt"},
+        )
+        assert second.status_code == 201
+        assert second.json()["id"] == doc_id  # same row
+        assert second.json()["version"] == 2
+
+        single = await client.get(f"/api/teams/{team_id}/documents/{doc_id}", headers=owner)
+        payload = single.json()
+        assert payload["uploader_email"] == "owner@example.com"
+        assert payload["updated_by_email"] == "member@example.com"
+        assert payload["content"] == "v2-edited"
+
+        listing = await client.get(f"/api/teams/{team_id}/documents", headers=owner)
+        row = listing.json()[0]
+        assert row["uploader_email"] == "owner@example.com"
+        assert row["updated_by_email"] == "member@example.com"
+
+
+@pytest.mark.asyncio
+async def test_update_document_route_keeps_uploader(team_app: Starlette, _team_files_dir) -> None:
+    """The JSON PUT update path must also preserve the original uploader while
+    moving updated_by to the editor."""
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        member = _headers("member", "member@example.com")
+        team_id = await _make_team(client, owner, "PutAttr")
+        await _add_member(team_id, "member")
+
+        created = await client.post(
+            f"/api/teams/{team_id}/documents",
+            headers=owner,
+            json={"path": "n.md", "content": "a"},
+        )
+        doc = created.json()
+
+        upd = await client.put(
+            f"/api/teams/{team_id}/documents/{doc['id']}",
+            headers=member,
+            json={"content": "b", "parent_hash": doc["content_hash"]},
+        )
+        assert upd.status_code == 200
+
+        single = await client.get(f"/api/teams/{team_id}/documents/{doc['id']}", headers=owner)
+        assert single.json()["uploader_email"] == "owner@example.com"
+        assert single.json()["updated_by_email"] == "member@example.com"
+
+
+@pytest.mark.asyncio
+async def test_delete_binary_removes_blob(team_app: Starlette, _team_files_dir) -> None:
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        team_id = await _make_team(client, owner, "Del")
+
+        payload = b"\xff\xfe\x00binary"
+        res = await client.post(
+            f"/api/teams/{team_id}/files",
+            headers=owner,
+            files={"file": ("x.bin", payload, "application/octet-stream")},
+        )
+        doc_id = res.json()["id"]
+        blobs = list((_team_files_dir / team_id).iterdir())
+        assert len(blobs) == 1
+
+        deleted = await client.delete(f"/api/teams/{team_id}/documents/{doc_id}", headers=owner)
+        assert deleted.status_code == 200
+        assert not list((_team_files_dir / team_id).iterdir())
+
+
+@pytest.mark.asyncio
+async def test_upload_over_50mb_rejected(team_app: Starlette, _team_files_dir) -> None:
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        team_id = await _make_team(client, owner, "Big")
+
+        oversize = b"\x00" * (50 * 1024 * 1024 + 1)
+        res = await client.post(
+            f"/api/teams/{team_id}/files",
+            headers=owner,
+            files={"file": ("big.bin", oversize, "application/octet-stream")},
+        )
+        assert res.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_upload_cross_team_isolation(team_app: Starlette, _team_files_dir) -> None:
+    """A non-member cannot upload to or download from another team's files."""
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        stranger = _headers("member", "member@example.com")
+        team_id = await _make_team(client, owner, "Iso")
+
+        res = await client.post(
+            f"/api/teams/{team_id}/files",
+            headers=owner,
+            files={"file": ("secret.bin", b"\xff\x00secret", "application/octet-stream")},
+        )
+        doc_id = res.json()["id"]
+
+        # Stranger blocked from uploading.
+        blocked = await client.post(
+            f"/api/teams/{team_id}/files",
+            headers=stranger,
+            files={"file": ("evil.txt", b"hi", "text/plain")},
+        )
+        assert blocked.status_code == 404
+
+        # Stranger blocked from downloading.
+        assert (
+            await client.get(f"/api/teams/{team_id}/documents/{doc_id}/raw", headers=stranger)
+        ).status_code == 404
