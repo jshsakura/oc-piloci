@@ -3,7 +3,15 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Loader2, Pencil, RefreshCcw, Sparkles } from "lucide-react";
+import {
+  BookOpen,
+  Download,
+  Loader2,
+  Map as MapIcon,
+  Pencil,
+  RefreshCcw,
+  Sparkles,
+} from "lucide-react";
 
 import AppShell from "@/components/AppShell";
 import { MarkdownEditor } from "@/components/MarkdownEditor";
@@ -39,6 +47,16 @@ function resolveWikilinks(markdown: string, articles: TeamWikiArticleSummary[]):
   });
 }
 
+const NODE_KIND_LABEL: Record<GraphNode["kind"], string> = {
+  project: "프로젝트",
+  note: "메모",
+  tag: "태그",
+  topic: "토픽",
+  team: "팀",
+  folder: "폴더",
+  doc: "문서",
+};
+
 function ArticleListSkeleton() {
   return (
     <div className="space-y-2">
@@ -65,6 +83,10 @@ function TeamWikiContent() {
   const teamId = searchParams?.get("id") ?? "";
   const queryClient = useQueryClient();
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  // Map visibility is owned here so the header action bar can toggle it.
+  const [mapHidden, setMapHidden] = useState(false);
+  // Clicking a map node opens this info popup instead of navigating/downloading.
+  const [activeNode, setActiveNode] = useState<GraphNode | null>(null);
 
   const teamsQuery = useQuery({
     queryKey: ["teams"],
@@ -180,18 +202,19 @@ function TeamWikiContent() {
     );
   }, [articleQuery.data]);
 
-  // Click on a graph node — if it matches an article title, jump to it.
+  // Click on a graph node opens an info popup — never auto-navigate or
+  // download. The popup offers explicit actions (위키에서 열기 / 다운로드).
   const handleNodeClick = (node: GraphNode) => {
-    if (node.kind === "doc" && node.download_url) {
-      window.open(node.download_url, "_blank");
-      return;
-    }
-    if (node.kind === "topic" || node.kind === "note") {
-      const lower = node.label.toLowerCase();
-      const match = articles.find((a) => a.title.toLowerCase() === lower);
-      if (match) setSelectedSlug(match.slug);
-    }
+    setActiveNode(node);
   };
+
+  // Article that an active node maps to by title, if any — drives the
+  // "위키에서 열기" action in the popup.
+  const activeNodeArticle = useMemo(() => {
+    if (!activeNode) return null;
+    const lower = activeNode.label.toLowerCase();
+    return articles.find((a) => a.title.toLowerCase() === lower) ?? null;
+  }, [activeNode, articles]);
 
   const buildSummary = buildMutation.data;
   const buildError = buildSummary && !buildSummary.success ? buildSummary.error : null;
@@ -204,6 +227,8 @@ function TeamWikiContent() {
           edges={workspaceQuery.data.graph.edges as never}
           highlightedIds={highlightedNodeIds}
           onNodeClick={handleNodeClick}
+          hidden={mapHidden}
+          onHiddenChange={setMapHidden}
         />
       )}
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -246,6 +271,17 @@ function TeamWikiContent() {
             />
             AI 위키 자동 생성 (새벽 1회)
           </label>
+          {workspaceQuery.data?.graph && (
+            <Button
+              variant={mapHidden ? "outline" : "secondary"}
+              size="sm"
+              className="hidden sm:inline-flex"
+              onClick={() => setMapHidden((v) => !v)}
+            >
+              <MapIcon className="me-2 size-4" />
+              {mapHidden ? "맥락지도 보기" : "맥락지도 숨기기"}
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -285,9 +321,9 @@ function TeamWikiContent() {
         </div>
       )}
 
-      <div className="grid items-start gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-        <aside className="space-y-4">
-          <Card>
+      <div className="grid items-stretch gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="flex flex-col gap-4">
+          <Card className="flex-1">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
                 <BookOpen className="size-4" /> 아티클
@@ -344,8 +380,8 @@ function TeamWikiContent() {
           </Card>
         </aside>
 
-        <section>
-          <Card>
+        <section className="flex flex-col">
+          <Card className="flex-1">
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <CardTitle className="min-w-0 truncate text-base">
                 {articleQuery.data?.title ?? (articles.length === 0 ? "위키 비어 있음" : "아티클 선택")}
@@ -529,6 +565,53 @@ function TeamWikiContent() {
                 "저장"
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(activeNode)} onOpenChange={(open) => !open && setActiveNode(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="break-words">{activeNode?.label}</DialogTitle>
+          </DialogHeader>
+          {activeNode && (
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center gap-2">
+                <Badge variant="secondary">{NODE_KIND_LABEL[activeNode.kind] ?? activeNode.kind}</Badge>
+                {activeNode.version != null && (
+                  <span className="text-xs text-muted-foreground">v{activeNode.version}</span>
+                )}
+              </div>
+              {activeNode.path && (
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">경로</p>
+                  <p className="break-all font-mono text-xs">{activeNode.path}</p>
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setActiveNode(null)}>
+              닫기
+            </Button>
+            {activeNodeArticle && (
+              <Button
+                onClick={() => {
+                  setSelectedSlug(activeNodeArticle.slug);
+                  setActiveNode(null);
+                }}
+              >
+                <BookOpen className="me-2 size-4" /> 위키에서 열기
+              </Button>
+            )}
+            {(activeNode?.kind === "doc" || activeNode?.kind === "note") &&
+              activeNode.download_url && (
+                <Button asChild>
+                  <a href={activeNode.download_url} target="_blank" rel="noreferrer">
+                    <Download className="me-2 size-4" /> 다운로드
+                  </a>
+                </Button>
+              )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

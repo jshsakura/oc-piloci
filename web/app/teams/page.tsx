@@ -4,6 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BookOpen,
+  Check,
+  Copy,
   Download,
   File as FileIcon,
   FileArchive,
@@ -24,6 +26,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
 import type { TeamDocumentSummary, TeamSummary } from "@/lib/types";
 
@@ -32,6 +40,55 @@ function humanizeSize(bytes?: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function localPart(email: string): string {
+  const at = email.indexOf("@");
+  return at > 0 ? email.slice(0, at) : email;
+}
+
+// Compact attribution chip: shows just the label + email local-part on one
+// line, and reveals the full email with a copy button on hover.
+function EmailChip({ label, email }: { label: string; email: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(email);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked — title attr still exposes the full email */
+    }
+  };
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1" title={email}>
+            <span className="text-muted-foreground/80">{label}</span>
+            <span className="truncate font-medium text-foreground/80">{localPart(email)}</span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent
+          side="top"
+          className="flex items-center gap-2 border bg-popover text-popover-foreground"
+        >
+          <span className="font-mono text-[11px]">{email}</span>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              copy();
+            }}
+            className="rounded p-0.5 hover:bg-accent"
+            aria-label="이메일 복사"
+          >
+            {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          </button>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 type Notice = { tone: "ok" | "error"; text: string } | null;
@@ -617,9 +674,13 @@ export default function TeamsPage() {
                                   )}
                                 </div>
                                 {(doc.uploader_email || doc.updated_by_email) && (
-                                  <div className="space-y-0.5 text-[11px] text-muted-foreground">
-                                    {doc.uploader_email && <p>올린 사람 {doc.uploader_email}</p>}
-                                    {doc.updated_by_email && <p>수정한 사람 {doc.updated_by_email}</p>}
+                                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
+                                    {doc.uploader_email && (
+                                      <EmailChip label="올린 사람" email={doc.uploader_email} />
+                                    )}
+                                    {doc.updated_by_email && (
+                                      <EmailChip label="수정한 사람" email={doc.updated_by_email} />
+                                    )}
                                   </div>
                                 )}
                               </div>

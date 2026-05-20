@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GripVertical, Maximize2, Minimize2, Map as MapIcon } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import type { GraphEdge, GraphNode } from "@/lib/types";
 
 // react-force-graph relies on browser canvas APIs — SSR is a no-go.
@@ -31,6 +30,11 @@ interface WikiMiniMapProps {
   highlightedIds?: string[];
   /** Fires when a node is clicked. Parent can sync the article reader. */
   onNodeClick?: (node: GraphNode) => void;
+  /** Controlled hidden state — the show/hide toggle now lives in the wiki
+   *  page header, so visibility is owned by the parent. */
+  hidden?: boolean;
+  /** Lets the map ask the parent to hide itself (× button, density guard). */
+  onHiddenChange?: (hidden: boolean) => void;
 }
 
 /**
@@ -43,10 +47,20 @@ interface WikiMiniMapProps {
  * doc upload). Its purpose is "spatial breadcrumb": see how the article you're
  * reading connects to the rest of the team's knowledge.
  */
-export function WikiMiniMap({ nodes, edges, highlightedIds = [], onNodeClick }: WikiMiniMapProps) {
+export function WikiMiniMap({
+  nodes,
+  edges,
+  highlightedIds = [],
+  onNodeClick,
+  hidden = false,
+  onHiddenChange,
+}: WikiMiniMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const [hidden, setHidden] = useState(false);
+  const setHidden = useCallback(
+    (next: boolean) => onHiddenChange?.(next),
+    [onHiddenChange],
+  );
   // Hover label stays inside the card — react-force-graph's default tooltip
   // is an HTML overlay anchored to mouse coords that falls outside the
   // small floating panel (user reported "툴팁이 좌측으로 나온다").
@@ -119,25 +133,16 @@ export function WikiMiniMap({ nodes, edges, highlightedIds = [], onNodeClick }: 
 
   // Density guard: hide the map automatically when the graph has too many
   // nodes to be useful in a small canvas. The user can still toggle it back
-  // on, but we don't insist on rendering a hairball by default.
+  // on from the header, but we don't insist on rendering a hairball by default.
+  const dismissedRef = useRef(false);
   useEffect(() => {
-    if (nodes.length > 400) setHidden(true);
-  }, [nodes.length]);
+    if (nodes.length > 400 && !dismissedRef.current) {
+      dismissedRef.current = true;
+      setHidden(true);
+    }
+  }, [nodes.length, setHidden]);
 
-  if (hidden) {
-    return (
-      <div className="fixed right-4 top-44 z-30 hidden sm:block">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setHidden(false)}
-          className="shadow-md"
-        >
-          <MapIcon className="me-2 size-4" /> 맥락지도 보기
-        </Button>
-      </div>
-    );
-  }
+  if (hidden) return null;
 
   const width = expanded ? 480 : 256;
   const height = expanded ? 320 : 170;
@@ -145,7 +150,7 @@ export function WikiMiniMap({ nodes, edges, highlightedIds = [], onNodeClick }: 
   return (
     <div
       ref={containerRef}
-      className="fixed right-4 top-44 z-30 hidden overflow-hidden rounded-xl border bg-background/95 shadow-lg backdrop-blur sm:block"
+      className="fixed right-4 top-44 z-30 hidden overflow-hidden rounded-xl border bg-background/70 shadow-lg backdrop-blur sm:block"
       style={{ width, height, transform: `translate(${offset.x}px, ${offset.y}px)` }}
     >
       <div
