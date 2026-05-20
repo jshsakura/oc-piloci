@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "oc-piloci"
-version = "0.3.98"
+version = "0.3.99"
 description = "Self-hosted multi-user LLM memory service for Raspberry Pi 5. MCP-compatible."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -106,9 +106,12 @@ addopts = "--cov=src/piloci --cov-report=term-missing"
 
 [tool.coverage.run]
 source = ["src/piloci"]
+# Async routes use sqlalchemy's greenlet bridge; without this the tracer
+# loses line hits inside `async with` blocks and reports false-misses.
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 90
 show_missing = true
 exclude_lines = [
     "pragma: no cover",
