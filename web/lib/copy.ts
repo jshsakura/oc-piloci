@@ -1188,6 +1188,16 @@ const ko = {
       members: {
         countSuffix: '명 참여 중',
       },
+      settings: {
+        dangerZone: '위험 구역',
+        deleteTeam: '팀 삭제',
+        deleteHint: '팀을 삭제하면 모든 멤버, 문서, 위키가 함께 사라집니다. 되돌릴 수 없어요.',
+        deleteConfirmTitle: '정말 이 팀을 삭제할까요?',
+        deleteConfirmBody: '정말 이 팀을 삭제할까요? 모든 멤버·문서·위키가 사라집니다.',
+        deleting: '삭제하는 중입니다.',
+        deleted: '팀을 삭제했습니다.',
+        deleteFailed: '팀 삭제에 실패했습니다.',
+      },
       docs: {
         title: '팀 문서',
         upload: '파일 올리기',
@@ -2503,6 +2513,16 @@ const en: CopyShape = {
       },
       members: {
         countSuffix: ' member(s)',
+      },
+      settings: {
+        dangerZone: 'Danger zone',
+        deleteTeam: 'Delete team',
+        deleteHint: 'Deleting a team removes every member, document, and wiki with it. This cannot be undone.',
+        deleteConfirmTitle: 'Delete this team?',
+        deleteConfirmBody: 'Delete this team for good? Every member, document, and wiki disappears.',
+        deleting: 'Deleting…',
+        deleted: 'Team deleted.',
+        deleteFailed: 'Could not delete the team.',
       },
       docs: {
         title: 'Team documents',

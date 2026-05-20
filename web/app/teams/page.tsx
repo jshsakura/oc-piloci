@@ -31,6 +31,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -44,6 +45,7 @@ import {
 } from "@/components/ui/tooltip";
 import { WikiMiniMap } from "@/components/WikiMiniMap";
 import { api } from "@/lib/api";
+import { useAuthStore } from "@/lib/auth";
 import { useTranslation } from "@/lib/i18n";
 import type {
   GraphNode,
@@ -425,7 +427,9 @@ function SettingsTab({
   const { t } = useTranslation();
   const copy = t.teams;
   const queryClient = useQueryClient();
+  const currentUser = useAuthStore((s) => s.user);
   const [teamName, setTeamName] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [docPath, setDocPath] = useState("notes.md");
   const [docContent, setDocContent] = useState("");
@@ -533,6 +537,25 @@ function SettingsTab({
     },
     onError: (error: unknown) => setNotice(toError(error, copy.notices.docDeleteFailed)),
   });
+
+  const deleteTeamMutation = useMutation({
+    mutationFn: () => api.deleteTeam(selectedTeamId),
+    onSuccess: () => {
+      setDeleteConfirmOpen(false);
+      // Hand off to the first remaining team (or none) before the list refetch.
+      const next = teams.find((team) => team.id !== selectedTeamId);
+      onSelectTeam(next?.id ?? "");
+      queryClient.invalidateQueries({ queryKey: ["teams"] });
+      setNotice({ tone: "ok", text: copy.settings.deleted });
+    },
+    onError: (error: unknown) => setNotice(toError(error, copy.settings.deleteFailed)),
+  });
+
+  // Owner-only: the team detail query carries owner_id; compare to the signed-in
+  // user so only the owner sees the danger zone.
+  const isOwner = Boolean(
+    currentUser && teamQuery.data?.owner_id && teamQuery.data.owner_id === currentUser.user_id,
+  );
 
   const docs = docsQuery.data ?? [];
 
@@ -1072,10 +1095,42 @@ function SettingsTab({
                   </CardContent>
                 </Card>
               </div>
+
+              {isOwner && (
+                <Card className="border-destructive/40">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base text-destructive">
+                      <Trash2 className="size-4" /> {copy.settings.dangerZone}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <p className="text-sm text-muted-foreground">{copy.settings.deleteHint}</p>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="shrink-0"
+                      onClick={() => setDeleteConfirmOpen(true)}
+                    >
+                      <Trash2 className="me-2 size-4" /> {copy.settings.deleteTeam}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
             </>
           )}
         </section>
       </div>
+
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={(open) => !deleteTeamMutation.isPending && setDeleteConfirmOpen(open)}
+        title={copy.settings.deleteConfirmTitle}
+        description={copy.settings.deleteConfirmBody}
+        confirmLabel={copy.settings.deleteTeam}
+        variant="destructive"
+        pending={deleteTeamMutation.isPending}
+        onConfirm={() => deleteTeamMutation.mutate()}
+      />
 
       <DocPreviewDialog teamId={selectedTeamId} doc={previewDoc} onClose={() => setPreviewDoc(null)} />
     </>

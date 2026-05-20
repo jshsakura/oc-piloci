@@ -158,30 +158,47 @@ function WikiContent({
   const queryClient = useQueryClient();
   const currentUser = useAuthStore((s) => s.user);
 
-  // The build is async (202): we poll the team + article list every ~8s while a
-  // build is in flight and stop once last_wiki_built_at advances past the value
-  // captured at build-start (or after a safety timeout).
-  const [building, setBuilding] = useState(false);
+  // The build is async (202): "building" is server-driven via
+  // `wiki_building_since` (set when a build starts, cleared when it ends), so
+  // the state survives navigation — returning to the page resumes "생성 중".
+  // We only keep a brief client-pending flag so the UI reacts instantly before
+  // the next poll lands.
   const [buildNotice, setBuildNotice] = useState<Notice>(null);
-  const buildBaselineRef = useRef<string | null>(null);
-  const buildDeadlineRef = useRef<number>(0);
+
+  // True only while the build mutation is in flight — bridges the gap before
+  // the first poll observes the server's `wiki_building_since`.
+  const clientPendingRef = useRef(false);
+
+  // `wiki_building_since` is recent → a build is live; poll every ~8s. The
+  // ~20min floor keeps a silently-failed build from spinning the poll forever.
+  const buildingFromSince = (since?: string | null): boolean => {
+    if (!since) return false;
+    const started = Date.parse(since);
+    return Number.isFinite(started) && Date.now() - started < 20 * 60 * 1000;
+  };
 
   const teamQuery = useQuery({
     queryKey: ["team", teamId],
     queryFn: () => api.getTeam(teamId),
     enabled: Boolean(teamId),
-    refetchInterval: building ? 8000 : false,
+    refetchInterval: (query) =>
+      clientPendingRef.current || buildingFromSince(query.state.data?.wiki_building_since)
+        ? 8000
+        : false,
   });
+
+  const serverBuilding = buildingFromSince(teamQuery.data?.wiki_building_since);
+
   const articlesQuery = useQuery({
     queryKey: ["team-wiki-articles", teamId],
     queryFn: () => api.listTeamWikiArticles(teamId),
     enabled: Boolean(teamId),
-    refetchInterval: building ? 8000 : false,
+    refetchInterval: () =>
+      clientPendingRef.current || serverBuilding ? 8000 : false,
   });
 
   const articles = articlesQuery.data ?? [];
   const isOwner = Boolean(currentUser && teamQuery.data?.owner_id === currentUser.user_id);
-  const lastBuiltAt = teamQuery.data?.last_wiki_built_at ?? null;
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
 
   // Context map: secondary, off by default. Lives as a floating panel toggled
@@ -198,19 +215,16 @@ function WikiContent({
     if (!selectedSlug && articles.length > 0) setSelectedSlug(articles[0].slug);
   }, [articles, selectedSlug]);
 
-  // Detect build completion: stop polling when the timestamp moves, or bail out
-  // after the safety window so a silently-failed build doesn't spin forever.
+  // Completion is simply `wiki_building_since` flipping to null: the poll picks
+  // it up, the banner disappears, and articles have already refetched. Refresh
+  // the context map once the build is no longer live.
+  const prevServerBuildingRef = useRef(serverBuilding);
   useEffect(() => {
-    if (!building) return;
-    const moved = lastBuiltAt && lastBuiltAt !== buildBaselineRef.current;
-    const timedOut = Date.now() > buildDeadlineRef.current;
-    if (moved || timedOut) {
-      setBuilding(false);
-      if (moved) {
-        queryClient.invalidateQueries({ queryKey: ["team-workspace", teamId] });
-      }
+    if (prevServerBuildingRef.current && !serverBuilding) {
+      queryClient.invalidateQueries({ queryKey: ["team-workspace", teamId] });
     }
-  }, [building, lastBuiltAt, queryClient, teamId]);
+    prevServerBuildingRef.current = serverBuilding;
+  }, [serverBuilding, queryClient, teamId]);
 
   const articleQuery = useQuery<TeamWikiArticle>({
     queryKey: ["team-wiki-article", teamId, selectedSlug],
@@ -220,12 +234,15 @@ function WikiContent({
 
   const buildMutation = useMutation({
     mutationFn: () => api.buildTeamWiki(teamId),
+    onMutate: () => {
+      // Bridge the gap before the first poll sees `wiki_building_since`.
+      clientPendingRef.current = true;
+    },
     onSuccess: (res) => {
-      // 202 returns immediately. Start polling regardless of started vs.
-      // already_running; both mean a build is now in flight.
-      buildBaselineRef.current = teamQuery.data?.last_wiki_built_at ?? null;
-      buildDeadlineRef.current = Date.now() + 5 * 60 * 1000;
-      setBuilding(true);
+      // 202 returns immediately. Refetch the team so the server's
+      // `wiki_building_since` is picked up right away (started vs.
+      // already_running both mean a build is now in flight).
+      queryClient.invalidateQueries({ queryKey: ["team", teamId] });
       setBuildNotice({
         tone: "ok",
         text: res.status === "already_running" ? copy.alreadyRunning : copy.buildStarted,
@@ -236,9 +253,12 @@ function WikiContent({
         tone: "error",
         text: error instanceof Error ? error.message : copy.buildStarted,
       }),
+    onSettled: () => {
+      clientPendingRef.current = false;
+    },
   });
 
-  const isBuilding = building || buildMutation.isPending;
+  const isBuilding = serverBuilding || buildMutation.isPending;
 
   const [editOpen, setEditOpen] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");

@@ -39,6 +39,9 @@ export interface TeamDetail extends TeamSummary {
   color?: string | null;
   auto_wiki_enabled?: boolean;
   last_wiki_built_at?: string | null;
+  // Set when an async wiki build starts, cleared (null) when it finishes/fails.
+  // Persisted so "building" survives navigation; treated as stale after ~20min.
+  wiki_building_since?: string | null;
   members: TeamMember[];
 }
 
