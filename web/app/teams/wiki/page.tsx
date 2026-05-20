@@ -30,6 +30,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WikiMiniMap } from "@/components/WikiMiniMap";
 import { api } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import type { GraphNode, TeamWikiArticle, TeamWikiArticleSummary } from "@/lib/types";
 
 // Article-centric view. List on the left, reader on the right.
@@ -47,16 +48,6 @@ function resolveWikilinks(markdown: string, articles: TeamWikiArticleSummary[]):
     return `*${label}*`;
   });
 }
-
-const NODE_KIND_LABEL: Record<GraphNode["kind"], string> = {
-  project: "프로젝트",
-  note: "메모",
-  tag: "태그",
-  topic: "토픽",
-  team: "팀",
-  folder: "폴더",
-  doc: "문서",
-};
 
 const _VIEWABLE_EXT = new Set([
   "md", "txt", "py", "js", "ts", "tsx", "jsx", "json", "yaml", "yml", "toml",
@@ -82,17 +73,28 @@ function ArticleListSkeleton() {
   );
 }
 
+function WikiSuspenseFallback() {
+  const { t } = useTranslation();
+  return (
+    <AppShell title={t.teams.wiki.title}>
+      <p className="text-sm text-muted-foreground">{t.teams.wiki.loading}</p>
+    </AppShell>
+  );
+}
+
 export default function TeamWikiPage() {
   // useSearchParams() requires Suspense at static-export time. The shell does
   // the data-fetching itself so the fallback can be a thin skeleton.
   return (
-    <Suspense fallback={<AppShell title="팀 위키"><p className="text-sm text-muted-foreground">불러오는 중…</p></AppShell>}>
+    <Suspense fallback={<WikiSuspenseFallback />}>
       <TeamWikiContent />
     </Suspense>
   );
 }
 
 function TeamWikiContent() {
+  const { t } = useTranslation();
+  const copy = t.teams.wiki;
   const searchParams = useSearchParams();
   const router = useRouter();
   const teamId = searchParams?.get("id") ?? "";
@@ -191,13 +193,13 @@ function TeamWikiContent() {
   const grouped = useMemo(() => {
     const buckets = new Map<string, TeamWikiArticleSummary[]>();
     for (const article of articles) {
-      const key = article.category || "기타";
+      const key = article.category || copy.otherCategory;
       const arr = buckets.get(key) ?? [];
       arr.push(article);
       buckets.set(key, arr);
     }
     return Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-  }, [articles]);
+  }, [articles, copy.otherCategory]);
 
   const isOwner =
     teamQuery.data?.members?.some(
@@ -235,7 +237,7 @@ function TeamWikiContent() {
   const buildError = buildSummary && !buildSummary.success ? buildSummary.error : null;
 
   return (
-    <AppShell title={teamQuery.data?.name ? `${teamQuery.data.name} · 위키` : "팀 위키"}>
+    <AppShell title={teamQuery.data?.name ? `${teamQuery.data.name} · ${copy.titleSuffix}` : copy.title}>
       {workspaceQuery.data?.graph && (
         <WikiMiniMap
           nodes={workspaceQuery.data.graph.nodes as GraphNode[]}
@@ -249,11 +251,11 @@ function TeamWikiContent() {
       <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm text-muted-foreground">
-            팀이 쌓아둔 메모와 문서를 AI가 한국어 위키 아티클로 정리합니다.
+            {copy.intro}
           </p>
           {teamQuery.data?.last_wiki_built_at && (
             <p className="mt-1 text-xs text-muted-foreground">
-              마지막 생성: {new Date(teamQuery.data.last_wiki_built_at).toLocaleString("ko-KR")}
+              {copy.lastBuiltPrefix}: {new Date(teamQuery.data.last_wiki_built_at).toLocaleString("ko-KR")}
             </p>
           )}
         </div>
@@ -265,10 +267,10 @@ function TeamWikiContent() {
               const next = event.target.value;
               if (next) router.push(`/teams/wiki?id=${next}`);
             }}
-            title="팀 선택"
+            title={copy.teamSelect}
           >
             <option value="" disabled>
-              팀 선택…
+              {copy.teamSelectPlaceholder}
             </option>
             {(teamsQuery.data ?? []).map((team) => (
               <option key={team.id} value={team.id}>
@@ -284,7 +286,7 @@ function TeamWikiContent() {
               disabled={!isOwner || toggleAutoMutation.isPending}
               onChange={(event) => toggleAutoMutation.mutate(event.target.checked)}
             />
-            AI 위키 자동 생성 (새벽 1회)
+            {copy.autoBuild}
           </label>
           {workspaceQuery.data?.graph && (
             <Button
@@ -294,7 +296,7 @@ function TeamWikiContent() {
               onClick={() => setMapHidden((v) => !v)}
             >
               <MapIcon className="me-2 size-4" />
-              {mapHidden ? "맥락지도 보기" : "맥락지도 숨기기"}
+              {mapHidden ? copy.showMap : copy.hideMap}
             </Button>
           )}
           <Button
@@ -303,21 +305,21 @@ function TeamWikiContent() {
             onClick={() => articlesQuery.refetch()}
             disabled={articlesQuery.isFetching}
           >
-            <RefreshCcw className="me-2 size-4" /> 새로고침
+            <RefreshCcw className="me-2 size-4" /> {copy.refresh}
           </Button>
           <Button
             size="sm"
             onClick={() => buildMutation.mutate()}
             disabled={buildMutation.isPending || !isOwner}
-            title={!isOwner ? "팀 소유자만 수동 생성 가능" : undefined}
+            title={!isOwner ? copy.ownerOnlyBuild : undefined}
           >
             {buildMutation.isPending ? (
               <>
-                <Loader2 className="me-2 size-4 animate-spin" /> 생성 중…
+                <Loader2 className="me-2 size-4 animate-spin" /> {copy.building}
               </>
             ) : (
               <>
-                <Sparkles className="me-2 size-4" /> 지금 생성
+                <Sparkles className="me-2 size-4" /> {copy.buildNow}
               </>
             )}
           </Button>
@@ -331,7 +333,8 @@ function TeamWikiContent() {
       )}
       {buildSummary?.success && (
         <div className="mb-4 rounded-xl border px-4 py-3 text-sm text-muted-foreground">
-          {buildSummary.articles_built}개의 아티클을 갱신했습니다.
+          {buildSummary.articles_built}
+          {copy.builtCountSuffix}
           {buildSummary.generated_by && ` (${buildSummary.generated_by})`}
         </div>
       )}
@@ -341,7 +344,7 @@ function TeamWikiContent() {
           <Card className="flex-1">
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <BookOpen className="size-4" /> 아티클
+                <BookOpen className="size-4" /> {copy.articles}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -349,8 +352,7 @@ function TeamWikiContent() {
                 <ArticleListSkeleton />
               ) : articles.length === 0 ? (
                 <div className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
-                  아직 생성된 위키가 없습니다. 팀 메모리나 공용 문서를 쌓은 뒤
-                  &lsquo;지금 생성&rsquo;을 눌러주세요.
+                  {copy.emptyListHint}
                 </div>
               ) : (
                 grouped.map(([category, items]) => (
@@ -391,6 +393,16 @@ function TeamWikiContent() {
                   </div>
                 ))
               )}
+              <div className="border-t pt-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full justify-start"
+                  onClick={() => router.push("/teams")}
+                >
+                  {copy.backToTeam}
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </aside>
@@ -399,11 +411,11 @@ function TeamWikiContent() {
           <Card className="flex-1">
             <CardHeader className="flex flex-row items-center justify-between gap-3">
               <CardTitle className="min-w-0 truncate text-base">
-                {articleQuery.data?.title ?? (articles.length === 0 ? "위키 비어 있음" : "아티클 선택")}
+                {articleQuery.data?.title ?? (articles.length === 0 ? copy.wikiEmptyTitle : copy.selectArticleTitle)}
               </CardTitle>
               {articleQuery.data && (
                 <Button variant="outline" size="sm" onClick={openEdit}>
-                  <Pencil className="me-2 size-4" /> 편집
+                  <Pencil className="me-2 size-4" /> {copy.edit}
                 </Button>
               )}
             </CardHeader>
@@ -424,7 +436,7 @@ function TeamWikiContent() {
                   <div className="mt-3 text-sm">{articleContent}</div>
                   {articleQuery.data.sources?.length > 0 && (
                     <div className="mt-6 rounded-xl border bg-muted/30 p-3 text-xs text-muted-foreground">
-                      <p className="mb-1 font-medium">근거 자료</p>
+                      <p className="mb-1 font-medium">{copy.sources}</p>
                       <ul className="list-inside list-disc">
                         {articleQuery.data.sources.map((s) => (
                           <li key={`${s.kind}-${s.id}`}>
@@ -443,41 +455,39 @@ function TeamWikiContent() {
                   </div>
                   <div className="space-y-2">
                     <h2 className="text-lg font-semibold sm:text-xl">
-                      아직 정리된 위키가 없어요
+                      {copy.emptyHeadline}
                     </h2>
                     <p className="mx-auto max-w-md text-sm text-muted-foreground sm:text-[15px]">
-                      팀이 올린 문서와 메모를 AI가 한국어 아티클로 묶어줍니다.
-                      자료를 한 번이라도 쌓아두면 새벽에 자동으로 한 번 정리하고,
-                      바로 보고 싶다면 아래 버튼으로 즉시 만들 수 있어요.
+                      {copy.emptyBody}
                     </p>
                   </div>
 
                   <div className="mt-2 grid w-full max-w-xl gap-3 sm:grid-cols-3">
                     <div className="rounded-xl border bg-card/50 p-4 text-left">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        1단계
+                        {copy.step1Label}
                       </p>
-                      <p className="mt-1 text-sm font-medium">공용 문서 올리기</p>
+                      <p className="mt-1 text-sm font-medium">{copy.step1Title}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        팀 페이지에서 폴더 구조 그대로 업로드.
+                        {copy.step1Body}
                       </p>
                     </div>
                     <div className="rounded-xl border bg-card/50 p-4 text-left">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        2단계
+                        {copy.step2Label}
                       </p>
-                      <p className="mt-1 text-sm font-medium">팀 메모 쌓기</p>
+                      <p className="mt-1 text-sm font-medium">{copy.step2Title}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        결정·회의록·일화. `memory` 툴로 한 줄씩.
+                        {copy.step2Body}
                       </p>
                     </div>
                     <div className="rounded-xl border bg-card/50 p-4 text-left">
                       <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                        3단계
+                        {copy.step3Label}
                       </p>
-                      <p className="mt-1 text-sm font-medium">AI 위키 만들기</p>
+                      <p className="mt-1 text-sm font-medium">{copy.step3Title}</p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        새벽 자동 + 지금 생성 버튼.
+                        {copy.step3Body}
                       </p>
                     </div>
                   </div>
@@ -490,71 +500,65 @@ function TeamWikiContent() {
                     >
                       {buildMutation.isPending ? (
                         <>
-                          <Loader2 className="me-2 size-4 animate-spin" /> 생성 중…
+                          <Loader2 className="me-2 size-4 animate-spin" /> {copy.building}
                         </>
                       ) : (
                         <>
-                          <Sparkles className="me-2 size-4" /> 지금 위키 만들기
+                          <Sparkles className="me-2 size-4" /> {copy.buildNowLarge}
                         </>
                       )}
                     </Button>
                     <Button variant="outline" size="lg" onClick={() => router.push("/teams")}>
-                      문서 업로드하러 가기
+                      {copy.goUpload}
                     </Button>
                   </div>
                   {!isOwner && (
                     <p className="text-xs text-muted-foreground">
-                      팀 소유자만 수동 생성을 누를 수 있어요. 새벽 자동 빌드는 켜면 누구나 받아요.
+                      {copy.ownerOnlyHint}
                     </p>
                   )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-3 px-4 py-12 text-center text-muted-foreground">
                   <BookOpen className="size-8" />
-                  <p className="text-sm">왼쪽에서 아티클을 선택하세요.</p>
+                  <p className="text-sm">{copy.selectArticlePrompt}</p>
                 </div>
               )}
             </CardContent>
           </Card>
-
-          <div className="mt-3 flex justify-end">
-            <Button variant="ghost" size="sm" onClick={() => router.push("/teams")}>
-              팀 작업공간으로 돌아가기
-            </Button>
-          </div>
         </section>
       </div>
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>아티클 편집</DialogTitle>
+            <DialogTitle>{copy.editArticle}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground" htmlFor="wiki-title">
-                제목
+                {copy.titleField}
               </label>
               <Input
                 id="wiki-title"
                 value={draftTitle}
                 onChange={(e) => setDraftTitle(e.target.value)}
-                placeholder="아티클 제목"
+                placeholder={copy.titlePlaceholder}
               />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground" htmlFor="wiki-summary">
-                요약 (1~2문장)
+                {copy.summaryField}
               </label>
               <Input
                 id="wiki-summary"
                 value={draftSummary}
                 onChange={(e) => setDraftSummary(e.target.value)}
-                placeholder="짧은 요약"
+                placeholder={copy.summaryPlaceholder}
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">본문 (마크다운)</label>
+              <label className="text-xs font-medium text-muted-foreground">{copy.bodyField}</label>
               <MarkdownEditor
                 value={draftContent}
                 onChange={setDraftContent}
@@ -563,21 +567,20 @@ function TeamWikiContent() {
               />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              사람이 고친 결은 다음 새벽 위키 빌드의 스타일 힌트로 자동 반영됩니다.
-              revision 히스토리에 이전 본문이 자동 저장돼요.
+              {copy.editNotice}
             </p>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setEditOpen(false)}>
-              취소
+              {copy.cancel}
             </Button>
             <Button onClick={() => editMutation.mutate()} disabled={editMutation.isPending}>
               {editMutation.isPending ? (
                 <>
-                  <Loader2 className="me-2 size-4 animate-spin" /> 저장 중…
+                  <Loader2 className="me-2 size-4 animate-spin" /> {copy.saving}
                 </>
               ) : (
-                "저장"
+                copy.save
               )}
             </Button>
           </DialogFooter>
@@ -592,14 +595,14 @@ function TeamWikiContent() {
           {activeNode && (
             <div className="space-y-3 text-sm">
               <div className="flex items-center gap-2">
-                <Badge variant="secondary">{NODE_KIND_LABEL[activeNode.kind] ?? activeNode.kind}</Badge>
+                <Badge variant="secondary">{t.teams.nodeKinds[activeNode.kind] ?? activeNode.kind}</Badge>
                 {activeNode.version != null && (
                   <span className="text-xs text-muted-foreground">v{activeNode.version}</span>
                 )}
               </div>
               {activeNode.path && (
                 <div>
-                  <p className="text-xs font-medium text-muted-foreground">경로</p>
+                  <p className="text-xs font-medium text-muted-foreground">{copy.nodePathLabel}</p>
                   <p className="break-all font-mono text-xs">{activeNode.path}</p>
                 </div>
               )}
@@ -607,7 +610,7 @@ function TeamWikiContent() {
           )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setActiveNode(null)}>
-              닫기
+              {copy.close}
             </Button>
             {activeNodeArticle && (
               <Button
@@ -616,7 +619,7 @@ function TeamWikiContent() {
                   setActiveNode(null);
                 }}
               >
-                <BookOpen className="me-2 size-4" /> 위키에서 열기
+                <BookOpen className="me-2 size-4" /> {copy.openInWiki}
               </Button>
             )}
             {(activeNode?.kind === "doc" || activeNode?.kind === "note") &&
@@ -624,13 +627,13 @@ function TeamWikiContent() {
               (nodeViewable(activeNode) ? (
                 <Button asChild>
                   <a href={activeNode.download_url} target="_blank" rel="noreferrer">
-                    <ExternalLink className="me-2 size-4" /> 열기
+                    <ExternalLink className="me-2 size-4" /> {copy.open}
                   </a>
                 </Button>
               ) : (
                 <Button asChild>
                   <a href={activeNode.download_url} target="_blank" rel="noreferrer">
-                    <Download className="me-2 size-4" /> 다운로드
+                    <Download className="me-2 size-4" /> {copy.download}
                   </a>
                 </Button>
               ))}

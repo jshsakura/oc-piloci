@@ -34,6 +34,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
+import { useTranslation } from "@/lib/i18n";
 import type { TeamDocumentSummary, TeamSummary } from "@/lib/types";
 
 function humanizeSize(bytes?: number): string {
@@ -48,21 +49,32 @@ function fileExt(path: string): string {
   return dot >= 0 ? path.slice(dot + 1).toLowerCase() : "";
 }
 
-const _TYPE_LABELS: Record<string, string> = {
-  md: "마크다운", txt: "텍스트", py: "Python", js: "JS", ts: "TS", tsx: "TSX",
-  jsx: "JSX", json: "JSON", yaml: "YAML", yml: "YAML", toml: "TOML", csv: "CSV",
-  html: "HTML", css: "CSS", sql: "SQL", sh: "Shell", rst: "reST", pdf: "PDF",
-  png: "이미지", jpg: "이미지", jpeg: "이미지", gif: "이미지", webp: "이미지", svg: "이미지",
-  xlsx: "Excel", xls: "Excel", docx: "Word", doc: "Word", pptx: "PowerPoint", zip: "ZIP",
-};
+type FileTypesCopy = { markdown: string; text: string; image: string; binary: string };
+
+// Extension → display label. Brand/format names (Python, JS, JSON, …) are kept
+// as-is; the four localizable buckets resolve from copy at call time.
+function typeLabelMap(ft: FileTypesCopy): Record<string, string> {
+  return {
+    md: ft.markdown, txt: ft.text, py: "Python", js: "JS", ts: "TS", tsx: "TSX",
+    jsx: "JSX", json: "JSON", yaml: "YAML", yml: "YAML", toml: "TOML", csv: "CSV",
+    html: "HTML", css: "CSS", sql: "SQL", sh: "Shell", rst: "reST", pdf: "PDF",
+    png: ft.image, jpg: ft.image, jpeg: ft.image, gif: ft.image, webp: ft.image, svg: ft.image,
+    xlsx: "Excel", xls: "Excel", docx: "Word", doc: "Word", pptx: "PowerPoint", zip: "ZIP",
+  };
+}
 
 // Friendly type chip. Extension wins (a .md uploaded as text has no mime, so
-// "텍스트" used to leak through); fall back to mime, then a coarse default.
-function fileTypeLabel(path: string, mime?: string | null, isBinary?: boolean): string {
-  const label = _TYPE_LABELS[fileExt(path)];
+// "text" used to leak through); fall back to mime, then a coarse default.
+function fileTypeLabel(
+  ft: FileTypesCopy,
+  path: string,
+  mime?: string | null,
+  isBinary?: boolean,
+): string {
+  const label = typeLabelMap(ft)[fileExt(path)];
   if (label) return label;
   if (mime) return mime;
-  return isBinary ? "바이너리" : "텍스트";
+  return isBinary ? ft.binary : ft.text;
 }
 
 // Browser can render these inline in a new tab; everything else just downloads.
@@ -89,6 +101,7 @@ function localPart(email: string): string {
 // Compact attribution chip: shows just the label + email local-part on one
 // line, and reveals the full email with a copy button on hover.
 function EmailChip({ label, email }: { label: string; email: string }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -120,7 +133,7 @@ function EmailChip({ label, email }: { label: string; email: string }) {
               copy();
             }}
             className="rounded p-0.5 hover:bg-accent"
-            aria-label="이메일 복사"
+            aria-label={t.teams.page.copyEmail}
           >
             {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
           </button>
@@ -134,6 +147,8 @@ type Notice = { tone: "ok" | "error"; text: string } | null;
 const EMPTY_TEAMS: TeamSummary[] = [];
 
 export default function TeamsPage() {
+  const { t } = useTranslation();
+  const copy = t.teams;
   const queryClient = useQueryClient();
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [teamName, setTeamName] = useState("");
@@ -188,41 +203,41 @@ export default function TeamsPage() {
     onSuccess: (team: TeamSummary) => {
       setTeamName("");
       setSelectedTeamId(team.id);
-      setNotice({ tone: "ok", text: "팀을 만들었습니다." });
+      setNotice({ tone: "ok", text: copy.notices.teamCreated });
       queryClient.invalidateQueries({ queryKey: ["teams"] });
     },
-    onError: (error: unknown) => setNotice(toError(error, "팀 생성에 실패했습니다.")),
+    onError: (error: unknown) => setNotice(toError(error, copy.notices.teamCreateFailed)),
   });
 
   const inviteMutation = useMutation({
     mutationFn: () => api.createTeamInvite(selectedTeamId as string, inviteEmail.trim()),
     onSuccess: () => {
       setInviteEmail("");
-      setNotice({ tone: "ok", text: "초대를 만들었습니다. 상대의 대기 초대함에도 표시됩니다." });
+      setNotice({ tone: "ok", text: copy.notices.inviteCreated });
       queryClient.invalidateQueries({ queryKey: ["team-invites", selectedTeamId] });
     },
-    onError: (error: unknown) => setNotice(toError(error, "초대에 실패했습니다.")),
+    onError: (error: unknown) => setNotice(toError(error, copy.notices.inviteFailed)),
   });
 
   const respondInviteMutation = useMutation({
     mutationFn: ({ inviteId, action }: { inviteId: string; action: "accept" | "reject" }) =>
       api.respondInvite(inviteId, action),
     onSuccess: () => {
-      setNotice({ tone: "ok", text: "초대 상태를 반영했습니다." });
+      setNotice({ tone: "ok", text: copy.notices.inviteResponded });
       queryClient.invalidateQueries({ queryKey: ["team-pending-invites"] });
       queryClient.invalidateQueries({ queryKey: ["teams"] });
     },
-    onError: (error: unknown) => setNotice(toError(error, "초대 응답에 실패했습니다.")),
+    onError: (error: unknown) => setNotice(toError(error, copy.notices.inviteRespondFailed)),
   });
 
   const cancelInviteMutation = useMutation({
     mutationFn: (inviteId: string) =>
       api.cancelTeamInvite(selectedTeamId as string, inviteId),
     onSuccess: () => {
-      setNotice({ tone: "ok", text: "초대를 취소했습니다." });
+      setNotice({ tone: "ok", text: copy.notices.inviteCancelled });
       queryClient.invalidateQueries({ queryKey: ["team-invites", selectedTeamId] });
     },
-    onError: (error: unknown) => setNotice(toError(error, "초대 취소에 실패했습니다.")),
+    onError: (error: unknown) => setNotice(toError(error, copy.notices.inviteCancelFailed)),
   });
 
   const createDocMutation = useMutation({
@@ -233,10 +248,10 @@ export default function TeamsPage() {
       }),
     onSuccess: () => {
       resetEditor();
-      setNotice({ tone: "ok", text: "팀 문서를 저장했습니다." });
+      setNotice({ tone: "ok", text: copy.notices.docSaved });
       queryClient.invalidateQueries({ queryKey: ["team-documents", selectedTeamId] });
     },
-    onError: (error: unknown) => setNotice(toError(error, "문서 저장에 실패했습니다.")),
+    onError: (error: unknown) => setNotice(toError(error, copy.notices.docSaveFailed)),
   });
 
   const updateDocMutation = useMutation({
@@ -247,19 +262,19 @@ export default function TeamsPage() {
       }),
     onSuccess: () => {
       resetEditor();
-      setNotice({ tone: "ok", text: "팀 문서를 갱신했습니다." });
+      setNotice({ tone: "ok", text: copy.notices.docUpdated });
       queryClient.invalidateQueries({ queryKey: ["team-documents", selectedTeamId] });
     },
-    onError: (error: unknown) => setNotice(toError(error, "문서 갱신에 실패했습니다.")),
+    onError: (error: unknown) => setNotice(toError(error, copy.notices.docUpdateFailed)),
   });
 
   const deleteDocMutation = useMutation({
     mutationFn: (docId: string) => api.deleteTeamDocument(selectedTeamId as string, docId),
     onSuccess: () => {
-      setNotice({ tone: "ok", text: "팀 문서를 삭제했습니다." });
+      setNotice({ tone: "ok", text: copy.notices.docDeleted });
       queryClient.invalidateQueries({ queryKey: ["team-documents", selectedTeamId] });
     },
-    onError: (error: unknown) => setNotice(toError(error, "문서 삭제에 실패했습니다.")),
+    onError: (error: unknown) => setNotice(toError(error, copy.notices.docDeleteFailed)),
   });
 
   const docs = docsQuery.data ?? [];
@@ -296,7 +311,7 @@ export default function TeamsPage() {
       }
       setNotice(null);
     } catch (error) {
-      setNotice(toError(error, "문서를 불러오지 못했습니다."));
+      setNotice(toError(error, copy.notices.docLoadFailed));
     } finally {
       setLoadingDoc(false);
     }
@@ -315,11 +330,11 @@ export default function TeamsPage() {
           await api.uploadTeamFile(selectedTeamId, file, file.name);
           ok += 1;
         } catch (error) {
-          setNotice(toError(error, `'${file.name}' 업로드에 실패했습니다.`));
+          setNotice(toError(error, `'${file.name}' ${copy.notices.uploadFailedPrefix}`));
         }
       }
       if (ok > 0) {
-        setNotice({ tone: "ok", text: `${ok}개 파일을 올렸습니다.` });
+        setNotice({ tone: "ok", text: `${ok}${copy.notices.uploadedCountSuffix}` });
         queryClient.invalidateQueries({ queryKey: ["team-documents", selectedTeamId] });
       }
     } finally {
@@ -328,7 +343,7 @@ export default function TeamsPage() {
   };
 
   return (
-    <AppShell title="팀 작업공간">
+    <AppShell title={copy.page.title}>
       {/* v0.3.58: create-team form moved out of header actions into a
           slim row inline at the top of the page body. */}
       <div className="mb-3 flex items-center justify-end">
@@ -336,19 +351,20 @@ export default function TeamsPage() {
           className="flex gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            if (!teamName.trim()) return setNotice({ tone: "error", text: "팀 이름을 입력하세요." });
+            if (!teamName.trim())
+              return setNotice({ tone: "error", text: copy.notices.teamNameRequired });
             createTeamMutation.mutate();
           }}
         >
           <Input
             value={teamName}
             onChange={(event) => setTeamName(event.target.value)}
-            placeholder="새 팀 이름"
-            aria-label="새 팀 이름"
+            placeholder={copy.page.newTeamPlaceholder}
+            aria-label={copy.page.newTeamAriaLabel}
             className="h-8 w-40 text-sm"
           />
           <Button type="submit" size="sm" disabled={createTeamMutation.isPending}>
-            만들기
+            {copy.page.create}
           </Button>
         </form>
       </div>
@@ -372,14 +388,14 @@ export default function TeamsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <UsersRound className="size-4" /> 내 팀
+                <UsersRound className="size-4" /> {copy.page.myTeams}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {teamsQuery.isLoading ? (
                 [1, 2, 3].map((item) => <Skeleton key={item} className="h-12 rounded-xl" />)
               ) : teams.length === 0 ? (
-                <EmptyState icon={UsersRound} text="아직 팀이 없습니다." />
+                <EmptyState icon={UsersRound} text={copy.page.noTeams} />
               ) : (
                 teams.map((team) => (
                   <button
@@ -403,32 +419,32 @@ export default function TeamsPage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2 text-base">
-                <Inbox className="size-4" /> 받은 초대
+                <Inbox className="size-4" /> {copy.page.receivedInvites}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
               {(pendingInvitesQuery.data ?? []).length === 0 ? (
-                <p className="text-sm text-muted-foreground">대기 중인 초대가 없습니다.</p>
+                <p className="text-sm text-muted-foreground">{copy.page.noPendingInvites}</p>
               ) : (
                 pendingInvitesQuery.data?.map((invite) => (
                   <div key={invite.id} className="rounded-xl border p-3">
                     <p className="text-sm font-medium">{invite.team_name}</p>
                     <p className="text-xs text-muted-foreground">
-                      만료 {new Date(invite.expires_at).toLocaleDateString("ko-KR")}
+                      {copy.page.expiresPrefix} {new Date(invite.expires_at).toLocaleDateString("ko-KR")}
                     </p>
                     <div className="mt-3 flex gap-2">
                       <Button
                         size="sm"
                         onClick={() => respondInviteMutation.mutate({ inviteId: invite.id, action: "accept" })}
                       >
-                        수락
+                        {copy.page.accept}
                       </Button>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() => respondInviteMutation.mutate({ inviteId: invite.id, action: "reject" })}
                       >
-                        거절
+                        {copy.page.reject}
                       </Button>
                     </div>
                   </div>
@@ -489,7 +505,7 @@ export default function TeamsPage() {
               {/* Hint overlay */}
               <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-4">
                 <div className="bg-background/95 text-muted-foreground rounded-lg border px-5 py-3 text-center text-sm shadow-md backdrop-blur-sm">
-                  먼저 팀을 만들거나 선택해주세요.
+                  {copy.page.pickTeamHint}
                 </div>
               </div>
             </div>
@@ -502,7 +518,8 @@ export default function TeamsPage() {
                       {teamQuery.data?.name ?? selectedTeam.name}
                     </CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {teamQuery.data?.members.length ?? 0}명 참여 중
+                      {teamQuery.data?.members.length ?? 0}
+                      {copy.members.countSuffix}
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -510,7 +527,7 @@ export default function TeamsPage() {
                       href={`/teams/wiki?id=${selectedTeam.id}`}
                       className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent"
                     >
-                      <BookOpen className="me-2 size-4" /> 팀 위키
+                      <BookOpen className="me-2 size-4" /> {copy.page.wikiLink}
                     </Link>
                     <Button
                       variant="outline"
@@ -522,13 +539,13 @@ export default function TeamsPage() {
                         invitesQuery.refetch();
                       }}
                     >
-                      <RefreshCcw className="me-2 size-4" /> 새로고침
+                      <RefreshCcw className="me-2 size-4" /> {copy.page.refresh}
                     </Button>
                   </div>
                 </CardHeader>
                 <CardContent className="grid w-full gap-4 md:grid-cols-2 md:items-stretch">
                   <div className="flex w-full min-w-0 flex-col gap-2">
-                    <Label>멤버</Label>
+                    <Label>{copy.page.members}</Label>
                     <div className="flex w-full flex-1 flex-col gap-1.5 rounded-xl border p-3">
                       {teamQuery.data?.members.map((member) => (
                         <div
@@ -557,13 +574,13 @@ export default function TeamsPage() {
                   </div>
 
                   <div className="flex w-full min-w-0 flex-col gap-2">
-                    <Label htmlFor="team-invite">이메일로 초대</Label>
+                    <Label htmlFor="team-invite">{copy.page.inviteByEmail}</Label>
                     <form
                       className="flex w-full flex-1 flex-col gap-3 rounded-xl border p-3"
                       onSubmit={(event) => {
                         event.preventDefault();
                         if (!inviteEmail.trim())
-                          return setNotice({ tone: "error", text: "초대할 이메일을 입력하세요." });
+                          return setNotice({ tone: "error", text: copy.notices.inviteEmailRequired });
                         inviteMutation.mutate();
                       }}
                     >
@@ -582,7 +599,7 @@ export default function TeamsPage() {
                       </div>
 
                       <div className="flex flex-1 flex-col gap-1.5 overflow-hidden">
-                        <p className="text-xs font-medium text-muted-foreground">보낸 초대</p>
+                        <p className="text-xs font-medium text-muted-foreground">{copy.page.sentInvites}</p>
                         {(invitesQuery.data ?? []).length > 0 ? (
                           <div className="flex flex-col gap-1.5">
                             {(invitesQuery.data ?? []).slice(0, 4).map((invite) => (
@@ -603,7 +620,7 @@ export default function TeamsPage() {
                                       type="button"
                                       variant="ghost"
                                       size="sm"
-                                      title="초대 취소"
+                                      title={copy.page.cancelInvite}
                                       disabled={cancelInviteMutation.isPending}
                                       onClick={() => cancelInviteMutation.mutate(invite.id)}
                                     >
@@ -615,7 +632,7 @@ export default function TeamsPage() {
                             ))}
                           </div>
                         ) : (
-                          <p className="text-xs text-muted-foreground">아직 보낸 초대가 없습니다.</p>
+                          <p className="text-xs text-muted-foreground">{copy.page.noSentInvites}</p>
                         )}
                       </div>
                     </form>
@@ -627,7 +644,7 @@ export default function TeamsPage() {
                 <Card>
                   <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <CardTitle className="flex items-center gap-2 text-base">
-                      <FileText className="size-4" /> 팀 문서
+                      <FileText className="size-4" /> {copy.docs.title}
                     </CardTitle>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -637,14 +654,13 @@ export default function TeamsPage() {
                         disabled={uploading}
                         onClick={() => fileInputRef.current?.click()}
                       >
-                        <Upload className="me-2 size-4" /> 파일 올리기
+                        <Upload className="me-2 size-4" /> {copy.docs.upload}
                       </Button>
-                      <a
-                        href={api.teamExportZipUrl(selectedTeam.id)}
-                        className="inline-flex h-8 items-center rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-accent"
-                      >
-                        <FileArchive className="me-2 size-4" /> 전체 ZIP 다운로드
-                      </a>
+                      <Button asChild type="button" variant="outline" size="sm">
+                        <a href={api.teamExportZipUrl(selectedTeam.id)}>
+                          <FileArchive className="me-2 size-4" /> {copy.docs.downloadZip}
+                        </a>
+                      </Button>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-2">
@@ -674,14 +690,12 @@ export default function TeamsPage() {
                         dragActive ? "border-primary bg-primary/5 text-foreground" : "text-muted-foreground"
                       }`}
                     >
-                      {uploading
-                        ? "올리는 중입니다."
-                        : "여기에 파일을 끌어다 놓으면 팀 문서로 추가됩니다."}
+                      {uploading ? copy.docs.uploading : copy.docs.dropHint}
                     </div>
                     {docsQuery.isLoading ? (
                       [1, 2, 3].map((item) => <Skeleton key={item} className="h-14 rounded-xl" />)
                     ) : docs.length === 0 ? (
-                      <EmptyState icon={FileText} text="아직 공유 문서가 없습니다." />
+                      <EmptyState icon={FileText} text={copy.docs.empty} />
                     ) : (
                       docs.map((doc) => (
                         <button
@@ -703,7 +717,7 @@ export default function TeamsPage() {
                                 <p className="break-all text-sm font-medium">{doc.path}</p>
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <Badge variant="secondary" className="font-normal">
-                                    {fileTypeLabel(doc.path, doc.mime, doc.is_binary)}
+                                    {fileTypeLabel(copy.fileTypes, doc.path, doc.mime, doc.is_binary)}
                                   </Badge>
                                   <span className="text-xs text-muted-foreground">v{doc.version}</span>
                                   {doc.size != null && (
@@ -715,10 +729,10 @@ export default function TeamsPage() {
                                 {(doc.uploader_email || doc.updated_by_email) && (
                                   <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
                                     {doc.uploader_email && (
-                                      <EmailChip label="올린 사람" email={doc.uploader_email} />
+                                      <EmailChip label={copy.page.uploaderLabel} email={doc.uploader_email} />
                                     )}
                                     {doc.updated_by_email && (
-                                      <EmailChip label="수정한 사람" email={doc.updated_by_email} />
+                                      <EmailChip label={copy.page.updatedByLabel} email={doc.updated_by_email} />
                                     )}
                                   </div>
                                 )}
@@ -731,8 +745,8 @@ export default function TeamsPage() {
                                 rel="noreferrer"
                                 onClick={(event) => event.stopPropagation()}
                                 className="inline-flex size-8 items-center justify-center rounded-md hover:bg-accent"
-                                aria-label={isViewable(doc.path, doc.mime) ? "열기" : "다운로드"}
-                                title={isViewable(doc.path, doc.mime) ? "새 탭에서 열기" : "다운로드"}
+                                aria-label={isViewable(doc.path, doc.mime) ? copy.docs.openAriaLabel : copy.docs.downloadAriaLabel}
+                                title={isViewable(doc.path, doc.mime) ? copy.docs.openTitle : copy.docs.downloadTitle}
                               >
                                 {isViewable(doc.path, doc.mime) ? (
                                   <ExternalLink className="size-4" />
@@ -761,7 +775,7 @@ export default function TeamsPage() {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-base">{editingDoc ? "문서 수정" : "새 문서 작성"}</CardTitle>
+                    <CardTitle className="text-base">{editingDoc ? copy.docs.editTitle : copy.docs.newTitle}</CardTitle>
                   </CardHeader>
                   <CardContent>
                     {editingDoc && editingBinary ? (
@@ -774,11 +788,11 @@ export default function TeamsPage() {
                             <p className="break-all text-sm font-medium">{editingDoc.path}</p>
                             <p className="text-xs text-muted-foreground">
                               {isViewable(editingDoc.path, editingDoc.mime)
-                                ? "이 형식은 새 탭에서 바로 열 수 있어요."
-                                : "이 형식은 미리보기를 지원하지 않아요 — 받아서 여세요."}
+                                ? copy.docs.viewableHint
+                                : copy.docs.nonViewableHint}
                             </p>
                             <p className="text-xs text-muted-foreground">
-                              {fileTypeLabel(editingDoc.path, editingDoc.mime, true)} ·{" "}
+                              {fileTypeLabel(copy.fileTypes, editingDoc.path, editingDoc.mime, true)} ·{" "}
                               {humanizeSize(editingDoc.size)}
                             </p>
                           </div>
@@ -790,18 +804,18 @@ export default function TeamsPage() {
                           >
                             {isViewable(editingDoc.path, editingDoc.mime) ? (
                               <>
-                                <ExternalLink className="me-2 size-4" /> 열기
+                                <ExternalLink className="me-2 size-4" /> {copy.docs.open}
                               </>
                             ) : (
                               <>
-                                <Download className="me-2 size-4" /> 다운로드
+                                <Download className="me-2 size-4" /> {copy.docs.download}
                               </>
                             )}
                           </a>
                         </div>
                         <div className="flex justify-end">
                           <Button type="button" variant="outline" onClick={resetEditor}>
-                            새 문서로 전환
+                            {copy.docs.switchToNew}
                           </Button>
                         </div>
                       </div>
@@ -810,40 +824,41 @@ export default function TeamsPage() {
                         className="space-y-4"
                         onSubmit={(event) => {
                           event.preventDefault();
-                          if (!docPath.trim()) return setNotice({ tone: "error", text: "문서 경로를 입력하세요." });
+                          if (!docPath.trim())
+                            return setNotice({ tone: "error", text: copy.notices.docPathRequired });
                           if (editingDoc) updateDocMutation.mutate();
                           else createDocMutation.mutate();
                         }}
                       >
                         <div className="space-y-2">
-                          <Label htmlFor="team-doc-path">경로</Label>
+                          <Label htmlFor="team-doc-path">{copy.docs.pathLabel}</Label>
                           <Input
                             id="team-doc-path"
                             value={docPath}
                             disabled={Boolean(editingDoc)}
                             onChange={(event) => setDocPath(event.target.value)}
-                            placeholder="notes.md"
+                            placeholder={copy.docs.pathPlaceholder}
                           />
                         </div>
                         <div className="space-y-2">
-                          <Label htmlFor="team-doc-content">내용</Label>
+                          <Label htmlFor="team-doc-content">{copy.docs.contentLabel}</Label>
                           <textarea
                             id="team-doc-content"
                             value={docContent}
                             disabled={loadingDoc}
                             onChange={(event) => setDocContent(event.target.value)}
-                            placeholder={loadingDoc ? "문서를 불러오는 중입니다." : "팀이 함께 볼 내용을 적어두세요."}
+                            placeholder={loadingDoc ? copy.docs.contentLoading : copy.docs.contentPlaceholder}
                             className="min-h-64 w-full rounded-xl border bg-background px-3 py-2 text-sm outline-none ring-offset-background placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
                           />
                         </div>
                         <div className="flex flex-wrap justify-end gap-2">
                           {editingDoc && (
                             <Button type="button" variant="outline" onClick={resetEditor}>
-                              새 문서로 전환
+                              {copy.docs.switchToNew}
                             </Button>
                           )}
                           <Button type="submit" disabled={createDocMutation.isPending || updateDocMutation.isPending}>
-                            {editingDoc ? "갱신" : "저장"}
+                            {editingDoc ? copy.docs.update : copy.docs.save}
                           </Button>
                         </div>
                       </form>

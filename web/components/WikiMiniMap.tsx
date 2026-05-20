@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GripVertical, Maximize2, Minimize2, Map as MapIcon } from "lucide-react";
 
+import { useTranslation } from "@/lib/i18n";
 import type { GraphEdge, GraphNode } from "@/lib/types";
 
 // react-force-graph relies on browser canvas APIs — SSR is a no-go.
@@ -55,6 +56,8 @@ export function WikiMiniMap({
   hidden = false,
   onHiddenChange,
 }: WikiMiniMapProps) {
+  const { t } = useTranslation();
+  const copy = t.teams.map;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [expanded, setExpanded] = useState(false);
   const setHidden = useCallback(
@@ -162,7 +165,7 @@ export function WikiMiniMap({
       >
         <span className="flex items-center gap-1">
           <GripVertical className="size-3 opacity-50" />
-          <MapIcon className="size-3" /> 맥락 지도
+          <MapIcon className="size-3" /> {copy.title}
         </span>
         <div className="flex items-center gap-1">
           <button
@@ -170,7 +173,7 @@ export function WikiMiniMap({
             className="rounded hover:bg-accent"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setExpanded((v) => !v)}
-            title={expanded ? "줄이기" : "넓히기"}
+            title={expanded ? copy.shrink : copy.expand}
           >
             {expanded ? <Minimize2 className="size-3" /> : <Maximize2 className="size-3" />}
           </button>
@@ -179,7 +182,7 @@ export function WikiMiniMap({
             className="rounded px-1 hover:bg-accent"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={() => setHidden(true)}
-            title="숨기기"
+            title={copy.hide}
           >
             ×
           </button>
