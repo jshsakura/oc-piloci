@@ -388,7 +388,24 @@ function WikiContent({
         </div>
       </div>
 
-      {buildNotice && (
+      {isBuilding && (
+        <div className="mb-4 overflow-hidden rounded-xl border bg-card">
+          <div className="flex items-center gap-3 px-4 py-3">
+            <span className="relative flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10">
+              <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" />
+              <Sparkles className="size-4 animate-pulse text-primary" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{copy.buildingTitle}</p>
+              <p className="text-xs text-muted-foreground">{copy.buildingQueue}</p>
+            </div>
+          </div>
+          <div className="h-1 w-full overflow-hidden bg-primary/10">
+            <div className="h-full w-1/3 animate-pulse bg-gradient-to-r from-transparent via-primary to-transparent" />
+          </div>
+        </div>
+      )}
+      {buildNotice && !isBuilding && (
         <div
           className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
             buildNotice.tone === "error"
@@ -400,9 +417,10 @@ function WikiContent({
         </div>
       )}
 
-      {/* Two-pane docs layout: slim TOC + clean reading pane. */}
-      <div className="flex flex-col gap-6 lg:flex-row lg:gap-8">
-        <aside className="lg:w-[260px] lg:shrink-0 lg:border-e lg:pe-6 xl:w-[280px]">
+      {/* Two-pane docs surface: slim TOC + reading pane share one opaque card,
+          split by a divider, filling the viewport height. */}
+      <div className="flex min-h-[60vh] flex-col overflow-hidden rounded-xl border bg-card lg:flex-row">
+        <aside className="border-b p-4 lg:w-[260px] lg:shrink-0 lg:border-b-0 lg:border-e xl:w-[280px]">
           <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             <BookOpen className="size-3.5" /> {copy.articles}
           </p>
@@ -456,7 +474,7 @@ function WikiContent({
           )}
         </aside>
 
-        <section className="min-w-0 flex-1 rounded-xl border bg-card p-5 sm:p-6">
+        <section className="min-w-0 flex-1 p-5 sm:p-6">
           {articleQuery.isLoading ? (
             <div className="space-y-3">
               <Skeleton className="h-7 w-2/3" />
