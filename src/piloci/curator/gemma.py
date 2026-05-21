@@ -41,6 +41,13 @@ class ProviderTarget:
     label: str = "primary"  # for logging
 
 
+class TruncatedResponseError(Exception):
+    """The model stopped because it hit ``max_tokens`` (finish_reason ==
+    'length'). Only raised when the caller opts in via ``raise_on_truncation``
+    so it can retry with a larger budget instead of silently using a cut-off
+    (and often unparseable) response."""
+
+
 async def _call_one(
     target: ProviderTarget,
     messages: list[dict[str, str]],
@@ -49,6 +56,7 @@ async def _call_one(
     max_tokens: int,
     timeout: float,
     retries: int,
+    raise_on_truncation: bool = False,
 ) -> dict[str, Any]:
     """Run the existing retry loop against a single provider target."""
     last_err: Exception | None = None
@@ -77,7 +85,14 @@ async def _call_one(
                     )
                     resp.raise_for_status()
                     data = resp.json()
-                    text = data["choices"][0]["message"]["content"]
+                    choice = data["choices"][0]
+                    # Detect a length-capped response BEFORE parsing: a cut-off
+                    # JSON usually won't parse anyway, and retrying at the same
+                    # size is pointless. Surfacing it lets chat_json retry with
+                    # a bigger budget. Opt-in so other callers keep prior behavior.
+                    if raise_on_truncation and choice.get("finish_reason") == "length":
+                        raise TruncatedResponseError(f"{target.label}: hit max_tokens={max_tokens}")
+                    text = choice["message"]["content"]
                     text = text.strip()
                     if text.startswith("```"):
                         text = text.split("```", 2)[1]
@@ -116,6 +131,8 @@ async def chat_json(
     fallbacks: list[ProviderTarget] | None = None,
     targets: list[ProviderTarget] | None = None,
     record_target: list[str] | None = None,
+    expand_on_truncation: int = 0,
+    truncation_ceiling: int = 24000,
 ) -> dict[str, Any]:
     """Call the primary LLM and parse its response as JSON; cascade to fallbacks.
 
@@ -126,6 +143,12 @@ async def chat_json(
     ``targets`` overrides the (primary + fallbacks) construction entirely —
     pass an explicit ordered chain when overflow scheduling needs to put an
     external provider first or skip the local endpoint.
+
+    ``expand_on_truncation`` > 0 opts into output-truncation healing: if a
+    target stops at ``max_tokens`` (finish_reason == 'length'), retry the *same*
+    target with the budget doubled (capped at ``truncation_ceiling``), up to
+    this many times, before giving up on it. Default 0 keeps prior behavior for
+    all other callers.
 
     Raises ValueError when every target has been exhausted.
     """
@@ -138,22 +161,39 @@ async def chat_json(
 
     last_err: Exception | None = None
     for target in targets:
-        try:
-            result = await _call_one(
-                target,
-                messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                timeout=timeout,
-                retries=retries,
-            )
-            if record_target is not None:
-                record_target.append(target.label)
-            return result
-        except Exception as exc:
-            last_err = exc
-            logger.warning("LLM target %s exhausted: %s", target.label, exc)
-            continue
+        current_max = max_tokens
+        expansions = 0
+        while True:
+            try:
+                result = await _call_one(
+                    target,
+                    messages,
+                    temperature=temperature,
+                    max_tokens=current_max,
+                    timeout=timeout,
+                    retries=retries,
+                    raise_on_truncation=expand_on_truncation > 0,
+                )
+                if record_target is not None:
+                    record_target.append(target.label)
+                return result
+            except TruncatedResponseError as exc:
+                last_err = exc
+                if expansions < expand_on_truncation and current_max < truncation_ceiling:
+                    expansions += 1
+                    current_max = min(current_max * 2, truncation_ceiling)
+                    logger.warning(
+                        "%s output truncated; expanding max_tokens to %d and retrying",
+                        target.label,
+                        current_max,
+                    )
+                    continue
+                logger.warning("%s output truncated; budget exhausted", target.label)
+                break
+            except Exception as exc:
+                last_err = exc
+                logger.warning("LLM target %s exhausted: %s", target.label, exc)
+                break
     raise ValueError(f"All LLM targets failed: {last_err}")
 
 

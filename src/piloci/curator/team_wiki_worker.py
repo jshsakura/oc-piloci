@@ -101,7 +101,10 @@ def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list
                 "id": doc.get("id"),
                 "path": path,
                 "title": path.rsplit("/", 1)[-1],
-                "content": _safe_text(doc.get("content"))[:4000],
+                # Full content — no char cap. The old [:4000] silently dropped
+                # everything past the first 4000 chars of an uploaded document.
+                # Budgeting/chunking happens at prompt-assembly time instead.
+                "content": _safe_text(doc.get("content")),
             }
         )
 
@@ -118,7 +121,7 @@ def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list
                     if memory.get("content")
                     else "Untitled"
                 ),
-                "content": _safe_text(memory.get("content"))[:4000],
+                "content": _safe_text(memory.get("content")),
                 "tags": [str(t) for t in tags],
             }
         )
@@ -200,13 +203,120 @@ _MAX_RETRIES = 1
 _ARTICLE_MAX_TOKENS = 8000
 
 
-def _user_prompt(cluster: dict[str, Any], extra_context: list[dict[str, Any]] | None = None) -> str:
-    """Build the draft / revise user prompt.
+# Input assembly budget (chars) for one article's source material. Sized to sit
+# well inside a large external-model context (GLM ~128k tokens) with room left
+# for the generated article. Replaces the old per-source [:4000]/[:1200] hard
+# cuts that silently dropped everything past the cap of an uploaded document.
+# When a cluster's full material exceeds this we DON'T truncate — we chunk and
+# map-reduce it into compact notes (below) so nothing is lost. The same
+# mechanism scales to a small-context model: shrink the budget and it just
+# chunks more often.
+_INPUT_CHAR_BUDGET = 60000
+_MAP_CHUNK_CHARS = 20000
+_MAX_COMPRESS_DEPTH = 3
 
-    Hierarchical memory: docs (semantic, distilled) come first since they're
-    the more authoritative source. Memories (episodic, raw events) follow
-    as supporting context. `extra_context` is what we fetched via tool-aug
-    on linked_topics — appended last so it informs but doesn't dominate.
+_MAP_SYSTEM = (
+    "당신은 긴 자료의 한 조각을 받아 그 안의 사실·규칙·결정·합의·맥락·예외를 "
+    "빠짐없이 항목별로 추출하는 분석가입니다. 문장은 압축하되 핵심 사실은 절대 "
+    "생략하지 마세요(요약본이 아니라 무손실 노트). 출력은 JSON: "
+    '{"notes": str(markdown)}. 조각에 문서 경로가 보이면 각 항목 끝에 '
+    "`[출처: <경로>]`로 붙이세요."
+)
+
+
+def _source_blocks(cluster: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Full-content, labeled source blocks (no truncation). Docs first (primary,
+    distilled facts), memories second (episodic context)."""
+    docs = [s for s in cluster["sources"] if s.get("kind") == "doc"]
+    mems = [s for s in cluster["sources"] if s.get("kind") == "memory"]
+    doc_blocks = [f"### `{s.get('path')}`\n{_safe_text(s.get('content'))}" for s in docs]
+    mem_blocks: list[str] = []
+    for s in mems:
+        tags = ", ".join(s.get("tags") or [])
+        mem_blocks.append(f"### 메모 (tags: {tags or '없음'})\n{_safe_text(s.get('content'))}")
+    return doc_blocks, mem_blocks
+
+
+def _assemble_source_text(cluster: dict[str, Any], budget: int) -> tuple[str, bool]:
+    """Build the full source material text for a cluster and report whether it
+    exceeds ``budget``. Nothing is dropped here — the caller compresses (chunks
+    + map-reduce) when the flag is set, so over-budget clusters lose no content.
+    """
+    doc_blocks, mem_blocks = _source_blocks(cluster)
+    parts: list[str] = ["## 1차 출처 (팀 문서 — 정제된 사실)"]
+    if doc_blocks:
+        parts.extend(f"{b}\n" for b in doc_blocks)
+    else:
+        parts.append("_없음_\n")
+    if mem_blocks:
+        parts.append("## 2차 출처 (팀 메모리 — 회의·결정·일화)")
+        parts.extend(f"{b}\n" for b in mem_blocks)
+    text = "\n".join(parts)
+    return text, len(text) > budget
+
+
+async def _compress_text(
+    text: str,
+    budget: int,
+    targets: list[ProviderTarget],
+    record: list[str] | None = None,
+    depth: int = 0,
+) -> str:
+    """No-loss size reduction: split oversized source text into chunks, extract
+    every fact/rule from each chunk (map), concatenate the notes (reduce), and
+    recurse until it fits ``budget``. A chunk that fails to map keeps its raw
+    text — never dropped. A depth cap + a no-shrink guard guarantee termination.
+    """
+    if len(text) <= budget or depth >= _MAX_COMPRESS_DEPTH:
+        return text
+    chunks = [text[i : i + _MAP_CHUNK_CHARS] for i in range(0, len(text), _MAP_CHUNK_CHARS)]
+    notes: list[str] = []
+    for idx, chunk in enumerate(chunks):
+        try:
+            res = await chat_json(
+                [
+                    {"role": "system", "content": _MAP_SYSTEM},
+                    {"role": "user", "content": f"조각 {idx + 1}/{len(chunks)}:\n\n{chunk}"},
+                ],
+                temperature=0.1,
+                max_tokens=_ARTICLE_MAX_TOKENS,
+                targets=targets,
+                record_target=record,
+            )
+            note = _safe_text(res.get("notes"))
+            notes.append(note if note else chunk)
+        except Exception as exc:
+            logger.warning("team_wiki: map chunk %d/%d failed: %s", idx + 1, len(chunks), exc)
+            notes.append(chunk)  # never drop content on failure
+    combined = "\n\n".join(notes)
+    if len(combined) >= len(text):
+        return combined  # compression didn't shrink — stop rather than loop
+    return await _compress_text(combined, budget, targets, record, depth + 1)
+
+
+async def _cluster_source_text(
+    cluster: dict[str, Any],
+    targets: list[ProviderTarget],
+    record: list[str] | None = None,
+) -> str:
+    """Assemble a cluster's full source material; map-reduce it down only if it
+    overflows the budget. The returned text always fits the budget and never
+    silently loses content."""
+    text, overflowed = _assemble_source_text(cluster, _INPUT_CHAR_BUDGET)
+    if overflowed:
+        text = await _compress_text(text, _INPUT_CHAR_BUDGET, targets, record)
+    return text
+
+
+def _user_prompt(
+    cluster: dict[str, Any],
+    source_text: str,
+    extra_context: list[dict[str, Any]] | None = None,
+) -> str:
+    """Build the draft / revise user prompt around pre-assembled source text.
+
+    `extra_context` is what we fetched via tool-aug on linked_topics — appended
+    last so it informs but doesn't dominate.
     """
     parts = [
         f"카테고리: {cluster['category']}/{cluster['label']}",
@@ -214,97 +324,62 @@ def _user_prompt(cluster: dict[str, Any], extra_context: list[dict[str, Any]] | 
         "작성하세요. 각 문서에는 경로가 붙어 있으니, 본문에서 사실을 단언할 때 "
         "`[출처: <문서경로>]` 로 인라인 인용해 추적 가능하게 하세요.",
         "",
-        "## 1차 출처 (팀 문서 — 정제된 사실)",
+        source_text,
     ]
-    docs = [s for s in cluster["sources"] if s.get("kind") == "doc"]
-    mems = [s for s in cluster["sources"] if s.get("kind") == "memory"]
-    if docs:
-        for source in docs[:10]:
-            parts.append(f"### `{source.get('path')}`")
-            parts.append((source.get("content") or "")[:4000])
-            parts.append("")
-    else:
-        parts.append("_없음_")
-        parts.append("")
-
-    if mems:
-        parts.append("## 2차 출처 (팀 메모리 — 회의·결정·일화)")
-        for source in mems[:6]:
-            tags = ", ".join(source.get("tags") or [])
-            parts.append(f"### 메모 (tags: {tags or '없음'})")
-            parts.append((source.get("content") or "")[:1200])
-            parts.append("")
-
     if extra_context:
+        parts.append("")
         parts.append("## 참고 (관련 토픽의 다른 아티클 발췌 — 일관성 확보용)")
         for ctx in extra_context[:4]:
             title = ctx.get("title") or ctx.get("slug") or "기타"
             parts.append(f"### {title}")
             parts.append((ctx.get("excerpt") or ctx.get("content") or "")[:600])
             parts.append("")
-
     return "\n".join(parts)
 
 
-def _critique_prompt(cluster: dict[str, Any], draft: dict[str, Any]) -> str:
+def _critique_prompt(source_text: str, draft: dict[str, Any]) -> str:
     """Ask the LLM to find issues in the draft against the source material."""
-    parts = [
-        f"## 검수 대상 초안 (제목: {draft.get('title')})",
-        draft.get("content") or "",
-        "",
-        "## 원본 출처",
-    ]
-    for source in cluster["sources"][:8]:
-        kind = source.get("kind")
-        head = f"[문서 {source.get('path')}]" if kind == "doc" else "[메모]"
-        parts.append(head)
-        parts.append((source.get("content") or "")[:1200])
-        parts.append("---")
-    return "\n".join(parts)
+    return "\n".join(
+        [
+            f"## 검수 대상 초안 (제목: {draft.get('title')})",
+            draft.get("content") or "",
+            "",
+            "## 원본 출처",
+            source_text,
+        ]
+    )
 
 
-def _revise_prompt(
-    cluster: dict[str, Any],
-    draft: dict[str, Any],
-    critique: dict[str, Any],
-) -> str:
+def _revise_prompt(source_text: str, draft: dict[str, Any], critique: dict[str, Any]) -> str:
     issues = critique.get("issues") or []
     missing = critique.get("missing") or []
     style = critique.get("style") or []
-    parts = [
-        "## 초안",
-        orjson.dumps(draft, option=orjson.OPT_INDENT_2).decode(),
-        "",
-        "## 검수 의견",
-        f"- 사실 오류: {issues or '없음'}",
-        f"- 누락 핵심: {missing or '없음'}",
-        f"- 문체/표제: {style or '없음'}",
-        "",
-        "## 원본 출처 (재확인용)",
-    ]
-    for source in cluster["sources"][:6]:
-        kind = source.get("kind")
-        head = f"[문서 {source.get('path')}]" if kind == "doc" else "[메모]"
-        parts.append(head)
-        parts.append((source.get("content") or "")[:1200])
-        parts.append("---")
-    return "\n".join(parts)
+    return "\n".join(
+        [
+            "## 초안",
+            orjson.dumps(draft, option=orjson.OPT_INDENT_2).decode(),
+            "",
+            "## 검수 의견",
+            f"- 사실 오류: {issues or '없음'}",
+            f"- 누락 핵심: {missing or '없음'}",
+            f"- 문체/표제: {style or '없음'}",
+            "",
+            "## 원본 출처 (재확인용)",
+            source_text,
+        ]
+    )
 
 
-def _judge_prompt(article: dict[str, Any], cluster: dict[str, Any]) -> str:
-    parts = [
-        f"## 평가 대상 (제목: {article.get('title')})",
-        article.get("content") or "",
-        "",
-        "## 원본 출처",
-    ]
-    for source in cluster["sources"][:6]:
-        kind = source.get("kind")
-        head = f"[문서 {source.get('path')}]" if kind == "doc" else "[메모]"
-        parts.append(head)
-        parts.append((source.get("content") or "")[:1000])
-        parts.append("---")
-    return "\n".join(parts)
+def _judge_prompt(source_text: str, article: dict[str, Any]) -> str:
+    return "\n".join(
+        [
+            f"## 평가 대상 (제목: {article.get('title')})",
+            article.get("content") or "",
+            "",
+            "## 원본 출처",
+            source_text,
+        ]
+    )
 
 
 async def _fetch_linked_topic_context(
@@ -639,6 +714,12 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
 
     for cluster in clusters:
         category_label = f"{cluster['category']}/{cluster['label']}"
+        record: list[str] = []
+
+        # Full source material — no char cap. Fits the budget whole when it can;
+        # chunk+map-reduced (no content dropped) only when it overflows. Built
+        # once and reused across draft/critique/revise/judge.
+        source_text = await _cluster_source_text(cluster, targets, record)
 
         # --- Stage 1: draft ------------------------------------------------
         draft_messages = [
@@ -655,8 +736,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                     ),
                 }
             )
-        draft_messages.append({"role": "user", "content": _user_prompt(cluster)})
-        record: list[str] = []
+        draft_messages.append({"role": "user", "content": _user_prompt(cluster, source_text)})
         try:
             draft = await chat_json(
                 draft_messages,
@@ -664,6 +744,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                 max_tokens=_ARTICLE_MAX_TOKENS,
                 targets=targets,
                 record_target=record,
+                expand_on_truncation=2,
             )
         except Exception as exc:
             logger.warning("team_wiki[%s] draft failed: %s", category_label, exc)
@@ -681,7 +762,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             critique = await chat_json(
                 [
                     {"role": "system", "content": _CRITIQUE_SYSTEM},
-                    {"role": "user", "content": _critique_prompt(cluster, draft)},
+                    {"role": "user", "content": _critique_prompt(source_text, draft)},
                 ],
                 temperature=0.0,
                 max_tokens=600,
@@ -699,7 +780,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                         {"role": "system", "content": _REVISE_SYSTEM},
                         {
                             "role": "user",
-                            "content": _revise_prompt(cluster, draft, critique)
+                            "content": _revise_prompt(source_text, draft, critique)
                             + (
                                 "\n\n## 참고 토픽 발췌\n"
                                 + "\n---\n".join(
@@ -713,6 +794,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                     temperature=0.15,
                     max_tokens=_ARTICLE_MAX_TOKENS,
                     targets=targets,
+                    expand_on_truncation=2,
                 )
             except Exception as exc:
                 logger.warning("team_wiki[%s] revise failed: %s", category_label, exc)
@@ -724,7 +806,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             score = await chat_json(
                 [
                     {"role": "system", "content": _JUDGE_SYSTEM},
-                    {"role": "user", "content": _judge_prompt(revised, cluster)},
+                    {"role": "user", "content": _judge_prompt(source_text, revised)},
                 ],
                 temperature=0.0,
                 max_tokens=300,
@@ -752,18 +834,19 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                             "role": "user",
                             "content": (
                                 f"이전 평가: {orjson.dumps(score).decode()}\n\n"
-                                + _revise_prompt(cluster, revised, critique)
+                                + _revise_prompt(source_text, revised, critique)
                             ),
                         },
                     ],
                     temperature=0.2,
                     max_tokens=_ARTICLE_MAX_TOKENS,
                     targets=targets,
+                    expand_on_truncation=2,
                 )
                 score = await chat_json(
                     [
                         {"role": "system", "content": _JUDGE_SYSTEM},
-                        {"role": "user", "content": _judge_prompt(revised, cluster)},
+                        {"role": "user", "content": _judge_prompt(source_text, revised)},
                     ],
                     temperature=0.0,
                     max_tokens=300,

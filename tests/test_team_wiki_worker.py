@@ -15,6 +15,7 @@ import pytest
 from piloci.curator.team_wiki_worker import (
     _DAWN_END_HOUR,
     _DAWN_START_HOUR,
+    _assemble_source_text,
     _cluster,
     _doc_top_folder,
     _in_dawn_window,
@@ -85,19 +86,43 @@ def test_cluster_skips_empty_content_documents() -> None:
     assert clusters == []
 
 
-def test_user_prompt_includes_category_label_and_sources() -> None:
+def test_user_prompt_includes_category_label_and_source_text() -> None:
     cluster = {
         "category": "folder",
         "label": "docs",
         "sources": [{"kind": "doc", "path": "docs/api.md", "content": "body"}],
     }
-    text = _user_prompt(cluster)
+    source_text, overflowed = _assemble_source_text(cluster, 60000)
+    assert not overflowed
+    assert "1차 출처" in source_text and "docs/api.md" in source_text and "body" in source_text
+    text = _user_prompt(cluster, source_text)
     assert "folder/docs" in text
-    # New layered prompt: docs come under "1차 출처" with their path as a
-    # `code-spanned` header — replaces the old single-line "[문서 ...]" form.
-    assert "1차 출처" in text
     assert "docs/api.md" in text
     assert "body" in text
+
+
+def test_assemble_source_text_keeps_full_document_no_4000_cap() -> None:
+    # Regression: the old [:4000] cut silently dropped the tail of a long
+    # uploaded document. The full content must survive into the prompt.
+    big = "본문내용" * 3000  # 12000 chars, no edge whitespace, well past 4000
+    cluster = {
+        "category": "folder",
+        "label": "d",
+        "sources": [{"kind": "doc", "path": "docs/big.md", "content": big}],
+    }
+    source_text, overflowed = _assemble_source_text(cluster, 200_000)
+    assert big in source_text
+    assert not overflowed
+
+
+def test_assemble_source_text_flags_overflow_for_compression() -> None:
+    cluster = {
+        "category": "f",
+        "label": "l",
+        "sources": [{"kind": "doc", "path": "d.md", "content": "Y" * 5000}],
+    }
+    _, overflowed = _assemble_source_text(cluster, 500)
+    assert overflowed
 
 
 def test_in_dawn_window_uses_start_end_hours() -> None:

@@ -102,3 +102,54 @@ async def test_chat_json_raises_after_all_retries(monkeypatch):
 
     with pytest.raises(ValueError, match="failed after 3 retries"):
         await chat_json([{"role": "user", "content": "hi"}], retries=3)
+
+
+@pytest.mark.asyncio
+async def test_chat_json_expands_budget_on_truncation(monkeypatch):
+    # First response is length-capped (finish_reason == "length") → chat_json
+    # should retry the same target with a doubled budget, then succeed.
+    truncated = MagicMock()
+    truncated.raise_for_status = MagicMock()
+    truncated.json.return_value = {
+        "choices": [{"finish_reason": "length", "message": {"content": '{"partial": '}}]
+    }
+    complete = MagicMock()
+    complete.raise_for_status = MagicMock()
+    complete.json.return_value = {
+        "choices": [{"finish_reason": "stop", "message": {"content": '{"ok": true}'}}]
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=[truncated, complete])
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr("piloci.curator.gemma.httpx.AsyncClient", lambda timeout: mock_client)
+
+    result = await chat_json(
+        [{"role": "user", "content": "hi"}], max_tokens=1000, expand_on_truncation=2
+    )
+    assert result == {"ok": True}
+    assert mock_client.post.call_count == 2
+    first = mock_client.post.call_args_list[0].kwargs["json"]["max_tokens"]
+    second = mock_client.post.call_args_list[1].kwargs["json"]["max_tokens"]
+    assert second > first
+
+
+@pytest.mark.asyncio
+async def test_chat_json_ignores_truncation_when_not_opted_in(monkeypatch):
+    # finish_reason == "length" but parseable + expand_on_truncation=0 (default):
+    # legacy behavior, the result is returned as-is with no retry.
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {
+        "choices": [{"finish_reason": "length", "message": {"content": '{"ok": 1}'}}]
+    }
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr("piloci.curator.gemma.httpx.AsyncClient", lambda timeout: mock_client)
+
+    result = await chat_json([{"role": "user", "content": "hi"}])
+    assert result == {"ok": 1}
+    assert mock_client.post.call_count == 1
