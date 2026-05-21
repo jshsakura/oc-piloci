@@ -28,6 +28,16 @@ DEFAULT_TRANSCRIPT_MAX_CHARS = 4000
 DEFAULT_MAX_CHUNKS = 4
 DEFAULT_CHUNK_OVERLAP = 200
 
+# No-loss external coverage. When the user has an external (large-context)
+# provider, a long transcript is covered IN FULL by contiguous chunks sized to
+# that context — not sampled to 4 windows. Sized to sit inside a ~128k-token
+# window with room for the system prompt + JSON output.
+EXTERNAL_CHUNK_CHARS = 100_000
+# Safety valve so a pathological multi-million-char transcript can't fan out
+# into hundreds of external calls. ~64 × 100k ≈ 6.4M chars covered, well past
+# the ~1.2M median; raise if you routinely exceed it.
+FULL_COVERAGE_MAX_CHUNKS = 64
+
 # Output JSON budget. Memories tend toward 5-15 items, instincts 3-7.
 # 1500 tokens accommodates both lists with room for tags/evidence.
 DEFAULT_MAX_TOKENS = 1500
@@ -70,6 +80,9 @@ _SYSTEM = (
     "  (`category`, `domain` enums) stay English — they are identifiers.\n"
     "- Skip routine acknowledgements ('ok', 'thanks for the help'),\n"
     "  tool traces, and shell command repetition.\n"
+    "- Do NOT store raw code, file contents, diffs, or verbatim logs as\n"
+    "  memories. Capture the decision, rationale, preference, or lesson behind\n"
+    "  them in one sentence — the meaningful signal, not the bytes.\n"
     "- DO capture strong emotional reactions — praise, frustration, anger,\n"
     "  sarcasm, profanity, satisfaction. These tell you what the user values\n"
     "  and what hurts. Single sharp reactions go in `memories` under category\n"
@@ -187,6 +200,26 @@ def _split_into_chunks(
     return [text[s : s + chunk_chars] for s in starts]
 
 
+def _split_full_coverage(text: str, chunk_chars: int, overlap: int) -> list[str]:
+    """Contiguous chunks covering the ENTIRE text — nothing dropped.
+
+    Unlike ``_split_into_chunks`` (which samples up to N windows and discards
+    the gaps between them), this walks the whole transcript end to end. A small
+    ``overlap`` keeps a fact that straddles a boundary intact in one chunk.
+    """
+    if not text:
+        return []
+    if len(text) <= chunk_chars:
+        return [text]
+    stride = max(1, chunk_chars - overlap)
+    chunks: list[str] = []
+    start = 0
+    while start < len(text):
+        chunks.append(text[start : start + chunk_chars])
+        start += stride
+    return chunks
+
+
 def _normalize_for_dedupe(s: str) -> str:
     import re as _re
 
@@ -274,6 +307,7 @@ async def extract_session(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     timeout: float = DEFAULT_TIMEOUT_SEC,
     retries: int = 2,
+    expand_on_truncation: int = 0,
 ) -> DistilledSession:
     """Run one unified Gemma call and return both memories and instincts.
 
@@ -312,6 +346,7 @@ async def extract_session(
             max_tokens=max_tokens,
             targets=targets,
             record_target=winning_target,
+            expand_on_truncation=expand_on_truncation,
         )
     except Exception as exc:
         logger.warning("extract_session: all providers exhausted: %s", exc)
@@ -367,7 +402,33 @@ async def extract_session_multipass(
     if not text.strip():
         return DistilledSession(memories=[], instincts=[])
 
-    chunks = _split_into_chunks(text, max_chunks, chunk_chars, chunk_overlap)
+    # No-loss path: when the user has an external (large-context) provider, cover
+    # the WHOLE transcript with big contiguous chunks routed to that provider —
+    # instead of sampling 4 small windows and dropping ~98% of a median session.
+    # Local-only setups keep the bounded sampling path (full local coverage would
+    # be hundreds of Gemma calls per session and starve the worker backlog).
+    if fallbacks and len(text) > chunk_chars:
+        chunks = _split_full_coverage(text, EXTERNAL_CHUNK_CHARS, chunk_overlap)
+        if len(chunks) > FULL_COVERAGE_MAX_CHUNKS:
+            logger.warning(
+                "extract_multipass: transcript needs %d chunks; capping at %d "
+                "(~%dM chars). Raise FULL_COVERAGE_MAX_CHUNKS if this recurs.",
+                len(chunks),
+                FULL_COVERAGE_MAX_CHUNKS,
+                FULL_COVERAGE_MAX_CHUNKS * EXTERNAL_CHUNK_CHARS // 1_000_000,
+            )
+            chunks = chunks[:FULL_COVERAGE_MAX_CHUNKS]
+        per_chunk_max_chars = EXTERNAL_CHUNK_CHARS
+        route_external = True
+        chunk_max_tokens = max(max_tokens, 4000)
+        expand = 1
+    else:
+        chunks = _split_into_chunks(text, max_chunks, chunk_chars, chunk_overlap)
+        per_chunk_max_chars = chunk_chars
+        route_external = prefer_external
+        chunk_max_tokens = max_tokens
+        expand = 0
+
     if not chunks:
         return DistilledSession(memories=[], instincts=[])
 
@@ -378,11 +439,12 @@ async def extract_session_multipass(
             endpoint=endpoint,
             model=model,
             fallbacks=fallbacks,
-            prefer_external=prefer_external,
-            max_chars=chunk_chars,
-            max_tokens=max_tokens,
+            prefer_external=route_external,
+            max_chars=per_chunk_max_chars,
+            max_tokens=chunk_max_tokens,
             timeout=timeout,
             retries=retries,
+            expand_on_truncation=expand,
         )
         parts.append(part)
 

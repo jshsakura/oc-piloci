@@ -9,6 +9,7 @@ from piloci.curator.extraction import (
     DistilledMemory,
     DistilledSession,
     _merge_distilled,
+    _split_full_coverage,
     _split_into_chunks,
     _truncate,
     _validate_instinct,
@@ -16,6 +17,7 @@ from piloci.curator.extraction import (
     extract_session,
     extract_session_multipass,
 )
+from piloci.curator.gemma import ProviderTarget
 
 
 def test_validate_memory_accepts_well_formed() -> None:
@@ -308,3 +310,77 @@ async def test_extract_session_multipass_long_transcript_calls_per_chunk() -> No
         )
     assert len(calls) == 4
     assert len(result.memories) == 4
+
+
+def test_split_full_coverage_walks_entire_text_no_gaps() -> None:
+    text = "".join(chr(65 + (i % 26)) for i in range(50_000))
+    chunks = _split_full_coverage(text, chunk_chars=10_000, overlap=100)
+    # Opening and closing are both covered, plus enough chunks to span 50k.
+    assert chunks[0].startswith(text[:200])
+    assert text[-200:] in chunks[-1]
+    assert len(chunks) >= 5
+    # Every position is covered by at least one chunk (contiguous, with overlap).
+    covered = bytearray(len(text))
+    stride = 10_000 - 100
+    for i, ch in enumerate(chunks):
+        start = i * stride
+        for j in range(start, min(start + len(ch), len(text))):
+            covered[j] = 1
+    assert all(covered)
+
+
+def test_split_full_coverage_short_text_single_chunk() -> None:
+    assert _split_full_coverage("hi", chunk_chars=4000, overlap=200) == ["hi"]
+    assert _split_full_coverage("", chunk_chars=4000, overlap=200) == []
+
+
+@pytest.mark.asyncio
+async def test_extract_session_multipass_external_full_coverage_no_loss() -> None:
+    seen: list[str] = []
+
+    async def fake_chat_json(messages, **kwargs):
+        seen.append(messages[-1]["content"])
+        idx = len(seen)
+        return {
+            "memories": [{"content": f"chunk-{idx}", "tags": [], "category": "fact"}],
+            "instincts": [],
+        }
+
+    # ~240k chars with a marker in the middle that the 4-window/4000-char
+    # sampling path would have skipped entirely.
+    text = "A" * 120_000 + "TAILMARKER" + "B" * 120_000
+    fallbacks = [ProviderTarget(endpoint="https://ext", model="glm", api_key="k", label="ext")]
+
+    with patch("piloci.curator.extraction.chat_json", side_effect=fake_chat_json):
+        result = await extract_session_multipass(
+            text,
+            fallbacks=fallbacks,
+            chunk_chars=4000,
+            max_chunks=4,
+            chunk_overlap=200,
+        )
+
+    # Full coverage produced contiguous big chunks (not the 4-window sample) and
+    # the mid-transcript marker survived → nothing dropped.
+    assert len(seen) >= 3
+    assert any("TAILMARKER" in c for c in seen)
+    assert len(result.memories) == len(seen)
+
+
+@pytest.mark.asyncio
+async def test_extract_session_multipass_local_only_keeps_sampling() -> None:
+    calls: list[int] = []
+
+    async def fake_chat_json(*args, **kwargs):
+        calls.append(1)
+        rec = kwargs.get("record_target")
+        if rec is not None:
+            rec.append("primary")
+        return {"memories": [], "instincts": []}
+
+    text = "z" * 20_000  # > 4 × 4000
+    # No fallbacks → local-only → bounded sampling path (max 4 windows), NOT
+    # full coverage (which would be hundreds of local calls).
+    with patch("piloci.curator.extraction.chat_json", side_effect=fake_chat_json):
+        await extract_session_multipass(text, chunk_chars=4000, max_chunks=4, chunk_overlap=200)
+    assert len(calls) == 4
