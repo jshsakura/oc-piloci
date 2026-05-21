@@ -355,6 +355,7 @@ async def test_extract_session_multipass_external_full_coverage_no_loss() -> Non
         result = await extract_session_multipass(
             text,
             fallbacks=fallbacks,
+            prefer_external=True,  # scheduler sanctioned external (overflow + budget ok)
             chunk_chars=4000,
             max_chunks=4,
             chunk_overlap=200,
@@ -365,6 +366,34 @@ async def test_extract_session_multipass_external_full_coverage_no_loss() -> Non
     assert len(seen) >= 3
     assert any("TAILMARKER" in c for c in seen)
     assert len(result.memories) == len(seen)
+
+
+@pytest.mark.asyncio
+async def test_extract_session_multipass_external_without_prefer_stays_bounded() -> None:
+    # External key exists but the scheduler did NOT sanction external use
+    # (prefer_external=False → budget/backlog gate). Must stay on the bounded
+    # sampling path (≤ max_chunks), not fan out into full external coverage.
+    calls: list[int] = []
+
+    async def fake_chat_json(*args, **kwargs):
+        calls.append(1)
+        rec = kwargs.get("record_target")
+        if rec is not None:
+            rec.append("primary")
+        return {"memories": [], "instincts": []}
+
+    text = "A" * 240_000
+    fallbacks = [ProviderTarget(endpoint="https://ext", model="glm", api_key="k", label="ext")]
+    with patch("piloci.curator.extraction.chat_json", side_effect=fake_chat_json):
+        await extract_session_multipass(
+            text,
+            fallbacks=fallbacks,
+            prefer_external=False,
+            chunk_chars=4000,
+            max_chunks=4,
+            chunk_overlap=200,
+        )
+    assert len(calls) == 4  # bounded sampling, not ~3 big full-coverage chunks
 
 
 @pytest.mark.asyncio

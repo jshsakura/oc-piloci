@@ -402,12 +402,18 @@ async def extract_session_multipass(
     if not text.strip():
         return DistilledSession(memories=[], instincts=[])
 
-    # No-loss path: when the user has an external (large-context) provider, cover
-    # the WHOLE transcript with big contiguous chunks routed to that provider —
-    # instead of sampling 4 small windows and dropping ~98% of a median session.
-    # Local-only setups keep the bounded sampling path (full local coverage would
-    # be hundreds of Gemma calls per session and starve the worker backlog).
-    if fallbacks and len(text) > chunk_chars:
+    # No-loss path: cover the WHOLE transcript with big contiguous chunks routed
+    # to the external provider — instead of sampling 4 small windows and dropping
+    # ~98% of a median session.
+    #
+    # Gated on ``prefer_external`` (NOT merely "an external key exists") so this
+    # inherits the scheduler's throttling: the worker only sets prefer_external
+    # when ``decide()`` returns use_external=True, i.e. backlog past the overflow
+    # threshold AND the external budget isn't exhausted. That keeps external call
+    # frequency under the existing budget/backlog/temperature controls instead of
+    # firing a dozen calls on every large session. Local/idle passes keep the
+    # bounded sampling path (full local coverage = hundreds of Gemma calls/session).
+    if fallbacks and prefer_external and len(text) > chunk_chars:
         chunks = _split_full_coverage(text, EXTERNAL_CHUNK_CHARS, chunk_overlap)
         if len(chunks) > FULL_COVERAGE_MAX_CHUNKS:
             logger.warning(
