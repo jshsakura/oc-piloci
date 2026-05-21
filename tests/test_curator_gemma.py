@@ -153,3 +153,53 @@ async def test_chat_json_ignores_truncation_when_not_opted_in(monkeypatch):
     result = await chat_json([{"role": "user", "content": "hi"}])
     assert result == {"ok": 1}
     assert mock_client.post.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_chat_text_continues_on_length_truncation(monkeypatch):
+    # First chunk stops at the cap (finish_reason="length") → chat_text must
+    # ask the model to continue and stitch the parts into a complete body.
+    part1 = MagicMock()
+    part1.raise_for_status = MagicMock()
+    part1.json.return_value = {
+        "choices": [{"finish_reason": "length", "message": {"content": "AAA"}}]
+    }
+    part2 = MagicMock()
+    part2.raise_for_status = MagicMock()
+    part2.json.return_value = {
+        "choices": [{"finish_reason": "stop", "message": {"content": "BBB"}}]
+    }
+
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(side_effect=[part1, part2])
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr("piloci.curator.gemma.httpx.AsyncClient", lambda timeout: mock_client)
+
+    from piloci.curator.gemma import ProviderTarget, chat_text
+
+    targets = [ProviderTarget(endpoint="https://x", model="glm", api_key="k", label="ext")]
+    out = await chat_text([{"role": "user", "content": "write"}], targets=targets, max_tokens=10)
+    assert out == "AAABBB"
+    assert mock_client.post.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_chat_text_returns_single_shot_when_not_truncated(monkeypatch):
+    resp = MagicMock()
+    resp.raise_for_status = MagicMock()
+    resp.json.return_value = {
+        "choices": [{"finish_reason": "stop", "message": {"content": "DONE"}}]
+    }
+    mock_client = AsyncMock()
+    mock_client.post = AsyncMock(return_value=resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr("piloci.curator.gemma.httpx.AsyncClient", lambda timeout: mock_client)
+
+    from piloci.curator.gemma import ProviderTarget, chat_text
+
+    targets = [ProviderTarget(endpoint="https://x", model="glm", api_key="k", label="ext")]
+    out = await chat_text([{"role": "user", "content": "hi"}], targets=targets)
+    assert out == "DONE"
+    assert mock_client.post.call_count == 1

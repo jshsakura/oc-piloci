@@ -268,21 +268,28 @@ async def test_build_team_wiki_full_pipeline_with_mocked_glm(monkeypatch) -> Non
     async def _fake_fallbacks(_user_id: str) -> list:
         return [_Target()]
 
-    # Body must clear the _MIN_ARTICLE_CHARS junk gate (≥150 chars).
+    # The body is now generated as plain markdown via chat_text (must clear the
+    # _MIN_ARTICLE_CHARS junk gate, ≥150 chars).
     _article_body = "# Intro\n\n## 개요\n" + "이 문서는 인트로를 설명합니다. " * 20
 
-    async def _fake_chat_json(_messages, **kwargs):
-        # Append the served target so build_team_wiki captures `generated_by`.
+    async def _fake_chat_text(_messages, **kwargs):
         record = kwargs.get("record_target")
         if record is not None:
             record.append("glm")
+        return _article_body
+
+    # One fake serves every JSON call: critique (no issues → no revise),
+    # judge (high scores → no retry), and metadata extraction.
+    async def _fake_chat_json(_messages, **kwargs):
         return {
             "title": "Intro",
             "slug": "intro",
             "summary": "hello",
-            "content": _article_body,
-            "category": "folder/docs",
             "linked_topics": [],
+            "accuracy": 5,
+            "completeness": 5,
+            "clarity": 5,
+            "action": "accept",
         }
 
     async def _fake_cleanup(_team_id, _min_chars) -> int:
@@ -317,6 +324,7 @@ async def test_build_team_wiki_full_pipeline_with_mocked_glm(monkeypatch) -> Non
     monkeypatch.setattr(team_wiki_worker, "_list_team_documents", _fake_docs)
     monkeypatch.setattr(team_wiki_worker, "load_user_fallbacks", _fake_fallbacks)
     monkeypatch.setattr(team_wiki_worker, "chat_json", _fake_chat_json)
+    monkeypatch.setattr(team_wiki_worker, "chat_text", _fake_chat_text)
     monkeypatch.setattr(team_wiki_worker, "_upsert_article", _fake_upsert)
     monkeypatch.setattr(team_wiki_worker, "save_team_vault", _fake_save_vault)
     monkeypatch.setattr(team_wiki_worker, "merge_wiki_articles", _fake_merge)

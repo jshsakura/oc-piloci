@@ -19,7 +19,7 @@ from typing import Any
 import orjson
 
 from piloci.config import get_settings
-from piloci.curator.gemma import ProviderTarget, chat_json
+from piloci.curator.gemma import ProviderTarget, chat_json, chat_text
 from piloci.curator.llm_providers import load_user_fallbacks
 from piloci.curator.team_vault import build_team_vault, merge_wiki_articles, save_team_vault
 from piloci.storage.embed import embed_one
@@ -166,26 +166,6 @@ def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list
 # so we invest in quality over single-shot speed.
 # ---------------------------------------------------------------------------
 
-_WIKI_SYSTEM = (
-    "당신은 팀이 공유한 자료(문서·메모리)를 깊이 분석해 한국어 위키 아티클을 "
-    "쓰는 전문 편집자입니다. 단순 요약(약도)이 아니라, 자료를 종합·분석한 "
-    "'룰북/레퍼런스 수준'의 글을 씁니다. 출력은 반드시 JSON. 한국어 자료가 "
-    "다수이면 한국어로 씁니다.\n"
-    '스키마: {"title": str, "slug": str, "summary": str, '
-    '"content": str(markdown), "category": str, "linked_topics": [str]}\n'
-    "content 구조(가능한 한 이 섹션들을 ## 헤딩으로 갖출 것):\n"
-    "  ## 개요 — 이 주제가 무엇이고 왜 중요한지 2~4문장 리드.\n"
-    "  ## 핵심 규칙/결정 — 자료에서 끌어낸 규칙·결정·합의를 항목별로, 구체적으로.\n"
-    "  ## 세부 — 동작 방식·이유·맥락을 분석적으로 서술(자료에 근거).\n"
-    "  ## 예외·주의 — 함정·금기·엣지케이스(자료에 있으면).\n"
-    "  ## 출처 — 근거가 된 문서 경로 목록.\n"
-    "규칙: 1) content는 markdown, 충분히 깊고 구체적으로(요약 금지). "
-    "2) 본문에서 사실을 단언할 때마다 근거 문서를 `[출처: <문서경로>]` 형태로 "
-    "인라인 인용 — 어떤 파일에서 나온 내용인지 추적 가능해야 함. "
-    "3) 다른 아티클 후보는 `[[topic]]` 위키링크. 4) 자료에 없는 사실·추측 금지. "
-    "5) summary는 1~2문장. 6) category는 cluster의 폴더/태그 이름 그대로."
-)
-
 _CRITIQUE_SYSTEM = (
     "당신은 위키 초안을 검수하는 편집자입니다. 출력은 JSON.\n"
     '스키마: {"issues": [str], "missing": [str], "style": [str], '
@@ -193,13 +173,6 @@ _CRITIQUE_SYSTEM = (
     "검사 기준: (1) 출처 자료에 없는 사실이 본문에 나오는지, "
     "(2) 출처에는 있는데 본문에 빠진 핵심이 있는지, "
     "(3) 문체·표제·요약 일관성이 깨졌는지. 한국어로 짧게 적어주세요."
-)
-
-_REVISE_SYSTEM = (
-    "당신은 위키 초안과 검수 의견을 받아 개정판을 작성합니다. 출력은 초안과 "
-    "동일한 JSON 스키마({title,slug,summary,content,category,linked_topics}). "
-    "초안의 slug는 그대로 유지하고, 검수 의견 중 합리적인 것을 반영해 본문만 "
-    "고쳐주세요. 새 사실을 추가하지 말고, 빠진 출처 사실을 채우는 정도로만."
 )
 
 _JUDGE_SYSTEM = (
@@ -225,6 +198,53 @@ _MAX_RETRIES = 1
 # calls (the worker requires an external provider), so the Pi-local llama-server
 # limits don't apply here.
 _ARTICLE_MAX_TOKENS = 8000
+
+# Body is generated as PLAIN MARKDOWN (not inside a JSON string) and continued
+# if it hits the cap — so it can never be silently cut mid-sentence. Metadata is
+# a separate tiny JSON call. This replaces the old single JSON object whose long
+# `content` field the model self-truncated to keep the JSON valid.
+_BODY_SYSTEM = (
+    "당신은 팀이 공유한 자료(문서·메모리)를 깊이 분석해 한국어 위키 아티클 **본문**을 "
+    "쓰는 전문 편집자입니다. 단순 요약이 아니라 자료를 종합·분석한 '룰북/레퍼런스 "
+    "수준'의 글을 씁니다.\n"
+    "출력은 **마크다운 본문 텍스트만** — JSON, 코드펜스(```), 머리말/맺음말 없이 본문만.\n"
+    "구조(가능하면 ## 헤딩): ## 개요 / ## 핵심 규칙·결정 / ## 세부 / ## 예외·주의 / ## 출처\n"
+    "규칙: 1) 충분히 깊고 구체적으로(요약 금지). 2) 사실을 단언할 때마다 근거 문서를 "
+    "`[출처: <문서경로>]`로 인라인 인용. 3) 다른 아티클 후보는 `[[topic]]` 위키링크. "
+    "4) 자료에 없는 사실·추측 금지."
+)
+
+_BODY_REVISE_SYSTEM = (
+    "당신은 위키 본문 초안과 검수 의견을 받아 개정한 **마크다운 본문 텍스트만** "
+    "출력합니다. JSON·머리말 없이 본문만. 새 사실을 추가하지 말고, 빠진 출처 사실을 "
+    "채우고 지적된 문제만 고치세요. 기존 구조·헤딩은 유지하고 글을 끝까지 완성하세요."
+)
+
+_META_SYSTEM = (
+    "당신은 완성된 한국어 위키 본문을 받아 메타데이터만 추출합니다. 출력은 JSON만.\n"
+    '스키마: {"title": str, "slug": str, "summary": str, "linked_topics": [str]}\n'
+    "title: 본문 주제를 한 줄 명사구로(<=60자, 끝 문장부호 없음). "
+    "slug: 영문 소문자·숫자·하이픈. summary: 본문 핵심 1~2문장. "
+    "linked_topics: 본문의 `[[topic]]` 또는 관련 주제명."
+)
+
+_BODY_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
+
+
+def _body_links(body: str) -> list[str]:
+    """Extract `[[topic]]` references from a markdown body (for tool-aug)."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _BODY_LINK_RE.findall(body or ""):
+        label = m.strip()
+        if label and label not in seen:
+            seen.add(label)
+            out.append(label)
+    return out
+
+
+def _meta_user(body: str) -> str:
+    return f"## 위키 본문\n{body}\n\n위 본문의 메타데이터를 JSON으로 추출하세요."
 
 
 # Input assembly budget (chars) for one article's source material. Sized to sit
@@ -361,27 +381,19 @@ def _user_prompt(
     return "\n".join(parts)
 
 
-def _critique_prompt(source_text: str, draft: dict[str, Any]) -> str:
-    """Ask the LLM to find issues in the draft against the source material."""
-    return "\n".join(
-        [
-            f"## 검수 대상 초안 (제목: {draft.get('title')})",
-            draft.get("content") or "",
-            "",
-            "## 원본 출처",
-            source_text,
-        ]
-    )
+def _critique_prompt(source_text: str, body: str) -> str:
+    """Ask the LLM to find issues in the body against the source material."""
+    return "\n".join(["## 검수 대상 본문", body, "", "## 원본 출처", source_text])
 
 
-def _revise_prompt(source_text: str, draft: dict[str, Any], critique: dict[str, Any]) -> str:
+def _revise_prompt(source_text: str, body: str, critique: dict[str, Any]) -> str:
     issues = critique.get("issues") or []
     missing = critique.get("missing") or []
     style = critique.get("style") or []
     return "\n".join(
         [
-            "## 초안",
-            orjson.dumps(draft, option=orjson.OPT_INDENT_2).decode(),
+            "## 본문 초안",
+            body,
             "",
             "## 검수 의견",
             f"- 사실 오류: {issues or '없음'}",
@@ -394,16 +406,8 @@ def _revise_prompt(source_text: str, draft: dict[str, Any], critique: dict[str, 
     )
 
 
-def _judge_prompt(source_text: str, article: dict[str, Any]) -> str:
-    return "\n".join(
-        [
-            f"## 평가 대상 (제목: {article.get('title')})",
-            article.get("content") or "",
-            "",
-            "## 원본 출처",
-            source_text,
-        ]
-    )
+def _judge_prompt(source_text: str, body: str) -> str:
+    return "\n".join(["## 평가 대상 본문", body, "", "## 원본 출처", source_text])
 
 
 async def _fetch_linked_topic_context(
@@ -774,12 +778,12 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
         # once and reused across draft/critique/revise/judge.
         source_text = await _cluster_source_text(cluster, targets, record)
 
-        # --- Stage 1: draft ------------------------------------------------
-        draft_messages = [
-            {"role": "system", "content": _WIKI_SYSTEM},
-        ]
+        # --- Stage 1: draft body (PLAIN markdown, continued if it hits the
+        # cap) — so the body can never be silently cut mid-sentence the way a
+        # long JSON `content` string was. -----------------------------------
+        body_messages: list[dict[str, str]] = [{"role": "system", "content": _BODY_SYSTEM}]
         if human_hints:
-            draft_messages.append(
+            body_messages.append(
                 {
                     "role": "system",
                     "content": (
@@ -789,24 +793,29 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                     ),
                 }
             )
-        draft_messages.append({"role": "user", "content": _user_prompt(cluster, source_text)})
+        body_messages.append({"role": "user", "content": _user_prompt(cluster, source_text)})
         try:
-            draft = await chat_json(
-                draft_messages,
+            body = await chat_text(
+                body_messages,
                 temperature=0.2,
                 max_tokens=_ARTICLE_MAX_TOKENS,
                 targets=targets,
                 record_target=record,
-                expand_on_truncation=2,
             )
         except Exception as exc:
             logger.warning("team_wiki[%s] draft failed: %s", category_label, exc)
             failures.append(category_label)
             continue
 
-        # --- Stage 2: tool-augmented context (poor-man's agent loop) ------
+        # --- Stage 2: tool-augmented context from the body's [[links]] ----
         extra_context = await _fetch_linked_topic_context(
-            team_id, store, embed_fn, draft.get("linked_topics") or []
+            team_id, store, embed_fn, _body_links(body)
+        )
+        extra_block = (
+            "\n\n## 참고 토픽 발췌\n"
+            + "\n---\n".join(f"### {c['title']}\n{c['excerpt']}" for c in extra_context)
+            if extra_context
+            else ""
         )
 
         # --- Stage 3: critique --------------------------------------------
@@ -815,7 +824,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             critique = await chat_json(
                 [
                     {"role": "system", "content": _CRITIQUE_SYSTEM},
-                    {"role": "user", "content": _critique_prompt(source_text, draft)},
+                    {"role": "user", "content": _critique_prompt(source_text, body)},
                 ],
                 temperature=0.0,
                 max_tokens=600,
@@ -824,34 +833,23 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
         except Exception as exc:
             logger.warning("team_wiki[%s] critique failed: %s", category_label, exc)
 
-        # --- Stage 4: revise ----------------------------------------------
-        revised = draft
+        # --- Stage 4: revise (plain markdown, continued) ------------------
         if critique.get("issues") or critique.get("missing") or critique.get("style"):
             try:
-                revised = await chat_json(
+                body = await chat_text(
                     [
-                        {"role": "system", "content": _REVISE_SYSTEM},
+                        {"role": "system", "content": _BODY_REVISE_SYSTEM},
                         {
                             "role": "user",
-                            "content": _revise_prompt(source_text, draft, critique)
-                            + (
-                                "\n\n## 참고 토픽 발췌\n"
-                                + "\n---\n".join(
-                                    f"### {c['title']}\n{c['excerpt']}" for c in extra_context
-                                )
-                                if extra_context
-                                else ""
-                            ),
+                            "content": _revise_prompt(source_text, body, critique) + extra_block,
                         },
                     ],
                     temperature=0.15,
                     max_tokens=_ARTICLE_MAX_TOKENS,
                     targets=targets,
-                    expand_on_truncation=2,
                 )
             except Exception as exc:
                 logger.warning("team_wiki[%s] revise failed: %s", category_label, exc)
-                revised = draft  # fall back to the draft
 
         # --- Stage 5: judge → optional retry ------------------------------
         score: dict[str, Any] = {}
@@ -859,7 +857,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             score = await chat_json(
                 [
                     {"role": "system", "content": _JUDGE_SYSTEM},
-                    {"role": "user", "content": _judge_prompt(source_text, revised)},
+                    {"role": "user", "content": _judge_prompt(source_text, body)},
                 ],
                 temperature=0.0,
                 max_tokens=300,
@@ -880,26 +878,25 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                 _MAX_RETRIES,
             )
             try:
-                revised = await chat_json(
+                body = await chat_text(
                     [
-                        {"role": "system", "content": _REVISE_SYSTEM},
+                        {"role": "system", "content": _BODY_REVISE_SYSTEM},
                         {
                             "role": "user",
                             "content": (
                                 f"이전 평가: {orjson.dumps(score).decode()}\n\n"
-                                + _revise_prompt(source_text, revised, critique)
+                                + _revise_prompt(source_text, body, critique)
                             ),
                         },
                     ],
                     temperature=0.2,
                     max_tokens=_ARTICLE_MAX_TOKENS,
                     targets=targets,
-                    expand_on_truncation=2,
                 )
                 score = await chat_json(
                     [
                         {"role": "system", "content": _JUDGE_SYSTEM},
-                        {"role": "user", "content": _judge_prompt(source_text, revised)},
+                        {"role": "user", "content": _judge_prompt(source_text, body)},
                     ],
                     temperature=0.0,
                     max_tokens=300,
@@ -910,21 +907,42 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                 logger.warning("team_wiki[%s] retry failed: %s", category_label, exc)
                 break
 
-        # Junk gate: never persist an empty/one-liner body (the old "(empty)"
-        # fallback, a failed generation, or a truncated-to-nothing draft). It
-        # only litters the wiki with empty pages.
-        if len(_safe_text(revised.get("content"))) < _MIN_ARTICLE_CHARS:
+        # Junk gate: never persist an empty/one-liner body.
+        body = _safe_text(body)
+        if len(body) < _MIN_ARTICLE_CHARS:
             logger.info("team_wiki[%s] skipped — body too thin to be an article", category_label)
             failures.append(category_label)
             continue
 
-        # Always attach sources; force a clean, human category (drop internal
-        # _root/_misc bucket labels) regardless of what the model emitted.
-        revised["sources"] = [
-            {"kind": s["kind"], "id": s["id"], "title": s.get("title") or s.get("path")}
-            for s in cluster["sources"]
-        ]
-        revised["category"] = _human_category(cluster)
+        # Metadata from the finished body — a tiny JSON call (no truncation risk).
+        meta: dict[str, Any] = {}
+        try:
+            meta = await chat_json(
+                [
+                    {"role": "system", "content": _META_SYSTEM},
+                    {"role": "user", "content": _meta_user(body)},
+                ],
+                temperature=0.0,
+                max_tokens=400,
+                targets=targets,
+                expand_on_truncation=1,
+            )
+        except Exception as exc:
+            logger.warning("team_wiki[%s] meta failed: %s", category_label, exc)
+
+        title = _safe_text(meta.get("title")) or _human_category(cluster) or "팀 위키"
+        # Force a clean, human category (drop internal _root/_misc bucket labels).
+        revised = {
+            "title": title,
+            "slug": _safe_text(meta.get("slug")) or _slugify(title),
+            "summary": _safe_text(meta.get("summary")) or None,
+            "content": body,
+            "category": _human_category(cluster),
+            "sources": [
+                {"kind": s["kind"], "id": s["id"], "title": s.get("title") or s.get("path")}
+                for s in cluster["sources"]
+            ],
+        }
 
         try:
             persisted = await _upsert_article(

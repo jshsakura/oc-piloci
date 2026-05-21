@@ -197,6 +197,119 @@ async def chat_json(
     raise ValueError(f"All LLM targets failed: {last_err}")
 
 
+async def _call_one_text(
+    target: ProviderTarget,
+    messages: list[dict[str, str]],
+    *,
+    temperature: float,
+    max_tokens: int,
+    timeout: float,
+    retries: int,
+) -> tuple[str, str | None]:
+    """Like ``_call_one`` but for free-form text (no ``response_format``). Returns
+    ``(content, finish_reason)`` so the caller can detect length-capped output
+    and continue it."""
+    last_err: Exception | None = None
+    headers = {}
+    if target.api_key:
+        headers["Authorization"] = f"Bearer {target.api_key}"
+    use_semaphore = not target.api_key
+
+    async def _do() -> tuple[str, str | None]:
+        nonlocal last_err
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            for attempt in range(retries):
+                try:
+                    resp = await client.post(
+                        target.endpoint,
+                        json={
+                            "model": target.model,
+                            "messages": messages,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens,
+                        },
+                        headers=headers or None,
+                    )
+                    resp.raise_for_status()
+                    choice = resp.json()["choices"][0]
+                    return (choice["message"]["content"] or "", choice.get("finish_reason"))
+                except (httpx.HTTPError, KeyError) as exc:
+                    last_err = exc
+                    logger.warning(
+                        "%s text attempt %d/%d failed: %s",
+                        target.label,
+                        attempt + 1,
+                        retries,
+                        exc,
+                    )
+                    if attempt + 1 < retries:
+                        await asyncio.sleep(2**attempt)
+        raise ValueError(f"{target.label} failed after {retries} retries: {last_err}")
+
+    if use_semaphore:
+        async with _get_semaphore():
+            return await _do()
+    return await _do()
+
+
+_CONTINUE_HINT = (
+    "끊긴 지점부터 이어서 계속 작성하세요. 이미 쓴 내용을 반복하지 말고, "
+    "새 인사말/머리말 없이 바로 이어쓰며, 글을 끝까지 완성하세요."
+)
+
+
+async def chat_text(
+    messages: list[dict[str, str]],
+    *,
+    temperature: float = 0.2,
+    max_tokens: int = 4000,
+    timeout: float = 180.0,
+    retries: int = 2,
+    targets: list[ProviderTarget],
+    record_target: list[str] | None = None,
+    max_continuations: int = 4,
+) -> str:
+    """Free-form text completion that NEVER silently truncates.
+
+    Unlike ``chat_json`` (which packs the body into a JSON string the model may
+    self-truncate to keep the JSON valid), this returns the raw assistant text.
+    If the response stops at ``max_tokens`` (finish_reason == 'length') we feed
+    the partial back and ask the model to continue, stitching up to
+    ``max_continuations`` times — so an arbitrarily long article completes.
+    """
+    if not targets:
+        raise ValueError("chat_text: no providers to call")
+    last_err: Exception | None = None
+    for target in targets:
+        try:
+            parts: list[str] = []
+            convo = list(messages)
+            for _ in range(max_continuations + 1):
+                text, finish = await _call_one_text(
+                    target,
+                    convo,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout=timeout,
+                    retries=retries,
+                )
+                parts.append(text)
+                if finish != "length":
+                    break
+                convo = convo + [
+                    {"role": "assistant", "content": text},
+                    {"role": "user", "content": _CONTINUE_HINT},
+                ]
+            if record_target is not None:
+                record_target.append(target.label)
+            return "".join(parts)
+        except Exception as exc:
+            last_err = exc
+            logger.warning("chat_text target %s exhausted: %s", target.label, exc)
+            continue
+    raise ValueError(f"chat_text: all targets failed: {last_err}")
+
+
 async def chat_stream(
     messages: list[dict[str, str]],
     endpoint: str = "http://localhost:9090/v1/chat/completions",
