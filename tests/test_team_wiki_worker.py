@@ -18,6 +18,7 @@ from piloci.curator.team_wiki_worker import (
     _assemble_source_text,
     _cluster,
     _doc_top_folder,
+    _human_category,
     _in_dawn_window,
     _memory_primary_tag,
     _slugify,
@@ -42,15 +43,20 @@ def test_memory_primary_tag_falls_back_to_misc() -> None:
     assert _memory_primary_tag(["alpha", "beta"]) == "alpha"
 
 
+# Content long enough to clear the _MIN_CLUSTER_CHARS substance gate so the
+# clustering structure itself can be asserted.
+_LONG = "이건 클러스터 게이트를 통과하기 위한 충분히 긴 본문 내용입니다. " * 12
+
+
 def test_cluster_groups_docs_by_top_folder_and_memories_by_first_tag() -> None:
     docs = [
-        {"id": "d1", "path": "docs/a.md", "content": "alpha"},
-        {"id": "d2", "path": "docs/b.md", "content": "beta"},
-        {"id": "d3", "path": "code/x.py", "content": "code"},
+        {"id": "d1", "path": "docs/a.md", "content": "alpha " + _LONG},
+        {"id": "d2", "path": "docs/b.md", "content": "beta " + _LONG},
+        {"id": "d3", "path": "code/x.py", "content": "code " + _LONG},
     ]
     memories = [
-        {"id": "m1", "content": "decision", "tags": ["plan"]},
-        {"id": "m2", "content": "another", "tags": ["plan", "extra"]},
+        {"id": "m1", "content": "decision " + _LONG, "tags": ["plan"]},
+        {"id": "m2", "content": "another " + _LONG, "tags": ["plan", "extra"]},
     ]
 
     clusters = _cluster(memories, docs)
@@ -68,11 +74,27 @@ def test_cluster_drops_documents_without_path() -> None:
     assert clusters == []
 
 
+def test_cluster_skips_thin_clusters_below_min_chars() -> None:
+    # A folder/tag holding only a stray line must NOT become an article — that's
+    # the "empty-folder garbage" the substance gate is there to prevent.
+    docs = [{"id": "d1", "path": "docs/a.md", "content": "한 줄짜리 메모"}]
+    assert _cluster([], docs) == []
+
+
+def test_human_category_maps_internal_buckets_to_none() -> None:
+    assert _human_category({"label": "_root"}) is None
+    assert _human_category({"label": "_misc"}) is None
+    assert _human_category({"label": ""}) is None
+    # Real folder/tag names pass through as the sidebar label.
+    assert _human_category({"label": "docs"}) == "docs"
+    assert _human_category({"label": "security"}) == "security"
+
+
 def test_cluster_skips_binary_documents() -> None:
     """Binary uploads have empty inline content; feeding them to the LLM only
     yields empty articles, so digestion drops them entirely."""
     docs = [
-        {"id": "d1", "path": "docs/a.md", "content": "real text"},
+        {"id": "d1", "path": "docs/a.md", "content": "real text " + _LONG},
         {"id": "b1", "path": "assets/logo.png", "content": "", "is_binary": True},
     ]
     clusters = _cluster([], docs)
@@ -163,7 +185,7 @@ async def test_build_team_wiki_returns_error_when_no_external_provider(
         return []
 
     async def _fake_docs(_team_id) -> list:
-        return [{"id": "d1", "path": "docs/a.md", "content": "x"}]
+        return [{"id": "d1", "path": "docs/a.md", "content": "x" * 500}]
 
     async def _fake_fallbacks(_user_id: str) -> list:
         return []  # no external providers registered
@@ -238,13 +260,16 @@ async def test_build_team_wiki_full_pipeline_with_mocked_glm(monkeypatch) -> Non
         return []
 
     async def _fake_docs(_team_id) -> list:
-        return [{"id": "doc-1", "path": "docs/intro.md", "content": "hello"}]
+        return [{"id": "doc-1", "path": "docs/intro.md", "content": "hello " + "본문 " * 200}]
 
     class _Target:
         label = "glm"
 
     async def _fake_fallbacks(_user_id: str) -> list:
         return [_Target()]
+
+    # Body must clear the _MIN_ARTICLE_CHARS junk gate (≥150 chars).
+    _article_body = "# Intro\n\n## 개요\n" + "이 문서는 인트로를 설명합니다. " * 20
 
     async def _fake_chat_json(_messages, **kwargs):
         # Append the served target so build_team_wiki captures `generated_by`.
@@ -255,10 +280,13 @@ async def test_build_team_wiki_full_pipeline_with_mocked_glm(monkeypatch) -> Non
             "title": "Intro",
             "slug": "intro",
             "summary": "hello",
-            "content": "# Intro",
+            "content": _article_body,
             "category": "folder/docs",
             "linked_topics": [],
         }
+
+    async def _fake_cleanup(_team_id, _min_chars) -> int:
+        return 0
 
     upsert_calls: list[dict] = []
 
@@ -293,6 +321,7 @@ async def test_build_team_wiki_full_pipeline_with_mocked_glm(monkeypatch) -> Non
     monkeypatch.setattr(team_wiki_worker, "save_team_vault", _fake_save_vault)
     monkeypatch.setattr(team_wiki_worker, "merge_wiki_articles", _fake_merge)
     monkeypatch.setattr(team_wiki_worker, "_mark_team_built", _fake_mark)
+    monkeypatch.setattr(team_wiki_worker, "_cleanup_thin_llm_articles", _fake_cleanup)
 
     summary = await team_wiki_worker.build_team_wiki("team-1", AsyncMock())
     assert summary["success"] is True

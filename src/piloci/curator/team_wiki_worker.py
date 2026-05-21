@@ -80,6 +80,25 @@ def _memory_primary_tag(tags: list[str]) -> str:
     return tags[0] if tags else "_misc"
 
 
+# A cluster with less than this much combined source text isn't worth an article
+# — it just yields a near-empty "folder-level garbage" page. Skip it.
+_MIN_CLUSTER_CHARS = 400
+# A generated article body shorter than this is treated as junk (the old
+# "(empty)" fallback, a one-liner, or a failed generation) and never persisted.
+_MIN_ARTICLE_CHARS = 150
+
+
+def _human_category(cluster: dict[str, Any]) -> str | None:
+    """Human-facing category for an article. The clustering uses internal
+    bucket labels (``_root`` for top-level docs, ``_misc`` for untagged
+    memories); surfacing those as sidebar folders reads as junk, so map them to
+    None and let the UI show its localized '기타' instead."""
+    label = str(cluster.get("label") or "").strip()
+    if label in ("", "_root", "_misc"):
+        return None
+    return label
+
+
 def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Returns clusters: ``[{category, label, sources: [{kind, id, ...}]}, ...]``"""
 
@@ -129,6 +148,11 @@ def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list
     out: list[dict[str, Any]] = []
     for (category, label), sources in clusters.items():
         if not sources:
+            continue
+        # Minimum-substance gate: a folder/tag holding only a stray line isn't
+        # an article, it's noise. Skip it instead of minting empty pages.
+        total_chars = sum(len(_safe_text(s.get("content"))) for s in sources)
+        if total_chars < _MIN_CLUSTER_CHARS:
             continue
         out.append({"category": category, "label": label, "sources": sources})
     return out
@@ -657,6 +681,35 @@ async def _mark_team_built(team_id: str) -> None:
         )
 
 
+async def _cleanup_thin_llm_articles(team_id: str, min_chars: int) -> int:
+    """Delete LLM-authored articles whose body is empty/one-liner junk (incl. the
+    legacy ``(empty)`` placeholder). Human-edited articles are never touched.
+    Returns the number removed."""
+    from sqlalchemy import delete, func, or_, select
+
+    from piloci.db.models import TeamWikiArticle
+    from piloci.db.session import async_session
+
+    try:
+        async with async_session() as db:
+            condition = (
+                (TeamWikiArticle.team_id == team_id)
+                & (TeamWikiArticle.author_kind == "llm")
+                & or_(
+                    TeamWikiArticle.content.is_(None),
+                    func.length(func.trim(TeamWikiArticle.content)) < min_chars,
+                    TeamWikiArticle.content == "(empty)",
+                )
+            )
+            ids = (await db.execute(select(TeamWikiArticle.id).where(condition))).scalars().all()
+            if ids:
+                await db.execute(delete(TeamWikiArticle).where(condition))
+            return len(ids)
+    except Exception:
+        logger.exception("team_wiki: cleanup of thin articles failed team=%s", team_id)
+        return 0
+
+
 async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
     """End-to-end: cluster → generate articles via LLM → persist → cache.
 
@@ -857,12 +910,21 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
                 logger.warning("team_wiki[%s] retry failed: %s", category_label, exc)
                 break
 
-        # Always attach sources + category, even when we fall back to draft.
+        # Junk gate: never persist an empty/one-liner body (the old "(empty)"
+        # fallback, a failed generation, or a truncated-to-nothing draft). It
+        # only litters the wiki with empty pages.
+        if len(_safe_text(revised.get("content"))) < _MIN_ARTICLE_CHARS:
+            logger.info("team_wiki[%s] skipped — body too thin to be an article", category_label)
+            failures.append(category_label)
+            continue
+
+        # Always attach sources; force a clean, human category (drop internal
+        # _root/_misc bucket labels) regardless of what the model emitted.
         revised["sources"] = [
             {"kind": s["kind"], "id": s["id"], "title": s.get("title") or s.get("path")}
             for s in cluster["sources"]
         ]
-        revised.setdefault("category", category_label)
+        revised["category"] = _human_category(cluster)
 
         try:
             persisted = await _upsert_article(
@@ -899,6 +961,11 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             }
         )
 
+    # Sweep out junk left by earlier builds: empty / one-liner LLM articles
+    # (the old "(empty)" fallback, thin clusters that are now gated out).
+    # Human-edited articles are never touched.
+    cleaned = await _cleanup_thin_llm_articles(team_id, _MIN_ARTICLE_CHARS)
+
     # Rebuild the graph with article nodes now that they exist, so the cached
     # vault's map *is* the wiki (article nodes + source/wikilink edges).
     if graph_articles:
@@ -933,6 +1000,7 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
         "unchanged": unchanged_count,
         "flagged_for_review": [a["slug"] for a in flagged],
         "failures": failures,
+        "cleaned_thin": cleaned,
         "generated_by": (articles_built[0]["generated_by"] if articles_built else None),
     }
 
