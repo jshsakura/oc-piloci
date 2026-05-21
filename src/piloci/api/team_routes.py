@@ -23,6 +23,23 @@ from piloci.db.session import async_session
 
 logger_team = logging.getLogger(__name__)
 
+
+def _iso_utc(dt: datetime | None) -> str | None:
+    """Serialize a timestamp as UTC-explicit ISO (``...+00:00``).
+
+    Our datetimes are stored naive-UTC (``datetime.utcnow()``). ``isoformat()``
+    on a naive value emits no offset, so a client in another timezone (e.g. KST)
+    parses it as *local* time — making ``wiki_building_since`` look ~9h old and
+    instantly 'stale', which silently dropped the '생성 중' state and re-enabled
+    the build button. Stamping the offset keeps the client's clock honest.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.isoformat()
+
+
 # ---------------------------------------------------------------------------
 # Helpers (mirrored from routes.py)
 # ---------------------------------------------------------------------------
@@ -183,12 +200,8 @@ async def route_get_team(request: Request) -> Response:
             "avatar": team.avatar,
             "color": team.color,
             "auto_wiki_enabled": bool(team.auto_wiki_enabled),
-            "last_wiki_built_at": (
-                team.last_wiki_built_at.isoformat() if team.last_wiki_built_at else None
-            ),
-            "wiki_building_since": (
-                team.wiki_building_since.isoformat() if team.wiki_building_since else None
-            ),
+            "last_wiki_built_at": _iso_utc(team.last_wiki_built_at),
+            "wiki_building_since": _iso_utc(team.wiki_building_since),
             "members": members,
         }
     )
@@ -250,9 +263,7 @@ async def route_patch_team(request: Request) -> Response:
             "avatar": team.avatar,
             "color": team.color,
             "auto_wiki_enabled": bool(team.auto_wiki_enabled),
-            "last_wiki_built_at": (
-                team.last_wiki_built_at.isoformat() if team.last_wiki_built_at else None
-            ),
+            "last_wiki_built_at": _iso_utc(team.last_wiki_built_at),
         }
     )
 
@@ -1342,9 +1353,7 @@ async def route_team_workspace(request: Request) -> Response:
             "id": team_row.id,
             "name": team_row.name,
             "auto_wiki_enabled": bool(team_row.auto_wiki_enabled),
-            "last_wiki_built_at": (
-                team_row.last_wiki_built_at.isoformat() if team_row.last_wiki_built_at else None
-            ),
+            "last_wiki_built_at": _iso_utc(team_row.last_wiki_built_at),
         }
         documents = [
             {
@@ -1827,9 +1836,7 @@ async def route_team_export_zip(request: Request) -> Response:
     team = {
         "id": team_row.id,
         "name": team_row.name,
-        "last_wiki_built_at": (
-            team_row.last_wiki_built_at.isoformat() if team_row.last_wiki_built_at else None
-        ),
+        "last_wiki_built_at": _iso_utc(team_row.last_wiki_built_at),
     }
     documents = [
         {

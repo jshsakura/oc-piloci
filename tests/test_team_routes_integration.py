@@ -2210,3 +2210,21 @@ async def test_upload_cross_team_isolation(team_app: Starlette, _team_files_dir)
         assert (
             await client.get(f"/api/teams/{team_id}/documents/{doc_id}/raw", headers=stranger)
         ).status_code == 404
+
+
+def test_iso_utc_stamps_offset_on_naive_datetime() -> None:
+    # Naive (utcnow-style) value must serialize with an explicit UTC offset so a
+    # client in another timezone doesn't misread it as local time. This is what
+    # kept the wiki "생성 중" state alive across navigation.
+    naive = datetime(2026, 5, 21, 3, 0, 0)
+    out = team_routes._iso_utc(naive)
+    assert out is not None
+    assert out.endswith("+00:00")
+    # Parsing it back yields the same absolute instant as the UTC value.
+    assert datetime.fromisoformat(out) == naive.replace(tzinfo=timezone.utc)
+
+
+def test_iso_utc_preserves_aware_datetime_and_none() -> None:
+    aware = datetime(2026, 5, 21, 3, 0, 0, tzinfo=timezone.utc)
+    assert team_routes._iso_utc(aware) == aware.isoformat()
+    assert team_routes._iso_utc(None) is None

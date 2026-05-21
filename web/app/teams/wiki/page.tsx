@@ -300,9 +300,16 @@ function WikiContent({
   // the next poll lands.
   const [buildNotice, setBuildNotice] = useState<Notice>(null);
 
-  // True only while the build mutation is in flight — bridges the gap before
-  // the first poll observes the server's `wiki_building_since`.
-  const clientPendingRef = useRef(false);
+  // Bridges the gap between "build request accepted" and the first poll that
+  // observes the server's `wiki_building_since` — so the trigger button can't be
+  // pressed again in that window. State (not a ref) so it actually re-disables
+  // the button. A safety timer releases it if the server never reports building
+  // (e.g. an instant no-op build) so the button can't get stuck disabled.
+  const [pendingBuild, setPendingBuild] = useState(false);
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+  }, []);
 
   // `wiki_building_since` is recent → a build is live; poll every ~8s. The
   // ~20min floor keeps a silently-failed build from spinning the poll forever.
@@ -317,19 +324,25 @@ function WikiContent({
     queryFn: () => api.getTeam(teamId),
     enabled: Boolean(teamId),
     refetchInterval: (query) =>
-      clientPendingRef.current || buildingFromSince(query.state.data?.wiki_building_since)
-        ? 8000
-        : false,
+      pendingBuild || buildingFromSince(query.state.data?.wiki_building_since) ? 8000 : false,
   });
 
   const serverBuilding = buildingFromSince(teamQuery.data?.wiki_building_since);
+
+  // Once the server confirms the build is live, hand the "building" signal off
+  // to it and drop the client-pending bridge (+ its safety timer).
+  useEffect(() => {
+    if (serverBuilding && pendingBuild) {
+      setPendingBuild(false);
+      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+    }
+  }, [serverBuilding, pendingBuild]);
 
   const articlesQuery = useQuery({
     queryKey: ["team-wiki-articles", teamId],
     queryFn: () => api.listTeamWikiArticles(teamId),
     enabled: Boolean(teamId),
-    refetchInterval: () =>
-      clientPendingRef.current || serverBuilding ? 8000 : false,
+    refetchInterval: () => (pendingBuild || serverBuilding ? 8000 : false),
   });
 
   const articles = articlesQuery.data ?? [];
@@ -380,8 +393,11 @@ function WikiContent({
   const buildMutation = useMutation({
     mutationFn: () => api.buildTeamWiki(teamId),
     onMutate: () => {
-      // Bridge the gap before the first poll sees `wiki_building_since`.
-      clientPendingRef.current = true;
+      // Hold the button disabled from click until the server's building signal
+      // is observed; release after 30s as a safety net for instant no-op builds.
+      setPendingBuild(true);
+      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
+      pendingTimerRef.current = setTimeout(() => setPendingBuild(false), 30000);
     },
     onSuccess: (res) => {
       // 202 returns immediately. Refetch the team so the server's
@@ -393,17 +409,18 @@ function WikiContent({
         text: res.status === "already_running" ? copy.alreadyRunning : copy.buildStarted,
       });
     },
-    onError: (error: unknown) =>
+    onError: (error: unknown) => {
+      // The request itself failed — release the bridge so the button recovers.
+      setPendingBuild(false);
+      if (pendingTimerRef.current) clearTimeout(pendingTimerRef.current);
       setBuildNotice({
         tone: "error",
         text: error instanceof Error ? error.message : copy.buildStarted,
-      }),
-    onSettled: () => {
-      clientPendingRef.current = false;
+      });
     },
   });
 
-  const isBuilding = serverBuilding || buildMutation.isPending;
+  const isBuilding = serverBuilding || buildMutation.isPending || pendingBuild;
 
   // Inline doc-source preview: clicking a document source opens its full text
   // in a dialog instead of forcing a file download.
