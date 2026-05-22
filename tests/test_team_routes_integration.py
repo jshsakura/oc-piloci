@@ -1765,8 +1765,9 @@ async def test_wiki_build_owner_with_store_runs(team_app: Starlette, tmp_path, m
 
     called: dict = {}
 
-    async def _fake_build(team_id, store):
+    async def _fake_build(team_id, store, *, force=False):
         called["team_id"] = team_id
+        called["force"] = force
         return {"success": True, "team_id": team_id, "articles_built": 0}
 
     monkeypatch.setattr(team_wiki_worker, "build_team_wiki", _fake_build)
@@ -1787,6 +1788,8 @@ async def test_wiki_build_owner_with_store_runs(team_app: Starlette, tmp_path, m
         # Let the background build task run, then confirm it was invoked.
         await asyncio.sleep(0.05)
         assert called.get("team_id") == team_id
+        # Manual trigger forces past the change-gate.
+        assert called.get("force") is True
 
 
 # ---------------------------------------------------------------------------

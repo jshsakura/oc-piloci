@@ -99,6 +99,21 @@ def _human_category(cluster: dict[str, Any]) -> str | None:
     return label
 
 
+def _cluster_slug(cluster: dict[str, Any]) -> str:
+    """Stable slug derived from the cluster's identity (category + label), NOT
+    from the LLM-generated title.
+
+    The title varies every build (the model rephrases it), so deriving the slug
+    from it meant ``_upsert_article`` never matched the prior row — each rebuild
+    minted a fresh near-duplicate article. A cluster maps to exactly one stable
+    slug, so a rebuild updates the same row in place. This is the fix for the
+    wiki filling up with many near-identical pages."""
+    cat = str(cluster.get("category") or "").strip()
+    label = str(cluster.get("label") or "").strip()
+    base = f"{cat}-{label}".strip("-") or "article"
+    return _slugify(base)
+
+
 def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Returns clusters: ``[{category, label, sources: [{kind, id, ...}]}, ...]``"""
 
@@ -561,6 +576,8 @@ async def _resolve_team(team_id: str) -> dict[str, Any] | None:
         "last_wiki_built_at": (
             team.last_wiki_built_at.isoformat() if team.last_wiki_built_at else None
         ),
+        # Raw datetime (naive-UTC) for the change-gate comparison.
+        "_last_built": team.last_wiki_built_at,
     }
 
 
@@ -685,10 +702,19 @@ async def _mark_team_built(team_id: str) -> None:
         )
 
 
-async def _cleanup_thin_llm_articles(team_id: str, min_chars: int) -> int:
-    """Delete LLM-authored articles whose body is empty/one-liner junk (incl. the
-    legacy ``(empty)`` placeholder). Human-edited articles are never touched.
-    Returns the number removed."""
+async def _sweep_stale_llm_articles(team_id: str, keep_slugs: set[str], min_chars: int) -> int:
+    """Remove LLM-authored articles this build did not (re)produce.
+
+    Deletes an article when it is LLM-authored AND either (a) its slug is no
+    longer one of the current cluster slugs — a stale duplicate left by an
+    earlier build that used the old title-derived slug — or (b) its body is
+    empty/one-liner junk (incl. the legacy ``(empty)`` placeholder). Human-edited
+    articles are never touched.
+
+    No-op when ``keep_slugs`` is empty: a failed or empty build must never wipe
+    the existing wiki. Returns the number removed."""
+    if not keep_slugs:
+        return 0
     from sqlalchemy import delete, func, or_, select
 
     from piloci.db.models import TeamWikiArticle
@@ -700,6 +726,7 @@ async def _cleanup_thin_llm_articles(team_id: str, min_chars: int) -> int:
                 (TeamWikiArticle.team_id == team_id)
                 & (TeamWikiArticle.author_kind == "llm")
                 & or_(
+                    TeamWikiArticle.slug.notin_(list(keep_slugs)),
                     TeamWikiArticle.content.is_(None),
                     func.length(func.trim(TeamWikiArticle.content)) < min_chars,
                     TeamWikiArticle.content == "(empty)",
@@ -710,14 +737,20 @@ async def _cleanup_thin_llm_articles(team_id: str, min_chars: int) -> int:
                 await db.execute(delete(TeamWikiArticle).where(condition))
             return len(ids)
     except Exception:
-        logger.exception("team_wiki: cleanup of thin articles failed team=%s", team_id)
+        logger.exception("team_wiki: sweep of stale articles failed team=%s", team_id)
         return 0
 
 
-async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
+async def build_team_wiki(team_id: str, store, *, force: bool = False) -> dict[str, Any]:
     """End-to-end: cluster → generate articles via LLM → persist → cache.
 
     Returns a summary dict the caller (manual button, daily worker) can show.
+
+    ``force=False`` skips the (expensive, external-model) regeneration when no
+    source document has changed since the last build — there is nothing new to
+    say, so re-running would only burn tokens and risk churning the articles.
+    The cheap parts still run: clusters are recomputed and stale duplicate
+    articles are swept, so the wiki is tidied even on a skipped build.
     """
     team = await _resolve_team(team_id)
     if not team:
@@ -737,6 +770,29 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             "team_id": team_id,
             "articles_built": 0,
             "reason": "no source material",
+        }
+
+    # Stable slugs for every current cluster — the keep-set for the stale-article
+    # sweep, computed once and reused whether we regenerate or skip.
+    keep_slugs = {_cluster_slug(c) for c in clusters}
+
+    # Change-gate: if nothing was added/changed since the last build, don't
+    # regenerate. Still sweep stale duplicates so a skipped build leaves the
+    # wiki cleaner, not just untouched. ``force`` (manual button) bypasses this.
+    last_built = team.get("_last_built")
+    if (
+        not force
+        and last_built is not None
+        and not await _team_has_new_content(team_id, last_built)
+    ):
+        cleaned = await _sweep_stale_llm_articles(team_id, keep_slugs, _MIN_ARTICLE_CHARS)
+        return {
+            "success": True,
+            "team_id": team_id,
+            "articles_built": 0,
+            "skipped": True,
+            "reason": "no source changes since last build",
+            "cleaned_thin": cleaned,
         }
 
     # GLM-5.1 (or equivalent external) is required. Local Gemma is too weak
@@ -934,7 +990,9 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
         # Force a clean, human category (drop internal _root/_misc bucket labels).
         revised = {
             "title": title,
-            "slug": _safe_text(meta.get("slug")) or _slugify(title),
+            # Stable per-cluster slug so a rebuild updates this row instead of
+            # minting a duplicate under the model's freshly-reworded title.
+            "slug": _cluster_slug(cluster),
             "summary": _safe_text(meta.get("summary")) or None,
             "content": body,
             "category": _human_category(cluster),
@@ -979,10 +1037,11 @@ async def build_team_wiki(team_id: str, store) -> dict[str, Any]:
             }
         )
 
-    # Sweep out junk left by earlier builds: empty / one-liner LLM articles
-    # (the old "(empty)" fallback, thin clusters that are now gated out).
-    # Human-edited articles are never touched.
-    cleaned = await _cleanup_thin_llm_articles(team_id, _MIN_ARTICLE_CHARS)
+    # Sweep out junk + stale duplicates left by earlier builds: empty/one-liner
+    # LLM articles AND any LLM article whose slug is no longer a current cluster
+    # slug (e.g. duplicates minted under old title-derived slugs). Human-edited
+    # articles are never touched.
+    cleaned = await _sweep_stale_llm_articles(team_id, keep_slugs, _MIN_ARTICLE_CHARS)
 
     # Rebuild the graph with article nodes now that they exist, so the cached
     # vault's map *is* the wiki (article nodes + source/wikilink edges).

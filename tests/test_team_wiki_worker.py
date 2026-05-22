@@ -17,6 +17,7 @@ from piloci.curator.team_wiki_worker import (
     _DAWN_START_HOUR,
     _assemble_source_text,
     _cluster,
+    _cluster_slug,
     _doc_top_folder,
     _human_category,
     _in_dawn_window,
@@ -41,6 +42,17 @@ def test_doc_top_folder_returns_root_for_bare_files() -> None:
 def test_memory_primary_tag_falls_back_to_misc() -> None:
     assert _memory_primary_tag([]) == "_misc"
     assert _memory_primary_tag(["alpha", "beta"]) == "alpha"
+
+
+def test_cluster_slug_is_stable_and_title_independent() -> None:
+    # Same cluster identity → same slug, regardless of any (LLM) title. This is
+    # what stops rebuilds from minting duplicate articles under reworded titles.
+    cluster = {"category": "folder", "label": "yokogawa-bpm", "sources": []}
+    assert _cluster_slug(cluster) == _cluster_slug(dict(cluster)) == "folder-yokogawa-bpm"
+    # Different clusters → different slugs.
+    assert _cluster_slug({"category": "tag", "label": "plan"}) == "tag-plan"
+    # Empty identity still yields a usable slug, never crashes.
+    assert _cluster_slug({"category": "", "label": ""}) == "article"
 
 
 # Content long enough to clear the _MIN_CLUSTER_CHARS substance gate so the
@@ -292,7 +304,7 @@ async def test_build_team_wiki_full_pipeline_with_mocked_glm(monkeypatch) -> Non
             "action": "accept",
         }
 
-    async def _fake_cleanup(_team_id, _min_chars) -> int:
+    async def _fake_sweep(_team_id, _keep_slugs, _min_chars) -> int:
         return 0
 
     upsert_calls: list[dict] = []
@@ -329,7 +341,7 @@ async def test_build_team_wiki_full_pipeline_with_mocked_glm(monkeypatch) -> Non
     monkeypatch.setattr(team_wiki_worker, "save_team_vault", _fake_save_vault)
     monkeypatch.setattr(team_wiki_worker, "merge_wiki_articles", _fake_merge)
     monkeypatch.setattr(team_wiki_worker, "_mark_team_built", _fake_mark)
-    monkeypatch.setattr(team_wiki_worker, "_cleanup_thin_llm_articles", _fake_cleanup)
+    monkeypatch.setattr(team_wiki_worker, "_sweep_stale_llm_articles", _fake_sweep)
 
     summary = await team_wiki_worker.build_team_wiki("team-1", AsyncMock())
     assert summary["success"] is True
@@ -337,3 +349,61 @@ async def test_build_team_wiki_full_pipeline_with_mocked_glm(monkeypatch) -> Non
     assert summary["generated_by"] == "glm"
     assert len(upsert_calls) == 1
     assert upsert_calls[0]["sources"][0]["kind"] == "doc"
+    # Stable slug derived from the cluster identity (folder/docs), not the title.
+    assert upsert_calls[0]["slug"] == "folder-docs"
+
+
+@pytest.mark.asyncio
+async def test_build_team_wiki_change_gate_skips_when_unchanged(monkeypatch) -> None:
+    """Already built + no doc changes since → no LLM regeneration. Stale
+    duplicates are still swept so a skipped build leaves the wiki cleaner."""
+    from datetime import datetime
+
+    from piloci.curator import team_wiki_worker
+
+    async def _fake_resolve(_team_id: str) -> dict:
+        return {
+            "id": "team-1",
+            "name": "Team",
+            "owner_id": "owner-1",
+            "_last_built": datetime(2026, 5, 1),
+        }
+
+    async def _fake_memories(_team_id, _store) -> list:
+        return []
+
+    async def _fake_docs(_team_id) -> list:
+        return [{"id": "doc-1", "path": "docs/intro.md", "content": "x " + "본문 " * 200}]
+
+    async def _no_new_content(_team_id, _since) -> bool:
+        return False
+
+    swept: list[set] = []
+
+    async def _fake_sweep(_team_id, keep_slugs, _min_chars) -> int:
+        swept.append(keep_slugs)
+        return 2
+
+    def _boom(*_a, **_k):
+        raise AssertionError("LLM must not be called on a change-gated build")
+
+    monkeypatch.setattr(team_wiki_worker, "_resolve_team", _fake_resolve)
+    monkeypatch.setattr(team_wiki_worker, "_list_team_memories", _fake_memories)
+    monkeypatch.setattr(team_wiki_worker, "_list_team_documents", _fake_docs)
+    monkeypatch.setattr(team_wiki_worker, "_team_has_new_content", _no_new_content)
+    monkeypatch.setattr(team_wiki_worker, "_sweep_stale_llm_articles", _fake_sweep)
+    monkeypatch.setattr(team_wiki_worker, "save_team_vault", lambda *a, **k: None)
+    monkeypatch.setattr(team_wiki_worker, "load_user_fallbacks", _boom)
+    monkeypatch.setattr(team_wiki_worker, "chat_text", _boom)
+
+    summary = await team_wiki_worker.build_team_wiki("team-1", AsyncMock())
+    assert summary["skipped"] is True
+    assert summary["articles_built"] == 0
+    assert summary["cleaned_thin"] == 2
+    # Sweep ran with the cluster's stable slug as the keep-set.
+    assert swept == [{"folder-docs"}]
+
+    # force=True bypasses the gate (would call the LLM, here load_user_fallbacks
+    # raises) — proves the manual button still rebuilds.
+    with pytest.raises(AssertionError):
+        await team_wiki_worker.build_team_wiki("team-1", AsyncMock(), force=True)

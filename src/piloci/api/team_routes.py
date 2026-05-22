@@ -1925,7 +1925,9 @@ async def _run_wiki_build_and_clear(team_id: str, store) -> None:
     from piloci.curator.team_wiki_worker import build_team_wiki
 
     try:
-        await build_team_wiki(team_id, store)
+        # Manual trigger = explicit "rebuild now": force past the change-gate so
+        # the owner can always regenerate (e.g. to clean up the article set).
+        await build_team_wiki(team_id, store, force=True)
     except Exception:
         logger_team.exception("wiki build failed team=%s", team_id)
     finally:
