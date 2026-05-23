@@ -470,3 +470,250 @@ async def test_build_team_wiki_gate_rebuilds_when_only_memory_changed(monkeypatc
 
     with pytest.raises(AssertionError, match="REACHED_BUILD"):
         await team_wiki_worker.build_team_wiki("team-1", AsyncMock())
+
+
+@pytest.mark.asyncio
+async def test_build_team_wiki_real_db_pipeline_and_helpers(monkeypatch, tmp_path) -> None:
+    """End-to-end against a real SQLite DB with the REAL upsert/sweep/mark + the
+    critique→revise→judge→retry loop. Exercises the DB-touching code paths
+    (insert + update/revision branches, stale-article + revision sweep, the
+    memory-aware change signal) that the fully-mocked smoke test can't reach."""
+    from contextlib import asynccontextmanager
+    from datetime import datetime, timezone
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from piloci.curator import team_wiki_worker
+    from piloci.db import session as db_session
+    from piloci.db.models import Team, TeamDocument, TeamWikiArticle, TeamWikiRevision, User
+    from piloci.db.session import init_db
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'wiki.db'}")
+    await init_db(engine=engine)
+    factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+    @asynccontextmanager
+    async def _test_session():
+        async with factory() as s:
+            try:
+                yield s
+                await s.commit()
+            except Exception:
+                await s.rollback()
+                raise
+
+    # Worker helpers do `from piloci.db.session import async_session` per call,
+    # so patching the module attribute routes them to the test DB.
+    monkeypatch.setattr(db_session, "async_session", _test_session)
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    async with factory() as s:
+        s.add(
+            User(
+                id="owner",
+                email="o@e.com",
+                created_at=now,
+                is_active=True,
+                approval_status="approved",
+            )
+        )
+        s.add(Team(id="t1", name="T", owner_id="owner", created_at=now, auto_wiki_enabled=True))
+        s.add(
+            TeamDocument(
+                id="d1",
+                team_id="t1",
+                author_id="owner",
+                path="docs/guide.md",
+                content="가이드 본문 내용입니다. " * 80,
+                content_hash="h1",
+                updated_at=now,
+                created_at=now,
+            )
+        )
+        # Stale LLM article from an earlier build — sweep must delete it (+ its
+        # revision) because its slug isn't a current cluster slug.
+        s.add(
+            TeamWikiArticle(
+                id="old1",
+                team_id="t1",
+                slug="folder-old",
+                title="옛글",
+                content="(empty)",
+                revision=1,
+                author_kind="llm",
+                created_at=now,
+                updated_at=now,
+                sources_json="[]",
+            )
+        )
+        s.add(
+            TeamWikiRevision(
+                id="rev-old1",
+                article_id="old1",
+                team_id="t1",
+                revision=1,
+                title="옛글",
+                content="x",
+                author_kind="llm",
+                created_at=now,
+            )
+        )
+        await s.commit()
+
+    body_md = "# 가이드\n\n## 개요\n" + "이 문서는 팀 가이드입니다. " * 30
+
+    async def _fake_chat_text(messages, **kw):
+        rec = kw.get("record_target")
+        if rec is not None:
+            rec.append("glm")
+        return body_md
+
+    state = {"judge": 0, "build": 0}
+
+    async def _fake_chat_json(messages, **kw):
+        sysmsg = messages[0]["content"]
+        if sysmsg == team_wiki_worker._CRITIQUE_SYSTEM:
+            return {"issues": ["보강 필요"], "missing": [], "style": [], "severity": "medium"}
+        if sysmsg == team_wiki_worker._JUDGE_SYSTEM:
+            state["judge"] += 1
+            if state["judge"] == 1:  # first judge low → triggers one retry
+                return {"accuracy": 2, "completeness": 4, "clarity": 4, "action": "retry"}
+            return {"accuracy": 5, "completeness": 5, "clarity": 5, "action": "accept"}
+        # _META_SYSTEM — vary the title per build so the 2nd build hits the
+        # update/revision branch instead of the hash-skip "unchanged" branch.
+        state["build"] += 1
+        return {"title": f"팀 가이드 v{state['build']}", "summary": "요약", "linked_topics": []}
+
+    class _Target:
+        label = "glm"
+
+    async def _fake_fallbacks(_uid):
+        return [_Target()]
+
+    async def _no_links(*a, **k):
+        return []
+
+    monkeypatch.setattr(team_wiki_worker, "chat_text", _fake_chat_text)
+    monkeypatch.setattr(team_wiki_worker, "chat_json", _fake_chat_json)
+    monkeypatch.setattr(team_wiki_worker, "load_user_fallbacks", _fake_fallbacks)
+    monkeypatch.setattr(team_wiki_worker, "_fetch_linked_topic_context", _no_links)
+    monkeypatch.setattr(team_wiki_worker, "build_team_vault", lambda *a, **k: {})
+    monkeypatch.setattr(team_wiki_worker, "save_team_vault", lambda *a, **k: None)
+    monkeypatch.setattr(team_wiki_worker, "merge_wiki_articles", lambda *a, **k: {})
+
+    store = AsyncMock()
+    store.team_list.return_value = []  # no team memories
+
+    # First build → insert path + sweep deletes the stale "folder-old" article.
+    summary = await team_wiki_worker.build_team_wiki("t1", store, force=True)
+    assert summary["success"] is True
+    assert summary["articles_built"] == 1
+    assert summary["cleaned_thin"] >= 1  # the stale article was swept
+
+    async with factory() as s:
+        from sqlalchemy import select
+
+        slugs = (
+            (await s.execute(select(TeamWikiArticle.slug).where(TeamWikiArticle.team_id == "t1")))
+            .scalars()
+            .all()
+        )
+        assert "folder-docs" in slugs
+        assert "folder-old" not in slugs  # swept
+        # Orphan revision of the swept article is gone too.
+        rev_ids = (
+            (
+                await s.execute(
+                    select(TeamWikiRevision.id).where(TeamWikiRevision.article_id == "old1")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert rev_ids == []
+
+    # Second build → existing slug, different title → update/revision branch.
+    summary2 = await team_wiki_worker.build_team_wiki("t1", store, force=True)
+    assert summary2["success"] is True
+    async with factory() as s:
+        from sqlalchemy import select
+
+        rev = (
+            await s.execute(
+                select(TeamWikiArticle.revision).where(
+                    TeamWikiArticle.slug == "folder-docs", TeamWikiArticle.team_id == "t1"
+                )
+            )
+        ).scalar_one()
+        assert rev >= 2  # revision bumped on update
+
+    # Memory-aware change signal: store branches.
+    future = now.replace(tzinfo=timezone.utc).timestamp() + 3600
+    fresh_store = AsyncMock()
+    fresh_store.team_list.return_value = [{"id": "m", "updated_at": future}]
+    assert await team_wiki_worker._team_has_new_content("t1", now, store=fresh_store) is True
+    assert await team_wiki_worker._team_has_new_content("t1", None, store=fresh_store) is True
+    assert await team_wiki_worker._team_has_new_content("t1", now, store=store) is False
+
+    # Due-for-wiki worker pre-filter (team auto-enabled but just built → not due).
+    assert await team_wiki_worker._teams_due_for_wiki(store) == []
+
+    await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_run_team_wiki_worker_runs_one_cycle(monkeypatch) -> None:
+    """The daily daemon: in the dawn window it builds every due team, then stops
+    cleanly when the stop event is set. (Covers the worker loop body.)"""
+    from piloci.curator import team_wiki_worker
+
+    built: list[str] = []
+
+    async def _due(store=None) -> list[str]:
+        return ["t1", "t2"]
+
+    async def _build(team_id, store, *, force=False) -> dict:
+        built.append(team_id)
+        return {"articles_built": 1, "generated_by": "glm"}
+
+    monkeypatch.setattr(team_wiki_worker, "_in_dawn_window", lambda: True)
+    monkeypatch.setattr(team_wiki_worker, "_teams_due_for_wiki", _due)
+    monkeypatch.setattr(team_wiki_worker, "build_team_wiki", _build)
+
+    class _Stop:
+        """Stays unset until both due teams are built, then trips — so one full
+        cycle runs and the inner poll-sleep is skipped (no real sleeping)."""
+
+        def is_set(self) -> bool:
+            return len(built) >= 2
+
+    await team_wiki_worker.run_team_wiki_worker(object(), AsyncMock(), _Stop())
+    assert built == ["t1", "t2"]
+
+
+@pytest.mark.asyncio
+async def test_compress_text_map_reduce_and_failure_keep_content(monkeypatch) -> None:
+    """No-loss compression: oversized source is map-reduced down; a failed map
+    chunk keeps its raw text (never dropped) and the no-shrink guard stops the
+    recursion instead of looping."""
+    from piloci.curator import team_wiki_worker
+
+    big = "원본 자료 내용 " * 5000  # well over the map-chunk size
+
+    # Happy path: each chunk maps to a short note → the text shrinks.
+    async def _ok(messages, **kw) -> dict:
+        return {"notes": "핵심 요약"}
+
+    monkeypatch.setattr(team_wiki_worker, "chat_json", _ok)
+    out = await team_wiki_worker._compress_text(big, 200, [], [])
+    assert "핵심 요약" in out
+    assert len(out) < len(big)
+
+    # Failure path: every map raises → raw chunks are preserved (no content loss),
+    # and since that doesn't shrink, the guard returns without recursing forever.
+    async def _boom(messages, **kw) -> dict:
+        raise RuntimeError("map chunk down")
+
+    monkeypatch.setattr(team_wiki_worker, "chat_json", _boom)
+    out2 = await team_wiki_worker._compress_text(big, 200, [], [])
+    assert "원본 자료 내용" in out2  # raw content survived the failure
