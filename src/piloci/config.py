@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     workers: int = 1
     log_level: str = "INFO"
     log_format: Literal["json", "text"] = "text"
+    # IANA tz name used for time-of-day scheduling windows (e.g. the team-wiki
+    # dawn build). Decouples scheduling from the container's host TZ, which in a
+    # UTC container would otherwise fire the "dawn" window 9h off from KST.
+    timezone: str = "Asia/Seoul"
     low_spec_mode: bool = False
 
     # LanceDB (vector store)

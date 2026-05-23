@@ -717,7 +717,7 @@ async def _sweep_stale_llm_articles(team_id: str, keep_slugs: set[str], min_char
         return 0
     from sqlalchemy import delete, func, or_, select
 
-    from piloci.db.models import TeamWikiArticle
+    from piloci.db.models import TeamWikiArticle, TeamWikiRevision
     from piloci.db.session import async_session
 
     try:
@@ -734,6 +734,12 @@ async def _sweep_stale_llm_articles(team_id: str, keep_slugs: set[str], min_char
             )
             ids = (await db.execute(select(TeamWikiArticle.id).where(condition))).scalars().all()
             if ids:
+                # Drop revision snapshots first. FK is ON DELETE CASCADE, but a
+                # production table created before that clause won't cascade, so
+                # delete explicitly to guarantee no orphan revisions pile up.
+                await db.execute(
+                    delete(TeamWikiRevision).where(TeamWikiRevision.article_id.in_(ids))
+                )
                 await db.execute(delete(TeamWikiArticle).where(condition))
             return len(ids)
     except Exception:
@@ -777,14 +783,17 @@ async def build_team_wiki(team_id: str, store, *, force: bool = False) -> dict[s
     keep_slugs = {_cluster_slug(c) for c in clusters}
 
     # Change-gate: if nothing was added/changed since the last build, don't
-    # regenerate. Still sweep stale duplicates so a skipped build leaves the
-    # wiki cleaner, not just untouched. ``force`` (manual button) bypasses this.
+    # regenerate. Checks both documents and the already-loaded memories. Still
+    # sweeps stale duplicates so a skipped build leaves the wiki cleaner, not
+    # just untouched. ``force`` (manual button) bypasses this.
     last_built = team.get("_last_built")
-    if (
-        not force
-        and last_built is not None
-        and not await _team_has_new_content(team_id, last_built)
-    ):
+    if not force and last_built is not None:
+        gate_skip = not await _team_has_new_content(
+            team_id, last_built
+        ) and not _memories_changed_since(memories, last_built)
+    else:
+        gate_skip = False
+    if gate_skip:
         cleaned = await _sweep_stale_llm_articles(team_id, keep_slugs, _MIN_ARTICLE_CHARS)
         return {
             "success": True,
@@ -1106,20 +1115,45 @@ _STALENESS_HOURS = 20  # safety net: any team unbuilt for ~a day is re-checked
 
 
 def _in_dawn_window() -> bool:
-    """Local clock is within the auto-build window. UTC-naive — picks up the
-    container's TZ. ``settings.timezone`` overrides the host TZ in main."""
+    """True when the configured-timezone wall clock is within the auto-build
+    window. Uses ``settings.timezone`` (IANA) instead of the container's host
+    TZ, so a UTC container still fires at local dawn rather than ~9h off."""
     from datetime import datetime
+    from zoneinfo import ZoneInfo
 
-    hour = datetime.now().hour
+    try:
+        tz = ZoneInfo(get_settings().timezone)
+    except Exception:
+        tz = None  # fall back to host-local time if the tz name is bad
+    hour = datetime.now(tz).hour
     return _DAWN_START_HOUR <= hour < _DAWN_END_HOUR
 
 
-async def _team_has_new_content(team_id: str, since) -> bool:
-    """True if any team document was updated after ``since``.
+def _since_epoch(since) -> float:
+    """Naive-UTC datetime → unix seconds, to compare against memory ``updated_at``
+    (which the store keeps as an epoch int)."""
+    return since.replace(tzinfo=timezone.utc).timestamp()
 
-    Used as a cheap change signal so we don't burn GLM tokens regenerating a
-    wiki that has nothing new to say. ``since=None`` means "never built" →
-    treat anything as new.
+
+def _memories_changed_since(memories: list[dict[str, Any]], since) -> bool:
+    """True if any already-loaded team memory was updated after ``since``.
+
+    Pure helper for the in-build change-gate: the build has the memories in hand,
+    so this needs no extra query. ``since=None`` → treat as changed."""
+    if since is None:
+        return True
+    cutoff = _since_epoch(since)
+    return any(float(m.get("updated_at") or 0) > cutoff for m in memories)
+
+
+async def _team_has_new_content(team_id: str, since, *, store=None) -> bool:
+    """True if any team document — or, when ``store`` is given, any team memory —
+    was updated after ``since``.
+
+    Cheap change signal so we don't burn GLM tokens regenerating a wiki that has
+    nothing new to say. ``since=None`` means "never built" → treat anything as
+    new. Memory changes matter too: a team can refine its shared memory without
+    touching a document, and that should still trigger a rebuild.
     """
     from sqlalchemy import func, select
 
@@ -1138,14 +1172,39 @@ async def _team_has_new_content(team_id: str, since) -> bool:
         if since is not None:
             stmt = stmt.where(TeamDocument.updated_at > since)
         count = (await db.execute(stmt)).scalar_one()
-    return bool(count)
+    if count:
+        return True
+
+    if store is not None:
+        # No doc change — scan memories for a fresher ``updated_at``. Returns on
+        # the first hit; only fully paginates a team with no recent memory.
+        if since is None:
+            return await _has_any_team_memory(team_id, store)
+        cutoff = _since_epoch(since)
+        offset = 0
+        page = 200
+        while True:
+            batch = await store.team_list(team_id, limit=page, offset=offset)
+            if not batch:
+                return False
+            if any(float(m.get("updated_at") or 0) > cutoff for m in batch):
+                return True
+            if len(batch) < page:
+                return False
+            offset += page
+    return False
 
 
-async def _teams_due_for_wiki() -> list[str]:
+async def _has_any_team_memory(team_id: str, store) -> bool:
+    batch = await store.team_list(team_id, limit=1, offset=0)
+    return bool(batch)
+
+
+async def _teams_due_for_wiki(store=None) -> list[str]:
     """Teams to rebuild now: auto_wiki_enabled, last build is older than the
     staleness window (or never built), AND there is fresh content since the
     last build. The change-gate keeps GLM traffic proportional to actual
-    activity — a team that hasn't touched docs in a week stays untouched."""
+    activity — a team that hasn't touched docs/memory in a week stays untouched."""
 
     from datetime import datetime as _dt
     from datetime import timedelta
@@ -1167,8 +1226,8 @@ async def _teams_due_for_wiki() -> list[str]:
         last = row.last_wiki_built_at
         if last is not None and last >= cutoff:
             continue  # still within the staleness window
-        if not await _team_has_new_content(row.id, last):
-            continue  # nothing new to write about
+        if not await _team_has_new_content(row.id, last, store=store):
+            continue  # nothing new (docs or memory) to write about
         due.append(row.id)
     return due
 
@@ -1181,7 +1240,7 @@ async def run_team_wiki_worker(settings: Any, store: Any, stop_event: Any) -> No
     while not stop_event.is_set():
         try:
             if _in_dawn_window():
-                team_ids = await _teams_due_for_wiki()
+                team_ids = await _teams_due_for_wiki(store)
                 for team_id in team_ids:
                     if stop_event.is_set():
                         break

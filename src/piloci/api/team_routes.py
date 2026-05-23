@@ -1972,11 +1972,11 @@ async def route_team_wiki_build(request: Request) -> Response:
             await db.execute(select(Team.wiki_building_since).where(Team.id == team_id))
         ).scalar_one_or_none()
     if building_since is not None:
-        age = datetime.utcnow() - building_since
+        age = _utcnow() - building_since
         if age < _WIKI_BUILD_STALE_AFTER:
             return _json({"status": "already_running"}, 202)
 
-    await _set_wiki_building(team_id, datetime.utcnow())
+    await _set_wiki_building(team_id, _utcnow())
     task = asyncio.create_task(_run_wiki_build_and_clear(team_id, store))
     _WIKI_BUILD_TASKS[team_id] = task
     task.add_done_callback(lambda _t, tid=team_id: _WIKI_BUILD_TASKS.pop(tid, None))

@@ -21,6 +21,7 @@ from piloci.curator.team_wiki_worker import (
     _doc_top_folder,
     _human_category,
     _in_dawn_window,
+    _memories_changed_since,
     _memory_primary_tag,
     _slugify,
     _user_prompt,
@@ -42,6 +43,21 @@ def test_doc_top_folder_returns_root_for_bare_files() -> None:
 def test_memory_primary_tag_falls_back_to_misc() -> None:
     assert _memory_primary_tag([]) == "_misc"
     assert _memory_primary_tag(["alpha", "beta"]) == "alpha"
+
+
+def test_memories_changed_since() -> None:
+    from datetime import datetime, timezone
+
+    since = datetime(2026, 5, 1)
+    since_epoch = since.replace(tzinfo=timezone.utc).timestamp()
+    # A memory updated after `since` counts as changed.
+    assert _memories_changed_since([{"updated_at": since_epoch + 100}], since) is True
+    # All older → unchanged.
+    assert _memories_changed_since([{"updated_at": since_epoch - 100}], since) is False
+    # Missing/zero timestamps are treated as old, not changed.
+    assert _memories_changed_since([{}, {"updated_at": 0}], since) is False
+    # since=None (never built) → always changed.
+    assert _memories_changed_since([], None) is True
 
 
 def test_cluster_slug_is_stable_and_title_independent() -> None:
@@ -169,7 +185,7 @@ def test_in_dawn_window_uses_start_end_hours() -> None:
         hour = 0
 
         @classmethod
-        def now(cls) -> "_StubDateTime":
+        def now(cls, tz=None) -> "_StubDateTime":
             return cls()
 
     with patch.object(dt_module, "datetime", _StubDateTime):
@@ -407,3 +423,50 @@ async def test_build_team_wiki_change_gate_skips_when_unchanged(monkeypatch) -> 
     # raises) — proves the manual button still rebuilds.
     with pytest.raises(AssertionError):
         await team_wiki_worker.build_team_wiki("team-1", AsyncMock(), force=True)
+
+
+@pytest.mark.asyncio
+async def test_build_team_wiki_gate_rebuilds_when_only_memory_changed(monkeypatch) -> None:
+    """Docs unchanged but a team memory is newer than the last build → the gate
+    must NOT skip. (Regression: the gate used to look at documents only.)"""
+    from datetime import datetime, timezone
+
+    from piloci.curator import team_wiki_worker
+
+    last_built = datetime(2026, 5, 1)
+    fresh_mem_ts = last_built.replace(tzinfo=timezone.utc).timestamp() + 3600
+
+    async def _fake_resolve(_team_id: str) -> dict:
+        return {"id": "team-1", "name": "Team", "owner_id": "owner-1", "_last_built": last_built}
+
+    async def _fake_memories(_team_id, _store) -> list:
+        # Long enough to clear the _MIN_CLUSTER_CHARS substance gate so a cluster
+        # actually forms (otherwise the build short-circuits before the gate).
+        return [
+            {
+                "id": "m1",
+                "content": "갱신된 메모리 내용입니다. " * 60,
+                "tags": ["plan"],
+                "updated_at": fresh_mem_ts,
+            }
+        ]
+
+    async def _fake_docs(_team_id) -> list:
+        return []
+
+    async def _no_doc_change(_team_id, _since, **_kw) -> bool:
+        return False
+
+    def _reached(*_a, **_k):
+        raise AssertionError("REACHED_BUILD")
+
+    monkeypatch.setattr(team_wiki_worker, "_resolve_team", _fake_resolve)
+    monkeypatch.setattr(team_wiki_worker, "_list_team_memories", _fake_memories)
+    monkeypatch.setattr(team_wiki_worker, "_list_team_documents", _fake_docs)
+    monkeypatch.setattr(team_wiki_worker, "_team_has_new_content", _no_doc_change)
+    monkeypatch.setattr(team_wiki_worker, "save_team_vault", lambda *a, **k: None)
+    # If the gate wrongly skips, this never runs and no exception is raised.
+    monkeypatch.setattr(team_wiki_worker, "load_user_fallbacks", _reached)
+
+    with pytest.raises(AssertionError, match="REACHED_BUILD"):
+        await team_wiki_worker.build_team_wiki("team-1", AsyncMock())
