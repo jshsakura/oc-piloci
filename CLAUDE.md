@@ -65,12 +65,19 @@
 
 ## Deploy (운영 반영)
 
-- 운영 배포는 **컨테이너 기반**: 커밋·푸시 → 운영에서 `git pull` → `deploy`(컨테이너 재빌드/기동)
-- 프론트는 서버가 `src/piloci/static/`에서 서빙하는데, 이 폴더는 **git에 없는 빌드 산출물**이고
-  컨테이너 빌드(또는 태그 릴리스 CI)에서 `web/out` → `static`으로 들어간다.
-  → **`git pull`만으로는 프론트가 갱신되지 않는다.** 프론트 변경은 컨테이너 재빌드/릴리스로만 반영됨.
-  (백엔드 `.py` 변경은 pull로 반영. 프론트 안 바뀐 것 같으면 컨테이너가 옛 이미지인지 의심할 것.)
-- `src/piloci/static/`를 git에 커밋하거나, 별도 동기화 스크립트를 끼워넣는 식의 우회 금지.
+- 운영은 **사전 빌드된 컨테이너 이미지를 pull**해서 돈다. 운영 compose는 `image:`만
+  있고 `build:`가 없으므로 **`git pull`한 소스 코드는 운영에 반영되지 않는다.**
+  코드(백엔드·프론트 모두)는 이미지 안에 들어 있다.
+- 이미지는 **`v*` 태그 릴리스에서만** 만들어진다. `publish.yml`의 docker 빌드·푸시 잡은
+  `if: startsWith(github.ref, 'refs/tags/v')` — **main 푸시만으로는 이미지가 안 생긴다.**
+  (main 푸시는 test/web-check만 돌고 publish는 안 함.)
+- 따라서 코드 변경을 운영에 반영하려면 **반드시 patch 릴리스**:
+  `pyproject` 버전 +0.0.1 → 커밋 → `git tag v{ver}` → `git push origin main v{ver}`
+  → CI가 멀티아치 이미지 publish → 운영에서 `docker compose pull && up -d`.
+- 프론트도 같은 경로다: `web/out` → `src/piloci/static/`(git 미포함 산출물)는 릴리스 CI가
+  이미지에 굽는다. `src/piloci/static/`를 git 커밋하거나 동기화 스크립트로 우회 금지.
+- 증상 디버깅: "배포했는데 안 바뀜" → 새 이미지가 publish됐는지(태그 릴리스 했는지),
+  운영 컨테이너가 그 이미지로 갈렸는지(`docker ps`의 image/Up 시간) 먼저 확인.
 
 ## Performance (Pi 5 원칙)
 
