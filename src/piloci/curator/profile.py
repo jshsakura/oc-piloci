@@ -126,28 +126,62 @@ async def refresh_profile(
     store: MemoryStore,
     force: bool = False,
 ) -> dict[str, list[str]]:
-    """Regenerate and store the profile. Debounced by min_interval."""
+    """Regenerate and store the profile.
+
+    Two gates keep Gemma idle on quiet projects:
+      1. Debounce — never regenerate within ``profile_refresh_min_interval_sec``.
+      2. Change-gate — skip the LLM call entirely when no memory is newer than
+         the stored profile. Without it the worker regenerates every project
+         every cycle even on weeks with zero new memories, which pins the
+         local llama-server at ~full load 24/7.
+    ``force=True`` bypasses both."""
     now = time.time()
     key = (user_id, project_id)
     last = _last_refresh.get(key, 0.0)
-    if not force and now - last < settings.profile_refresh_min_interval_sec:
-        # Return existing profile without regenerating
-        async with async_session() as db:
-            row = await db.execute(
-                select(UserProfile).where(
-                    UserProfile.user_id == user_id,
-                    UserProfile.project_id == project_id,
-                )
+
+    # Load the existing profile once — both gates need it and the read is
+    # cheap next to a regen. Capture primitives inside the session so the
+    # detached row isn't lazy-loaded later.
+    async with async_session() as db:
+        row = await db.execute(
+            select(UserProfile).where(
+                UserProfile.user_id == user_id,
+                UserProfile.project_id == project_id,
             )
-            existing = row.scalar_one_or_none()
-            if existing:
-                return _normalize_profile_payload(orjson.loads(existing.profile_json))
-        # fall through to generate if no existing profile
+        )
+        existing = row.scalar_one_or_none()
+        existing_json = existing.profile_json if existing is not None else None
+        existing_updated_at = existing.updated_at if existing is not None else None
+
+    existing_profile: dict[str, list[str]] | None = None
+    if existing_json is not None:
+        try:
+            existing_profile = _normalize_profile_payload(orjson.loads(existing_json))
+        except (orjson.JSONDecodeError, ValueError):
+            existing_profile = None
+
+    # Gate 1 — debounce.
+    if (
+        not force
+        and existing_profile is not None
+        and now - last < settings.profile_refresh_min_interval_sec
+    ):
+        return existing_profile
 
     # Fetch recent memories
     memories = await store.list(user_id=user_id, project_id=project_id, limit=200, offset=0)
     # sort by updated_at desc (most recent first)
     memories.sort(key=lambda m: m.get("updated_at", 0), reverse=True)
+
+    # Gate 2 — change-gate. memory.updated_at is epoch-seconds (int); the
+    # profile timestamp is naive-UTC. Compare both as epoch. Nothing newer →
+    # keep the existing profile and skip the LLM call.
+    if not force and existing_profile is not None and existing_updated_at is not None:
+        newest_mem = max((float(m.get("updated_at") or 0) for m in memories), default=0.0)
+        profile_epoch = existing_updated_at.replace(tzinfo=timezone.utc).timestamp()
+        if newest_mem <= profile_epoch:
+            _last_refresh[key] = now
+            return existing_profile
 
     try:
         profile = await _summarize(memories, settings)

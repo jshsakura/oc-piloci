@@ -7,10 +7,12 @@ import pytest
 from piloci.curator.profile import (
     _PROFILE_MAX_LINES,
     _PROFILE_PROMPT_CHAR_BUDGET,
+    _last_refresh,
     _normalize_profile_payload,
     _render_memory_lines,
     _summarize,
     get_profile,
+    refresh_profile,
     run_profile_worker,
 )
 
@@ -146,6 +148,114 @@ async def test_get_profile_returns_none_when_no_row(monkeypatch):
         assert result is None
 
     await run_test()
+
+
+# ---------------------------------------------------------------------------
+# refresh_profile — change-gate keeps Gemma idle on quiet projects
+# ---------------------------------------------------------------------------
+
+
+def _patch_session(monkeypatch, existing_row):
+    """Patch async_session so every `async with` yields a db whose select
+    returns ``existing_row``. The same db is reused for the insert path."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    db = AsyncMock()
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = existing_row
+    db.execute = AsyncMock(return_value=result)
+    db.commit = AsyncMock()
+    cm = MagicMock()
+    cm.__aenter__ = AsyncMock(return_value=db)
+    cm.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr("piloci.curator.profile.async_session", MagicMock(return_value=cm))
+    return db
+
+
+def _existing_row(profile, updated_at):
+    import orjson
+
+    row = MagicMock()
+    row.profile_json = orjson.dumps(profile).decode()
+    row.updated_at = updated_at  # naive datetime (UTC)
+    return row
+
+
+@pytest.mark.asyncio
+async def test_refresh_profile_skips_llm_when_no_new_memory(monkeypatch):
+    """A project whose newest memory predates its stored profile must NOT
+    trigger an LLM call — this is the gate that stops the 24/7 regen loop."""
+    from datetime import datetime, timezone
+
+    _last_refresh.clear()
+    stored = {"static": ["likes argon2"], "dynamic": ["working on wiki"]}
+    profile_dt = datetime(2026, 6, 6, 0, 0, 0)  # naive UTC
+    profile_epoch = profile_dt.replace(tzinfo=timezone.utc).timestamp()
+    _patch_session(monkeypatch, _existing_row(stored, profile_dt))
+
+    mock_chat = AsyncMock()
+    monkeypatch.setattr("piloci.curator.profile.chat_json", mock_chat)
+
+    store = AsyncMock()
+    store.list = AsyncMock(
+        return_value=[{"content": "old", "tags": [], "updated_at": int(profile_epoch - 1000)}]
+    )
+    settings = MagicMock(profile_refresh_min_interval_sec=1800)
+
+    result = await refresh_profile("u1", "p1", settings, store, force=False)
+
+    assert result == stored
+    mock_chat.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_refresh_profile_regenerates_when_memory_is_newer(monkeypatch):
+    """A memory newer than the stored profile must pass the gate and regen."""
+    from datetime import datetime, timezone
+
+    _last_refresh.clear()
+    profile_dt = datetime(2026, 6, 6, 0, 0, 0)
+    profile_epoch = profile_dt.replace(tzinfo=timezone.utc).timestamp()
+    _patch_session(monkeypatch, _existing_row({"static": [], "dynamic": []}, profile_dt))
+
+    mock_chat = AsyncMock(return_value={"static": ["fresh"], "dynamic": []})
+    monkeypatch.setattr("piloci.curator.profile.chat_json", mock_chat)
+
+    store = AsyncMock()
+    store.list = AsyncMock(
+        return_value=[{"content": "new", "tags": [], "updated_at": int(profile_epoch + 1000)}]
+    )
+    settings = MagicMock(profile_refresh_min_interval_sec=1800, gemma_endpoint="x", gemma_model="g")
+
+    result = await refresh_profile("u1", "p1", settings, store, force=False)
+
+    assert result == {"static": ["fresh"], "dynamic": []}
+    mock_chat.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_refresh_profile_force_bypasses_gate(monkeypatch):
+    """force=True regenerates even when nothing is newer than the profile."""
+    from datetime import datetime, timezone
+
+    _last_refresh.clear()
+    profile_dt = datetime(2026, 6, 6, 0, 0, 0)
+    profile_epoch = profile_dt.replace(tzinfo=timezone.utc).timestamp()
+    _patch_session(monkeypatch, _existing_row({"static": ["old"], "dynamic": []}, profile_dt))
+
+    mock_chat = AsyncMock(return_value={"static": ["forced"], "dynamic": []})
+    monkeypatch.setattr("piloci.curator.profile.chat_json", mock_chat)
+
+    store = AsyncMock()
+    store.list = AsyncMock(
+        return_value=[{"content": "old", "tags": [], "updated_at": int(profile_epoch - 1000)}]
+    )
+    settings = MagicMock(profile_refresh_min_interval_sec=1800, gemma_endpoint="x", gemma_model="g")
+
+    result = await refresh_profile("u1", "p1", settings, store, force=True)
+
+    assert result == {"static": ["forced"], "dynamic": []}
+    mock_chat.assert_called_once()
 
 
 @pytest.mark.asyncio

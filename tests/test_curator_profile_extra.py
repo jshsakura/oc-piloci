@@ -29,7 +29,9 @@ async def test_refresh_profile_debounce_returns_existing_profile(monkeypatch, se
     project_id = "p1"
     profile_module._last_refresh[(user_id, project_id)] = 123.0
 
-    existing = SimpleNamespace(profile_json='{"static":["pref"],"dynamic":["recent"]}')
+    existing = SimpleNamespace(
+        profile_json='{"static":["pref"],"dynamic":["recent"]}', updated_at=None
+    )
     db = MagicMock()
     db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: existing))
 
@@ -53,8 +55,12 @@ async def test_refresh_profile_force_bypasses_debounce(monkeypatch, settings, mo
     project_id = "p1"
     profile_module._last_refresh[(user_id, project_id)] = 100.0
 
+    # A valid existing profile so the debounce *would* block (last=100, now=101,
+    # interval=60) — force must override it. updated_at is irrelevant since
+    # force also bypasses the change-gate.
+    existing = SimpleNamespace(profile_json='{"static":["old"],"dynamic":[]}', updated_at=None)
     db = MagicMock()
-    db.execute = AsyncMock()
+    db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: existing))
     db.commit = AsyncMock()
     summarize = AsyncMock(return_value={"static": ["forced"], "dynamic": ["fresh"]})
 
@@ -82,7 +88,8 @@ async def test_refresh_profile_success_sorts_memories_and_stores_profile(
     monkeypatch, settings, mock_store
 ):
     db = MagicMock()
-    db.execute = AsyncMock()
+    # No existing profile → change-gate is a no-op; first build proceeds.
+    db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
     db.commit = AsyncMock()
     summarize = AsyncMock(return_value={"static": ["stable"], "dynamic": ["recent"]})
     mock_store.list.return_value = [
@@ -104,7 +111,8 @@ async def test_refresh_profile_success_sorts_memories_and_stores_profile(
     assert await_args is not None
     memories = await_args.args[0]
     assert [memory["content"] for memory in memories] == ["newer", "middle", "older"]
-    db.execute.assert_awaited_once()
+    # SELECT existing + INSERT/upsert → two execute calls.
+    assert db.execute.await_count == 2
     db.commit.assert_awaited_once()
     assert profile_module._last_refresh[("u1", "p1")] == 77.0
 
@@ -114,7 +122,7 @@ async def test_refresh_profile_summarize_error_returns_empty_profile(
     monkeypatch, settings, mock_store
 ):
     db = MagicMock()
-    db.execute = AsyncMock()
+    db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None))
     db.commit = AsyncMock()
 
     mock_store.list.return_value = [{"content": "memory", "updated_at": 1}]
@@ -126,7 +134,8 @@ async def test_refresh_profile_summarize_error_returns_empty_profile(
     result = await profile_module.refresh_profile("u1", "p1", settings, mock_store)
 
     assert result == {"static": [], "dynamic": []}
-    db.execute.assert_awaited_once()
+    # SELECT existing + INSERT/upsert → two execute calls.
+    assert db.execute.await_count == 2
     db.commit.assert_awaited_once()
     assert profile_module._last_refresh[("u1", "p1")] == 55.0
 
