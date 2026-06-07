@@ -19,6 +19,7 @@ from piloci.curator.team_wiki_worker import (
     _cluster,
     _cluster_slug,
     _doc_top_folder,
+    _first_heading,
     _human_category,
     _in_dawn_window,
     _memories_changed_since,
@@ -107,6 +108,31 @@ def test_cluster_skips_thin_clusters_below_min_chars() -> None:
     # the "empty-folder garbage" the substance gate is there to prevent.
     docs = [{"id": "d1", "path": "docs/a.md", "content": "한 줄짜리 메모"}]
     assert _cluster([], docs) == []
+
+
+def test_first_heading_extracts_lead_title() -> None:
+    body = "# Yokogawa BPM 시스템 기술 레퍼런스\n\n## 개요\n본문..."
+    assert _first_heading(body) == "Yokogawa BPM 시스템 기술 레퍼런스"
+
+
+def test_first_heading_skips_fenced_code_and_strips_emphasis() -> None:
+    body = "```\n# not a heading\n```\n\n## **실제 제목** ##\n내용"
+    assert _first_heading(body) == "실제 제목"
+
+
+def test_first_heading_returns_none_without_heading() -> None:
+    assert _first_heading("그냥 본문, 헤딩 없음") is None
+    assert _first_heading("") is None
+
+
+def test_first_heading_skips_boilerplate_section_headings() -> None:
+    # The body template opens with generic section headings (개요/출처/…); none
+    # is a usable title, so a body made only of them yields no heading title.
+    body = "## 개요\n본문\n## 핵심 규칙·결정\n...\n## 출처\n- x"
+    assert _first_heading(body) is None
+    # A descriptive heading after the boilerplate is still picked up.
+    body2 = "## 개요\n본문\n## Yokogawa 배포 파이프라인\n내용"
+    assert _first_heading(body2) == "Yokogawa 배포 파이프라인"
 
 
 def test_human_category_maps_internal_buckets_to_none() -> None:

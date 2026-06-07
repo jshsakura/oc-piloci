@@ -235,12 +235,16 @@ _BODY_REVISE_SYSTEM = (
     "채우고 지적된 문제만 고치세요. 기존 구조·헤딩은 유지하고 글을 끝까지 완성하세요."
 )
 
+# Only title + summary — slug is derived from the cluster (stable across
+# rebuilds) and links are extracted from the body, so asking the model for them
+# just bloated the JSON output until it hit max_tokens and truncated to nothing,
+# collapsing the title to a generic fallback. A two-field schema stays small and
+# reliable.
 _META_SYSTEM = (
-    "당신은 완성된 한국어 위키 본문을 받아 메타데이터만 추출합니다. 출력은 JSON만.\n"
-    '스키마: {"title": str, "slug": str, "summary": str, "linked_topics": [str]}\n'
+    "당신은 완성된 한국어 위키 본문을 받아 제목과 요약만 추출합니다. 출력은 JSON만.\n"
+    '스키마: {"title": str, "summary": str}\n'
     "title: 본문 주제를 한 줄 명사구로(<=60자, 끝 문장부호 없음). "
-    "slug: 영문 소문자·숫자·하이픈. summary: 본문 핵심 1~2문장. "
-    "linked_topics: 본문의 `[[topic]]` 또는 관련 주제명."
+    "summary: 본문 핵심을 1~2문장으로. 그 외 키·여는 말·코드펜스 금지."
 )
 
 _BODY_LINK_RE = re.compile(r"\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|[^\]]+)?\]\]")
@@ -256,6 +260,55 @@ def _body_links(body: str) -> list[str]:
             seen.add(label)
             out.append(label)
     return out
+
+
+# Boilerplate section headings the body template always emits — never a useful
+# article title, so the heading-fallback skips them and keeps scanning.
+_GENERIC_HEADINGS = {
+    "개요",
+    "요약",
+    "소개",
+    "서론",
+    "들어가며",
+    "핵심 규칙·결정",
+    "세부",
+    "예외·주의",
+    "출처",
+    "overview",
+    "introduction",
+    "summary",
+    "intro",
+}
+
+
+def _first_heading(body: str) -> str | None:
+    """First *descriptive* markdown heading (#/##/###) in a body, skipping fenced
+    code and the template's boilerplate section headings (개요/출처/…).
+
+    Some drafted bodies open with a real title heading (e.g.
+    ``# Yokogawa BPM 시스템 기술 레퍼런스``); this surfaces it as a title fallback
+    when meta extraction returns empty, far better than a generic bucket label."""
+    in_fence = False
+    for line in (body or "").split("\n"):
+        if re.match(r"^\s*(```|~~~)", line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        m = re.match(r"^\s{0,3}#{1,3}\s+(.+?)\s*#*\s*$", line)
+        if m:
+            text = m.group(1).strip().strip("*_`").strip()
+            if text and text.lower() not in _GENERIC_HEADINGS:
+                return text[:80]
+    return None
+
+
+# Meta (title/summary) is derivable from the article's opening — feeding the
+# whole body (which can run 10k+ chars) made the external model return an empty
+# or truncated JSON ("zero-length document"), collapsing the title to a generic
+# fallback. The lead section carries the real title + thesis, so an excerpt is
+# both cheaper and more reliable.
+_META_BODY_CHARS = 2500
 
 
 def _meta_user(body: str) -> str:
@@ -979,23 +1032,35 @@ async def build_team_wiki(team_id: str, store, *, force: bool = False) -> dict[s
             failures.append(category_label)
             continue
 
-        # Metadata from the finished body — a tiny JSON call (no truncation risk).
+        # Metadata from the finished body's lead section — feeding the whole
+        # body made the model return empty/truncated JSON, so we excerpt.
         meta: dict[str, Any] = {}
         try:
             meta = await chat_json(
                 [
                     {"role": "system", "content": _META_SYSTEM},
-                    {"role": "user", "content": _meta_user(body)},
+                    {"role": "user", "content": _meta_user(body[:_META_BODY_CHARS])},
                 ],
                 temperature=0.0,
-                max_tokens=400,
+                # zai-coding emits a verbose preamble before the JSON, so a
+                # 400/800 budget truncated to nothing. Start higher and heal up
+                # to ~8k only when a target actually hits the cap.
+                max_tokens=1024,
                 targets=targets,
-                expand_on_truncation=1,
+                expand_on_truncation=3,
             )
         except Exception as exc:
             logger.warning("team_wiki[%s] meta failed: %s", category_label, exc)
 
-        title = _safe_text(meta.get("title")) or _human_category(cluster) or "팀 위키"
+        # Title fallback chain: model meta → body's own lead heading → human
+        # category → generic. The heading step keeps a real title even when the
+        # meta call fails, instead of collapsing every untagged cluster to "팀 위키".
+        title = (
+            _safe_text(meta.get("title"))
+            or _first_heading(body)
+            or _human_category(cluster)
+            or "팀 위키"
+        )
         # Force a clean, human category (drop internal _root/_misc bucket labels).
         revised = {
             "title": title,
