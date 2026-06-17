@@ -26,12 +26,15 @@ _TOKEN_PLACEHOLDER = "__PILOCI_TOKEN__"
 _INSTALL_TEMPLATE = """#!/usr/bin/env bash
 # piloci installer (generated per install code, single-use).
 #
-# 신스타일 단일 폴더 드롭 — 사용자 설정 파일을 건드리지 않습니다:
-#   * Claude Code  → ~/.claude/plugins/piloci/  (Claude Code가 자동 발견)
+# 클라이언트별 설치 위치:
+#   * Claude Code  → ~/.claude/settings.json(훅) + ~/.claude.json(MCP) 직접 머지
+#                    훅 스크립트는 ~/.config/piloci/{hook.py,stop-hook.py}
 #   * OpenCode     → ~/.config/opencode/plugins/piloci.ts
 # 공유: ~/.config/piloci/config.json (토큰 + URL — 훅 스크립트 런타임 참조)
 #
-# 실행 시 구버전(설정 파일 직접 수정) 흔적도 함께 자동 정리합니다.
+# 설정 파일 머지는 기존 비-piloci 항목을 보존하며, piloci 항목은 idempotent
+# (재실행 시 중복되지 않음). 구버전(자동 활성화 안 되던 플러그인 폴더) 흔적도
+# 함께 자동 정리합니다.
 set -euo pipefail
 
 PILOCI_BASE="__PILOCI_BASE__"
@@ -171,73 +174,99 @@ cfg.chmod(0o600)
 PYEOF
 
 # ---------------------------------------------------------------------------
-# 3) Claude Code 플러그인 폴더 드롭
+# 3) Claude Code — config.json 기반 직접 훅 + MCP 주입
+#    플러그인 폴더만 떨구는 방식은 Claude Code 가 자동 활성화하지 않아 훅이
+#    한 번도 안 떴다(토큰 last_used=None). settings.json/.claude.json 에
+#    직접 머지하는 검증된 방식으로 복귀한다. 기존 사용자 설정은 보존.
 # ---------------------------------------------------------------------------
 INSTALLED_KINDS=()
 
 if [ "$HAS_CLAUDE" -eq 1 ]; then
-    echo "[piloci] Claude Code 플러그인 폴더 드롭…"
-    mkdir -p "$CLAUDE_PLUGIN_DIR/.claude-plugin" "$CLAUDE_PLUGIN_DIR/hooks"
+    echo "[piloci] Claude Code 훅/MCP 설정…"
 
-    PILOCI_BASE="$PILOCI_BASE" PILOCI_TOKEN="$PILOCI_TOKEN" \\
-        PILOCI_PLUGIN_DIR="$CLAUDE_PLUGIN_DIR" python3 - <<'PYEOF'
+    # 훅 스크립트를 공유 config 디렉터리에 내려받음 (settings.json 이 이 경로를 참조)
+    curl -sfL -H "Authorization: Bearer $PILOCI_TOKEN" \\
+        "$PILOCI_BASE/api/hook/script" -o "$CFG_DIR/hook.py.tmp"
+    mv "$CFG_DIR/hook.py.tmp" "$CFG_DIR/hook.py"
+    chmod 755 "$CFG_DIR/hook.py"
+
+    curl -sfL -H "Authorization: Bearer $PILOCI_TOKEN" \\
+        "$PILOCI_BASE/api/hook/stop-script" -o "$CFG_DIR/stop-hook.py.tmp"
+    mv "$CFG_DIR/stop-hook.py.tmp" "$CFG_DIR/stop-hook.py"
+    chmod 755 "$CFG_DIR/stop-hook.py"
+
+    # 자동 활성화가 안 돼 훅이 안 뜨던 구버전 플러그인 폴더 제거.
+    rm -rf "$CLAUDE_PLUGIN_DIR"
+
+    # settings.json 에 훅 직접 머지 — 기존 사용자 훅 보존, piloci 항목만 idempotent.
+    python3 - "$CLAUDE_SETTINGS" <<'PYEOF'
 import json
 import os
+import sys
 from pathlib import Path
 
-base = os.environ["PILOCI_BASE"].rstrip("/")
-token = os.environ["PILOCI_TOKEN"]
-plugin = Path(os.environ["PILOCI_PLUGIN_DIR"])
+p = Path(sys.argv[1])
+try:
+    data = json.loads(p.read_text()) if p.exists() else {}
+except (json.JSONDecodeError, OSError):
+    data = {}
+if not isinstance(data, dict):
+    data = {}
 
-(plugin / ".claude-plugin" / "plugin.json").write_text(json.dumps({
-    "name": "piloci",
-    "version": "0.0.0",
-    "description": (
-        "piLoci memory — auto-capture sessions and expose "
-        "memory/recall/recommend MCP tools"
-    ),
-    "author": {"name": "piLoci"},
-    "homepage": "https://github.com/jshsakura/oc-piloci",
-    "license": "MIT",
-}, indent=2))
+hooks = data.get("hooks")
+if not isinstance(hooks, dict):
+    hooks = {}
 
-(plugin / "hooks" / "hooks.json").write_text(json.dumps({
-    "description": "piLoci auto-capture (SessionStart catch-up + Stop live push)",
-    "hooks": {
-        "SessionStart": [{"hooks": [{
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/hook.py 2>/dev/null || true",
-        }]}],
-        "Stop": [{"hooks": [{
-            "type": "command",
-            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.py 2>/dev/null || true",
-        }]}],
-    },
-}, indent=2))
+TAG = "~/.config/piloci/"
 
-mcp_path = plugin / ".mcp.json"
-mcp_path.write_text(json.dumps({
-    "piloci": {
-        "type": "http",
-        "url": base + "/mcp/http",
-        "headers": {"Authorization": "Bearer " + token},
-    }
-}, indent=2))
-mcp_path.chmod(0o600)
+def upsert(event, command):
+    arr = hooks.get(event)
+    if not isinstance(arr, list):
+        arr = []
+    arr = [h for h in arr if TAG not in json.dumps(h)]
+    arr.append({"matcher": "*", "hooks": [{"type": "command", "command": command}]})
+    hooks[event] = arr
+
+upsert("SessionStart", "python3 ~/.config/piloci/hook.py 2>/dev/null || true")
+upsert("Stop", "python3 ~/.config/piloci/stop-hook.py 2>/dev/null || true")
+data["hooks"] = hooks
+
+p.parent.mkdir(parents=True, exist_ok=True)
+tmp = p.with_name(p.name + ".piloci-tmp")
+tmp.write_text(json.dumps(data, indent=2))
+os.replace(tmp, p)
 PYEOF
 
-    curl -sfL -H "Authorization: Bearer $PILOCI_TOKEN" \\
-        "$PILOCI_BASE/api/hook/script" -o "$CLAUDE_PLUGIN_DIR/hooks/hook.py.tmp"
-    mv "$CLAUDE_PLUGIN_DIR/hooks/hook.py.tmp" "$CLAUDE_PLUGIN_DIR/hooks/hook.py"
-    chmod 755 "$CLAUDE_PLUGIN_DIR/hooks/hook.py"
+    # MCP 서버를 ~/.claude.json 에 머지 — 기존 mcpServers/설정 보존.
+    PILOCI_BASE="$PILOCI_BASE" PILOCI_TOKEN="$PILOCI_TOKEN" python3 - "$CLAUDE_MCP" <<'PYEOF'
+import json
+import os
+import sys
+from pathlib import Path
 
-    curl -sfL -H "Authorization: Bearer $PILOCI_TOKEN" \\
-        "$PILOCI_BASE/api/hook/stop-script" -o "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.py.tmp"
-    mv "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.py.tmp" "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.py"
-    chmod 755 "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.py"
-    # Clean up any legacy bash file from older installs so the plugin dir
-    # doesn't ship two parallel Stop hooks.
-    rm -f "$CLAUDE_PLUGIN_DIR/hooks/stop-hook.sh"
+p = Path(sys.argv[1])
+try:
+    data = json.loads(p.read_text()) if p.exists() else {}
+except (json.JSONDecodeError, OSError):
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+
+servers = data.get("mcpServers")
+if not isinstance(servers, dict):
+    servers = {}
+servers["piloci"] = {
+    "type": "http",
+    "url": os.environ["PILOCI_BASE"].rstrip("/") + "/mcp/http",
+    "headers": {"Authorization": "Bearer " + os.environ["PILOCI_TOKEN"]},
+}
+data["mcpServers"] = servers
+
+p.parent.mkdir(parents=True, exist_ok=True)
+tmp = p.with_name(p.name + ".piloci-tmp")
+tmp.write_text(json.dumps(data, indent=2))
+os.replace(tmp, p)
+PYEOF
 
     INSTALLED_KINDS+=("claude")
 fi
@@ -510,9 +539,8 @@ $config = [ordered]@{
 $cfgPath = Join-Path $cfgDir 'config.json'
 ($config | ConvertTo-Json -Depth 5) | Set-Content -Path $cfgPath -Encoding UTF8
 
-# Drop the cross-platform hook scripts. POSIX installs drop both into the
-# shared config dir AND the Claude plugin folder for symmetry — do the same
-# here so manual edits land in a single place.
+# Drop the cross-platform hook scripts into the shared config dir. The
+# Claude Code settings written below point at these paths at runtime.
 Write-Host '[piloci] hook 스크립트 다운로드…'
 Invoke-WebRequest -Uri "$PILOCI_BASE/api/hook/script" -Headers $headers `
     -OutFile (Join-Path $cfgDir 'hook.py') -UseBasicParsing
@@ -522,58 +550,81 @@ Invoke-WebRequest -Uri "$PILOCI_BASE/api/hook/stop-script" -Headers $headers `
 $legacyShPath = Join-Path $cfgDir 'stop-hook.sh'
 if (Test-Path $legacyShPath) { Remove-Item -Force $legacyShPath }
 
-# 2) Claude Code plugin folder, if the user has it.
+# 2) Claude Code — settings.json(훅) + .claude.json(MCP) 직접 머지.
+#    플러그인 폴더만 떨구면 Claude Code 가 자동 활성화하지 않아 훅이 안 떴다.
+#    기존 사용자 설정은 보존하고 piloci 항목만 idempotent 하게 기록한다.
 $claudeDir = Join-Path $env:USERPROFILE '.claude'
 if (Test-Path $claudeDir) {
-    Write-Host '[piloci] Claude Code 플러그인 폴더 드롭…'
-    $pluginDir = Join-Path $claudeDir 'plugins\piloci'
-    $hooksDir  = Join-Path $pluginDir 'hooks'
-    $manifestDir = Join-Path $pluginDir '.claude-plugin'
-    foreach ($d in @($hooksDir, $manifestDir)) {
-        if (-not (Test-Path $d)) { New-Item -ItemType Directory -Force -Path $d | Out-Null }
-    }
+    Write-Host '[piloci] Claude Code 훅/MCP 설정…'
+    $settingsPath  = Join-Path $claudeDir 'settings.json'
+    $claudeMcpPath = Join-Path $env:USERPROFILE '.claude.json'
 
-    $manifest = [ordered]@{
-        name        = 'piloci'
-        version     = '0.0.0'
-        description = 'piLoci memory — auto-capture sessions and expose memory/recall/recommend MCP tools'
-        author      = @{ name = 'piLoci' }
-        homepage    = 'https://github.com/jshsakura/oc-piloci'
-        license     = 'MIT'
-    }
-    ($manifest | ConvertTo-Json -Depth 5) |
-        Set-Content -Path (Join-Path $manifestDir 'plugin.json') -Encoding UTF8
+    # 자동 활성화가 안 되던 구버전 플러그인 폴더 제거.
+    $legacyPluginDir = Join-Path $claudeDir 'plugins\piloci'
+    if (Test-Path $legacyPluginDir) { Remove-Item -Recurse -Force $legacyPluginDir }
 
-    $hookCmd     = "$pythonCmd `${CLAUDE_PLUGIN_ROOT}/hooks/hook.py 2>NUL"
-    $stopHookCmd = "$pythonCmd `${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.py 2>NUL"
-    $hooksJson = [ordered]@{
-        description = 'piLoci auto-capture (SessionStart catch-up + Stop live push)'
-        hooks = [ordered]@{
-            SessionStart = @(@{ hooks = @(@{ type = 'command'; command = $hookCmd }) })
-            Stop         = @(@{ hooks = @(@{ type = 'command'; command = $stopHookCmd }) })
-        }
-    }
-    ($hooksJson | ConvertTo-Json -Depth 10) |
-        Set-Content -Path (Join-Path $hooksDir 'hooks.json') -Encoding UTF8
+    $hookPyPath = (Join-Path $cfgDir 'hook.py')
+    $stopPyPath = (Join-Path $cfgDir 'stop-hook.py')
+    $env:PILOCI_BASE     = $PILOCI_BASE
+    $env:PILOCI_TOKEN    = $PILOCI_TOKEN
+    $env:PILOCI_HOOK_CMD = "$pythonCmd `"$hookPyPath`" 2>NUL"
+    $env:PILOCI_STOP_CMD = "$pythonCmd `"$stopPyPath`" 2>NUL"
 
-    Invoke-WebRequest -Uri "$PILOCI_BASE/api/hook/script" -Headers $headers `
-        -OutFile (Join-Path $hooksDir 'hook.py') -UseBasicParsing
-    Invoke-WebRequest -Uri "$PILOCI_BASE/api/hook/stop-script" -Headers $headers `
-        -OutFile (Join-Path $hooksDir 'stop-hook.py') -UseBasicParsing
-    $legacyPluginSh = Join-Path $hooksDir 'stop-hook.sh'
-    if (Test-Path $legacyPluginSh) { Remove-Item -Force $legacyPluginSh }
+    $mergePy = @'
+import json, os, sys
+from pathlib import Path
 
-    $mcp = [ordered]@{
-        mcpServers = [ordered]@{
-            piloci = [ordered]@{
-                type    = 'http'
-                url     = "$PILOCI_BASE/mcp/http"
-                headers = @{ Authorization = "Bearer $PILOCI_TOKEN" }
-            }
-        }
+mode, target = sys.argv[1], Path(sys.argv[2])
+try:
+    data = json.loads(target.read_text()) if target.exists() else {}
+except Exception:
+    data = {}
+if not isinstance(data, dict):
+    data = {}
+
+
+def is_piloci(h):
+    s = json.dumps(h)
+    return "piloci" in s and "hook.py" in s
+
+
+if mode == "hooks":
+    hooks = data.get("hooks")
+    if not isinstance(hooks, dict):
+        hooks = {}
+
+    def upsert(event, command):
+        arr = hooks.get(event)
+        if not isinstance(arr, list):
+            arr = []
+        arr = [h for h in arr if not is_piloci(h)]
+        arr.append({"matcher": "*", "hooks": [{"type": "command", "command": command}]})
+        hooks[event] = arr
+
+    upsert("SessionStart", os.environ["PILOCI_HOOK_CMD"])
+    upsert("Stop", os.environ["PILOCI_STOP_CMD"])
+    data["hooks"] = hooks
+else:
+    servers = data.get("mcpServers")
+    if not isinstance(servers, dict):
+        servers = {}
+    servers["piloci"] = {
+        "type": "http",
+        "url": os.environ["PILOCI_BASE"].rstrip("/") + "/mcp/http",
+        "headers": {"Authorization": "Bearer " + os.environ["PILOCI_TOKEN"]},
     }
-    ($mcp | ConvertTo-Json -Depth 10) |
-        Set-Content -Path (Join-Path $pluginDir '.mcp.json') -Encoding UTF8
+    data["mcpServers"] = servers
+
+target.parent.mkdir(parents=True, exist_ok=True)
+tmp = target.with_name(target.name + ".piloci-tmp")
+tmp.write_text(json.dumps(data, indent=2))
+os.replace(str(tmp), str(target))
+'@
+    $mergeScript = Join-Path $cfgDir '_merge.py'
+    Set-Content -Path $mergeScript -Value $mergePy -Encoding UTF8
+    & $pythonCmd $mergeScript hooks $settingsPath
+    & $pythonCmd $mergeScript mcp $claudeMcpPath
+    Remove-Item -Force $mergeScript
 }
 
 Write-Host ''

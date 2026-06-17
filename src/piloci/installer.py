@@ -185,138 +185,56 @@ def install_claude_plugin(
     base_url: str,
     token: str,
     *,
-    version: str = "0.0.0",
     home: Path | None = None,
 ) -> Path:
-    """Lay out the piloci Claude Code plugin under ``~/.claude/plugins/piloci/``.
+    """Wire piLoci into Claude Code via direct ``settings.json`` + ``.claude.json``.
 
-    The plugin folder is auto-discovered by Claude Code on next session start —
-    no patching of ``~/.claude/settings.json`` or ``~/.claude.json``. Uninstall
-    is a single ``rm -rf`` of this directory.
+    Claude Code does **not** auto-enable a plugin merely dropped under
+    ``~/.claude/plugins/`` — it must be registered in a marketplace and enabled
+    in ``enabledPlugins``. Hooks shipped that way never fire (the install token
+    stays unused), so instead we use the proven direct-injection path:
 
-    Layout::
+      * hook scripts → ``~/.config/piloci/{hook.py, stop-hook.py}``
+        (they read token + URLs from ``config.json`` at runtime so token
+        rotation doesn't touch them)
+      * SessionStart + Stop hooks → merged into ``~/.claude/settings.json``
+        (existing user hooks preserved, piloci entry idempotent)
+      * MCP server → registered in ``~/.claude.json`` (User MCPs, global)
 
-        piloci/
-        ├── .claude-plugin/plugin.json
-        ├── hooks/hooks.json    ← SessionStart + Stop wired to scripts below
-        ├── hooks/hook.py       ← downloaded from /api/hook/script
-        ├── hooks/stop-hook.py  ← downloaded from /api/hook/stop-script (cross-platform)
-        └── .mcp.json           ← memory/recall/recommend MCP server
+    Returns the patched ``settings.json`` path.
     """
     h = home or Path.home()
-    plugin_dir = h / CLAUDE_PLUGIN_DIR_NAME
-    plugin_dir.mkdir(parents=True, exist_ok=True)
-
     base = base_url.rstrip("/")
 
-    # 1. Manifest
-    (plugin_dir / ".claude-plugin").mkdir(parents=True, exist_ok=True)
-    (plugin_dir / ".claude-plugin" / "plugin.json").write_text(
-        json.dumps(
-            {
-                "name": "piloci",
-                "version": version,
-                "description": (
-                    "piLoci memory — auto-capture sessions and expose "
-                    "memory/recall/recommend MCP tools"
-                ),
-                "author": {"name": "piLoci"},
-                "homepage": "https://github.com/jshsakura/oc-piloci",
-                "license": "MIT",
-            },
-            indent=2,
-        )
-    )
-
-    # 2. Hook config + scripts. Scripts live IN the plugin (use
-    # ${CLAUDE_PLUGIN_ROOT} so Claude Code resolves the path) but read the
-    # token + URLs from ``~/.config/piloci/config.json`` at runtime so token
-    # rotation doesn't require touching the plugin folder.
-    hooks_dir = plugin_dir / "hooks"
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-    (hooks_dir / "hooks.json").write_text(
-        json.dumps(
-            {
-                "description": "piLoci auto-capture (SessionStart catch-up + Stop live push)",
-                "hooks": {
-                    # SessionStart / Stop are non-tool events — no ``matcher`` field,
-                    # matching the official Claude Code plugin examples.
-                    "SessionStart": [
-                        {
-                            "hooks": [
-                                {
-                                    "type": "command",
-                                    "command": (
-                                        f"{_python_cmd()} ${{CLAUDE_PLUGIN_ROOT}}/hooks/hook.py "
-                                        "2>/dev/null || true"
-                                    ),
-                                }
-                            ],
-                        }
-                    ],
-                    "Stop": [
-                        {
-                            "hooks": [
-                                {
-                                    "type": "command",
-                                    "command": (
-                                        f"{_python_cmd()} ${{CLAUDE_PLUGIN_ROOT}}/hooks/stop-hook.py "
-                                        "2>/dev/null || true"
-                                    ),
-                                }
-                            ],
-                        }
-                    ],
-                },
-            },
-            indent=2,
-        )
-    )
-
-    hook_py = hooks_dir / "hook.py"
-    hook_py.write_bytes(_http_download(base + "/api/hook/script", token=token))
-    try:
-        hook_py.chmod(0o755)
-    except PermissionError:
-        pass
-
-    stop_hook_py = hooks_dir / "stop-hook.py"
-    stop_hook_py.write_bytes(_http_download(base + "/api/hook/stop-script", token=token))
-    try:
-        stop_hook_py.chmod(0o755)
-    except PermissionError:
-        pass
-    # Best-effort cleanup of the legacy bash file from older installs so the
-    # plugin folder stops shipping two parallel Stop hooks.
-    legacy_sh = hooks_dir / "stop-hook.sh"
-    if legacy_sh.exists():
+    # Remove any broken legacy plugin folder from older installs — auto-discovery
+    # never enabled it, and leaving it risks double hooks if it ever does.
+    legacy_plugin = h / CLAUDE_PLUGIN_DIR_NAME
+    if legacy_plugin.exists():
         try:
-            legacy_sh.unlink()
+            shutil.rmtree(legacy_plugin)
         except OSError:
             pass
 
-    # 3. MCP server config — same mcpServers wrapper as project .mcp.json.
-    mcp_path = plugin_dir / ".mcp.json"
-    mcp_path.write_text(
-        json.dumps(
-            {
-                "mcpServers": {
-                    "piloci": {
-                        "type": "http",
-                        "url": base + "/mcp/http",
-                        "headers": {"Authorization": "Bearer " + token},
-                    }
-                }
-            },
-            indent=2,
-        )
-    )
-    try:
-        mcp_path.chmod(0o600)
-    except PermissionError:
-        pass
+    # 1. Hook scripts in the shared config dir (settings.json points here).
+    cfg_dir = h / ".config" / "piloci"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    for name, route in (
+        ("hook.py", "/api/hook/script"),
+        ("stop-hook.py", "/api/hook/stop-script"),
+    ):
+        dest = cfg_dir / name
+        dest.write_bytes(_http_download(base + route, token=token))
+        try:
+            dest.chmod(0o755)
+        except PermissionError:
+            pass
 
-    # 4. Register MCP server in ~/.claude.json (User MCPs) so it shows globally.
+    # 2. Wire SessionStart + Stop hooks directly into settings.json.
+    settings_path = h / ".claude" / "settings.json"
+    _merge_claude_settings(settings_path)
+
+    # 3. Register MCP server in ~/.claude.json (User MCPs) so recall/memory
+    # tools are available globally.
     _merge_json_mcp(
         h / ".claude.json",
         parent_key="mcpServers",
@@ -328,7 +246,7 @@ def install_claude_plugin(
         },
     )
 
-    return plugin_dir
+    return settings_path
 
 
 def _merge_claude_settings(settings_path: Path) -> None:
@@ -1028,8 +946,8 @@ def run_install(
             if kind == "claude":
                 report.claude_configured = True
                 report.notes.append(
-                    f"Claude Code 플러그인 설치: {path} "
-                    "(SessionStart/Stop 자동 캡처 + MCP — .claude/plugins 자동 로드)"
+                    f"Claude Code 훅 설정: {path} "
+                    "(SessionStart/Stop 자동 캡처 + ~/.claude.json MCP 등록)"
                 )
             elif kind == "opencode":
                 report.opencode_configured = True

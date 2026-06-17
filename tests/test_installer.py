@@ -93,19 +93,33 @@ def test_merge_claude_settings_replaces_prior_piloci_entry(tmp_path: Path) -> No
     assert len(piloci_entries) == 1
 
 
-def test_install_claude_plugin_layout(tmp_path: Path) -> None:
-    fake = b"#!/bin/echo\n"
+def test_install_claude_uses_direct_injection(tmp_path: Path) -> None:
+    """Claude install must wire hooks directly into settings.json + .claude.json,
+    NOT a ~/.claude/plugins folder (which Claude Code never auto-enables)."""
+    fake = b"#!/usr/bin/env python3\n"
     with patch("piloci.installer._http_download", return_value=fake):
-        plugin_dir = installer.install_claude_plugin(
-            "https://x.example", "JWT.tok", version="1.2.3", home=tmp_path
+        settings_path = installer.install_claude_plugin(
+            "https://x.example", "JWT.tok", home=tmp_path
         )
-    manifest = json.loads((plugin_dir / ".claude-plugin" / "plugin.json").read_text())
-    assert manifest["name"] == "piloci"
-    assert manifest["version"] == "1.2.3"
-    hooks = json.loads((plugin_dir / "hooks" / "hooks.json").read_text())
-    assert "${CLAUDE_PLUGIN_ROOT}" in hooks["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-    mcp = json.loads((plugin_dir / ".mcp.json").read_text())
-    assert mcp["mcpServers"]["piloci"]["url"] == "https://x.example/mcp/http"
+
+    # Hook scripts land in the shared config dir, referenced by settings.json.
+    assert (tmp_path / ".config" / "piloci" / "hook.py").read_bytes() == fake
+    assert (tmp_path / ".config" / "piloci" / "stop-hook.py").read_bytes() == fake
+
+    # Hooks are merged into settings.json (the path that actually fires).
+    assert settings_path == tmp_path / ".claude" / "settings.json"
+    settings = json.loads(settings_path.read_text())
+    for event in ("SessionStart", "Stop"):
+        cmds = [h["hooks"][0]["command"] for h in settings["hooks"][event]]
+        assert any("~/.config/piloci/" in c and "hook.py" in c for c in cmds)
+        assert all("${CLAUDE_PLUGIN_ROOT}" not in c for c in cmds)
+
+    # MCP server registered globally in ~/.claude.json.
+    claude_json = json.loads((tmp_path / ".claude.json").read_text())
+    assert claude_json["mcpServers"]["piloci"]["url"] == "https://x.example/mcp/http"
+
+    # No broken plugin folder left behind.
+    assert not (tmp_path / installer.CLAUDE_PLUGIN_DIR_NAME).exists()
 
 
 def test_install_opencode_plugin_writes_ts_file(tmp_path: Path) -> None:
@@ -147,10 +161,10 @@ def test_run_install_raises_when_no_clients(tmp_path: Path) -> None:
             installer.run_install("tok", "https://x.example", home=tmp_path)
 
 
-def test_run_install_claude_only_drops_plugin(tmp_path: Path) -> None:
+def test_run_install_claude_only_injects_hooks(tmp_path: Path) -> None:
     (tmp_path / installer.CLAUDE_DIR_NAME).mkdir(parents=True)
     fake_hook = b"#!/usr/bin/env python3\nprint('hook')\n"
-    fake_stop = b"#!/usr/bin/env bash\nexit 0\n"
+    fake_stop = b"#!/usr/bin/env python3\nexit(0)\n"
 
     def fake_dl(url: str, *, token: str | None = None, timeout: int = 30) -> bytes:
         return fake_hook if "hook/script" in url and "stop" not in url else fake_stop
@@ -161,24 +175,26 @@ def test_run_install_claude_only_drops_plugin(tmp_path: Path) -> None:
 
     assert report.claude_configured is True
     assert report.opencode_configured is False
-    pdir = tmp_path / installer.CLAUDE_PLUGIN_DIR_NAME
-    # Plugin folder is the only thing piloci should have created — no patching
-    # of ~/.claude/settings.json or ~/.claude.json.
-    assert (pdir / ".claude-plugin" / "plugin.json").exists()
-    assert json.loads((pdir / "hooks" / "hooks.json").read_text())["hooks"]["SessionStart"]
-    assert (pdir / "hooks" / "hook.py").read_bytes() == fake_hook
-    # Stop hook is now cross-platform Python — file extension changed in v0.3.34.
-    assert (pdir / "hooks" / "stop-hook.py").read_bytes() == fake_stop
-    assert not (pdir / "hooks" / "stop-hook.sh").exists()
-    hooks_json = json.loads((pdir / "hooks" / "hooks.json").read_text())
-    stop_cmd = hooks_json["hooks"]["Stop"][0]["hooks"][0]["command"]
-    assert "stop-hook.py" in stop_cmd
-    assert "bash" not in stop_cmd
-    mcp = json.loads((pdir / ".mcp.json").read_text())
-    assert mcp["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer tok"
-    # MCP also registered in ~/.claude/claude.json for global discovery.
+
+    # No plugin folder — Claude Code never auto-enables it, so hooks go direct.
+    assert not (tmp_path / installer.CLAUDE_PLUGIN_DIR_NAME).exists()
+
+    # Hook scripts land in the shared config dir.
+    cfg_dir = tmp_path / ".config" / "piloci"
+    assert (cfg_dir / "hook.py").read_bytes() == fake_hook
+    assert (cfg_dir / "stop-hook.py").read_bytes() == fake_stop
+
+    # SessionStart + Stop hooks merged into settings.json, pointing at config dir.
+    settings = json.loads((tmp_path / installer.CLAUDE_DIR_NAME / "settings.json").read_text())
+    stop_cmd = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
+    assert "~/.config/piloci/stop-hook.py" in stop_cmd
+    assert "${CLAUDE_PLUGIN_ROOT}" not in stop_cmd
+    assert settings["hooks"]["SessionStart"]
+
+    # MCP registered globally in ~/.claude.json.
     claude_json = json.loads((tmp_path / ".claude.json").read_text())
     assert claude_json["mcpServers"]["piloci"]["url"].endswith("/mcp/http")
+    assert claude_json["mcpServers"]["piloci"]["headers"]["Authorization"] == "Bearer tok"
 
 
 def test_run_install_opencode_only_drops_plugin_file(tmp_path: Path) -> None:
@@ -733,10 +749,11 @@ def test_install_claude_plugin_swallows_chmod_permission_error(
 ) -> None:
     monkeypatch.setattr(Path, "chmod", _chmod_always_raises)
     with patch("piloci.installer._http_download", return_value=b"hook"):
-        plugin_dir = installer.install_claude_plugin("https://x.example", "JWT.tok", home=tmp_path)
-    assert (plugin_dir / "hooks" / "hook.py").exists()
-    assert (plugin_dir / "hooks" / "stop-hook.py").exists()
-    assert (plugin_dir / ".mcp.json").exists()
+        installer.install_claude_plugin("https://x.example", "JWT.tok", home=tmp_path)
+    cfg_dir = tmp_path / ".config" / "piloci"
+    assert (cfg_dir / "hook.py").exists()
+    assert (cfg_dir / "stop-hook.py").exists()
+    assert (tmp_path / installer.CLAUDE_DIR_NAME / "settings.json").exists()
 
 
 def test_install_claude_plugin_removes_legacy_stop_hook_sh(tmp_path: Path) -> None:
