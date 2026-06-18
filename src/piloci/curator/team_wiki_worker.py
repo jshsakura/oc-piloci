@@ -9,6 +9,7 @@ Heavy LLM work runs on external providers by default so the Pi doesn't have
 to chew through it. Local Gemma stays as the safety net.
 """
 
+import hashlib
 import logging
 import re
 import uuid
@@ -69,11 +70,18 @@ def _safe_text(value: Any) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _doc_top_folder(path: str) -> str:
+def _doc_folder(path: str) -> str:
+    """Cluster bucket for a doc: its immediate parent folder.
+
+    Grouping by the *top* folder lumped an entire repo (``yokogawa-bpm/...``)
+    into one giant article. The immediate parent splits ``docs/reference``,
+    ``docs/technical``, ``docs/domain`` into separate, topically-coherent
+    articles — the organization the wiki is supposed to provide.
+    """
     parts = [p for p in (path or "").split("/") if p]
     if len(parts) <= 1:
         return "_root"
-    return parts[0]
+    return parts[-2]
 
 
 def _memory_primary_tag(tags: list[str]) -> str:
@@ -119,16 +127,29 @@ def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list
 
     clusters: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
 
-    for doc in docs:
+    # Content-hash dedup: the same content uploaded under two paths (e.g.
+    # ``docs/reference/x.md`` and ``docs/technical/x.md``) must not be fed to the
+    # LLM twice — that bloats the article and is the "정리 안 됨" the user hit.
+    # Sort by path first so the surviving copy is deterministic (shortest, then
+    # lexical) regardless of upload order.
+    seen_content: set[str] = set()
+    for doc in sorted(
+        docs, key=lambda d: (len(_safe_text(d.get("path"))), _safe_text(d.get("path")))
+    ):
         path = _safe_text(doc.get("path"))
         if not path:
             continue
         # Binary uploads (PDF/img/zip) have no inline text — feeding their empty
         # content to the LLM only produces empty/garbage articles, so skip them
         # from wiki digestion. They stay discoverable via the recall file stub.
-        if doc.get("is_binary") or not _safe_text(doc.get("content")):
+        content = _safe_text(doc.get("content"))
+        if doc.get("is_binary") or not content:
             continue
-        bucket = ("folder", _doc_top_folder(path))
+        chash = _safe_text(doc.get("content_hash")) or hashlib.sha256(content.encode()).hexdigest()
+        if chash in seen_content:
+            continue  # identical content already taken from another path
+        seen_content.add(chash)
+        bucket = ("folder", _doc_folder(path))
         clusters[bucket].append(
             {
                 "kind": "doc",
@@ -138,7 +159,7 @@ def _cluster(memories: list[dict[str, Any]], docs: list[dict[str, Any]]) -> list
                 # Full content — no char cap. The old [:4000] silently dropped
                 # everything past the first 4000 chars of an uploaded document.
                 # Budgeting/chunking happens at prompt-assembly time instead.
-                "content": _safe_text(doc.get("content")),
+                "content": content,
             }
         )
 

@@ -18,7 +18,7 @@ from piloci.curator.team_wiki_worker import (
     _assemble_source_text,
     _cluster,
     _cluster_slug,
-    _doc_top_folder,
+    _doc_folder,
     _first_heading,
     _human_category,
     _in_dawn_window,
@@ -35,10 +35,13 @@ def test_slugify_keeps_hangul_strips_punctuation() -> None:
     assert _slugify("") == "article"  # fallback
 
 
-def test_doc_top_folder_returns_root_for_bare_files() -> None:
-    assert _doc_top_folder("notes.md") == "_root"
-    assert _doc_top_folder("docs/api/auth.md") == "docs"
-    assert _doc_top_folder("") == "_root"
+def test_doc_folder_uses_immediate_parent() -> None:
+    assert _doc_folder("notes.md") == "_root"
+    # Immediate parent — not the repo-root folder — so deep trees split by topic.
+    assert _doc_folder("docs/api/auth.md") == "api"
+    assert _doc_folder("yokogawa-bpm/docs/reference/x.md") == "reference"
+    assert _doc_folder("docs/x.md") == "docs"
+    assert _doc_folder("") == "_root"
 
 
 def test_memory_primary_tag_falls_back_to_misc() -> None:
@@ -96,6 +99,24 @@ def test_cluster_groups_docs_by_top_folder_and_memories_by_first_tag() -> None:
     assert ("folder", "code") in by_label
     assert ("tag", "plan") in by_label
     assert len(by_label[("tag", "plan")]["sources"]) == 2
+
+
+def test_cluster_dedups_identical_content_across_paths() -> None:
+    # Same content uploaded under two paths must be fed to the wiki only once,
+    # not double-counted (the reference/ vs technical/ duplicate the user hit).
+    same = "shared body " + _LONG
+    docs = [
+        {"id": "d1", "path": "docs/technical/x.md", "content": same},
+        {"id": "d2", "path": "docs/reference/x.md", "content": same},
+        {"id": "d3", "path": "docs/technical/y.md", "content": "different " + _LONG},
+    ]
+    sources = [s for c in _cluster([], docs) for s in c["sources"]]
+    ids = sorted(s["id"] for s in sources)
+    # One of the identical pair is dropped; the distinct doc survives.
+    assert "d3" in ids
+    assert len([i for i in ids if i in ("d1", "d2")]) == 1
+    # Deterministic survivor: shortest-then-lexical path wins (reference < technical).
+    assert "d2" in ids
 
 
 def test_cluster_drops_documents_without_path() -> None:
