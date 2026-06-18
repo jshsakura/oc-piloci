@@ -1209,6 +1209,22 @@ async def _save_team_document(
         )
         row = existing.scalar_one_or_none()
         if row is not None:
+            # Change-gate: identical content is a cheap no-op. Without this,
+            # re-uploading the same file bumps the version and rewrites the row
+            # every time (LOCI.md was seen at version 29 from repeated uploads).
+            if row.content_hash == content_hash:
+                return {
+                    "success": True,
+                    "doc_id": row.id,
+                    "team_id": team_id,
+                    "path": path,
+                    "version": row.version,
+                    "content_hash": content_hash,
+                    "bytes": len(content.encode()),
+                    "download_url": f"/api/teams/{team_id}/documents/{row.id}/raw",
+                    "scope": "team-doc",
+                    "unchanged": True,
+                }
             row.content = content
             row.content_hash = content_hash
             row.version = (row.version or 1) + 1

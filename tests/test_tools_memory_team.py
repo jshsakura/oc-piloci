@@ -488,3 +488,52 @@ async def test_recall_preview_truncates_and_flags_when_over_cap(
     assert len(result["memories"]) < 60
     total_excerpt = sum(len(m.get("excerpt", "")) for m in result["memories"])
     assert total_excerpt <= _RECALL_CHAR_CAP
+
+
+@pytest.mark.asyncio
+async def test_save_team_document_change_gate(tmp_path, monkeypatch):
+    """Re-uploading identical content must be a no-op (no version bump / rewrite).
+
+    Regression: LOCI.md was seen at version 29 from repeated identical uploads.
+    """
+    from contextlib import asynccontextmanager
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from piloci.db.session import init_db
+    from piloci.tools.memory_tools import _save_team_document
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'doc.db'}")
+    await init_db(engine=engine)
+    factory = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
+
+    @asynccontextmanager
+    async def _session():
+        async with factory() as s:
+            try:
+                yield s
+                await s.commit()
+            except Exception:
+                await s.rollback()
+                raise
+
+    monkeypatch.setattr("piloci.db.session.async_session", _session)
+
+    team_id, user_id, path = "team-x", "user-1", "docs/a.md"
+
+    r1 = await _save_team_document(team_id, user_id, path, "hello")
+    assert r1["version"] == 1
+    assert not r1.get("unchanged")
+
+    # Identical content → no-op, version frozen, flagged unchanged.
+    r2 = await _save_team_document(team_id, user_id, path, "hello")
+    assert r2.get("unchanged") is True
+    assert r2["version"] == 1
+    assert r2["doc_id"] == r1["doc_id"]
+
+    # Changed content → version bumps.
+    r3 = await _save_team_document(team_id, user_id, path, "hello world")
+    assert r3.get("unchanged") is not True
+    assert r3["version"] == 2
+
+    await engine.dispose()

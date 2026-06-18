@@ -2231,3 +2231,36 @@ def test_iso_utc_preserves_aware_datetime_and_none() -> None:
     aware = datetime(2026, 5, 21, 3, 0, 0, tzinfo=timezone.utc)
     assert team_routes._iso_utc(aware) == aware.isoformat()
     assert team_routes._iso_utc(None) is None
+
+
+@pytest.mark.asyncio
+async def test_team_memory_delete(team_app: Starlette, monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    fake_store = type("S", (), {})()
+    fake_store.team_delete = AsyncMock(return_value=True)
+    team_app.state.store = fake_store
+    monkeypatch.setattr(team_routes, "_invalidate_team_vault", AsyncMock())
+
+    transport = httpx.ASGITransport(app=team_app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        owner = _headers("owner", "owner@example.com")
+        team_id = (await client.post("/api/teams", headers=owner, json={"name": "Mem"})).json()[
+            "id"
+        ]
+
+        # Unauthorized — no user header.
+        assert (await client.delete(f"/api/teams/{team_id}/memories/m1")).status_code == 401
+
+        # Non-member is hidden behind a 404.
+        ghost = _headers("ghost", "ghost@example.com")
+        assert (
+            await client.delete(f"/api/teams/{team_id}/memories/m1", headers=ghost)
+        ).status_code == 404
+
+        # Owner deletes — store.team_delete called with allow_owner=True.
+        resp = await client.delete(f"/api/teams/{team_id}/memories/m1", headers=owner)
+        assert resp.status_code == 200
+        assert resp.json() == {"deleted": True}
+        assert fake_store.team_delete.await_args.args[:3] == (team_id, "m1", "owner")
+        assert fake_store.team_delete.await_args.kwargs["allow_owner"] is True

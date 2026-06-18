@@ -301,6 +301,10 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  deleteTeamMemory: (teamId: string, memoryId: string) =>
+    request<{ deleted: boolean }>(`/api/teams/${teamId}/memories/${memoryId}`, {
+      method: "DELETE",
+    }),
   updateMemory: (
     memoryId: string,
     patch: { content?: string; tags?: string[]; metadata?: Record<string, unknown> },

@@ -1567,6 +1567,41 @@ async def route_update_team_memory(request: Request) -> Response:
     return _json({"updated": updated})
 
 
+async def route_delete_team_memory(request: Request) -> Response:
+    """DELETE /api/teams/{tid}/memories/{id} — author (or team owner) deletes a team memory.
+
+    Mirrors the personal ``DELETE /api/memories/{id}`` path. The author of the
+    memory may always delete it; team owners may delete any member's memory.
+    Vault cache is invalidated so the next workspace GET rebuilds without it.
+    """
+    user = _require_user(request)
+    if not user:
+        return _json({"error": "Unauthorized"}, 401)
+
+    team_id = request.path_params.get("team_id", "")
+    memory_id = request.path_params.get("id", "")
+    user_id = _uid(user)
+
+    async with async_session() as db:
+        member = await _get_team_member(db, team_id, user_id)
+        if not member:
+            return _json({"error": "Not found"}, 404)
+
+    store = getattr(request.app.state, "store", None)
+    if store is None:
+        return _json({"error": "memory store unavailable"}, 503)
+
+    deleted = await store.team_delete(
+        team_id,
+        memory_id,
+        user_id,
+        allow_owner=member.role == "owner",
+    )
+    if deleted:
+        await _invalidate_team_vault(team_id)
+    return _json({"deleted": deleted})
+
+
 async def route_upload_team_wiki_image(request: Request) -> Response:
     """POST /api/teams/{tid}/wiki/images — body is the raw image bytes
     (already WebP from the client). Returns ``{url, id, bytes}``.
@@ -2154,6 +2189,11 @@ TEAM_ROUTES = [
         "/api/teams/{team_id}/memories/{id}",
         limiter.limit(RATE_MUTATION)(route_update_team_memory),
         methods=["PATCH"],
+    ),
+    Route(
+        "/api/teams/{team_id}/memories/{id}",
+        limiter.limit(RATE_MUTATION)(route_delete_team_memory),
+        methods=["DELETE"],
     ),
     Route(
         "/api/teams/{team_id}/wiki/articles/{slug}",
