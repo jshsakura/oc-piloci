@@ -457,6 +457,73 @@ async def _decide(settings: Settings) -> SchedulerDecision:
     )
 
 
+async def run_distillation_pass(
+    settings: Settings,
+    memory_store: MemoryStore,
+    instincts_store: InstinctsStore,
+    stop_event: asyncio.Event,
+    *,
+    max_rows: int = DEFAULT_BATCH_SIZE,
+) -> int:
+    """Process ONE bounded batch of pending sessions locally, then return.
+
+    Used by the periodic curator orchestrator (``curator/periodic.py``) — a
+    single short burst rather than a continuous drain loop. Local-only: no
+    idle full-throttle, no external-overflow routing (those were the furnace).
+    Unbounded backlog growth is bounded elsewhere by
+    ``backlog.enforce_ceiling_after_ingest`` (archives oldest at ingest time).
+
+    Returns the number of rows processed.
+    """
+    async with async_session() as db:
+        batch = await _fetch_pending_batch(
+            db,
+            limit=max_rows,
+            max_attempts=settings.distillation_max_attempts,
+        )
+
+    if not batch:
+        return 0
+
+    logger.info("distillation: periodic pass — batch of %d (local)", len(batch))
+    processed = 0
+    for row in batch:
+        if stop_event.is_set():
+            break
+        try:
+            await _process_one(
+                row,
+                settings,
+                memory_store,
+                instincts_store,
+                use_external=False,
+                max_chunks=settings.distillation_max_chunks,
+            )
+            processed += 1
+        except Exception:
+            logger.exception("distillation: row %s processing crashed", row.ingest_id)
+            async with async_session() as db:
+                current = await db.get(RawSession, row.ingest_id)
+                if current is not None:
+                    new_state = (
+                        "failed"
+                        if current.attempt_count >= settings.distillation_max_attempts
+                        else "pending"
+                    )
+                    await db.execute(
+                        update(RawSession)
+                        .where(RawSession.ingest_id == row.ingest_id)
+                        .values(
+                            distillation_state=new_state,
+                            error="worker_exception",
+                            processed_at=(
+                                datetime.now(timezone.utc) if new_state == "failed" else None
+                            ),
+                        )
+                    )
+    return processed
+
+
 async def run_distillation_worker(
     settings: Settings,
     memory_store: MemoryStore,

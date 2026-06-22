@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     openai_compat_model: str = "gpt-4o-mini"
 
     curator_enabled: bool = True
+    # Periodic curator cycle: full rotation length. The orchestrator
+    # (curator/periodic.py) runs one job per tick where tick = cycle / n_jobs,
+    # so 3 jobs at 6h → one staggered, non-overlapping job every 2h.
+    curator_cycle_sec: int = 21600  # 6h
     profile_refresh_min_interval_sec: int = 600  # 10 min debounce
     curator_queue_poll_timeout_sec: float = 5.0
     curator_profile_project_limit: int = 200
@@ -84,8 +88,9 @@ class Settings(BaseSettings):
     # The defaults here are server-wide; per-user UserPreferences rows
     # override individual fields when set.
     distillation_enabled: bool = True
-    # Default idle window in local time, "HH:MM-HH:MM". Distillation runs
-    # aggressively in this window regardless of temperature. None disables.
+    # DEPRECATED (unused by the periodic curator). Was: idle window in which
+    # the old scheduler ran "full local throughput" (5s poll) = the furnace.
+    # Kept for back-compat / the retired run_distillation_worker loop.
     distillation_idle_window: str | None = "02:00-07:00"
     # Outside the idle window, the worker holds when SoC ≥ this temp or
     # 1-min loadavg ≥ this load. Tuned for Pi 5 — drop both for headroom.
@@ -99,7 +104,9 @@ class Settings(BaseSettings):
     # Poll cadence in seconds for the lazy worker — how often it asks the
     # scheduler "should I run now?". Idle window polls fast; held polls slow.
     distillation_poll_interval_normal_sec: float = 60.0
-    distillation_poll_interval_idle_sec: float = 5.0
+    distillation_poll_interval_idle_sec: float = (
+        5.0  # DEPRECATED: idle-furnace poll, unused by periodic curator
+    )
     distillation_poll_interval_held_sec: float = 120.0
     # Attempts per RawSession row before it's stamped 'failed'.
     distillation_max_attempts: int = 3

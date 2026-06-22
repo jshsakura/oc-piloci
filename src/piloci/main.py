@@ -314,43 +314,18 @@ async def _startup(app, store, stop_event, bg_tasks, instincts_store=None) -> No
         logger.info("Health monitor started")
 
     if settings.curator_enabled and settings.distillation_enabled:
-        from piloci.curator.distillation_worker import run_distillation_worker
-        from piloci.curator.profile import run_profile_worker
+        # Single staggered orchestrator replaces the old worker army
+        # (distillation + profile + weekly-digest + team-wiki independent
+        # loops, plus the idle-window "full local throughput" furnace). It runs
+        # ONE job per tick in round-robin, spread across curator_cycle_sec so
+        # jobs never overlap, with a temp/load safety gate. team-wiki is
+        # intentionally excluded. See curator/periodic.py.
+        from piloci.curator.periodic import run_periodic_curator
 
-        # Single lazy worker replaces the eager curator + analyzer pair. It
-        # polls the scheduler instead of draining an asyncio.Queue, so there's
-        # no startup re-queue step — pending RawSession rows are picked up
-        # naturally on the worker's next eligible tick.
-        if instincts_store is not None:
-            bg_tasks.append(
-                asyncio.create_task(
-                    run_distillation_worker(settings, store, instincts_store, stop_event)
-                )
-            )
-            logger.info("Lazy distillation worker started")
-        bg_tasks.append(asyncio.create_task(run_profile_worker(settings, store, stop_event)))
-        logger.info("Profile worker started")
-
-        # Weekly digest — private retrospective. Heartbeats hourly but the
-        # body is a no-op outside the regeneration window, so it costs almost
-        # nothing on quiet weeks.
-        if instincts_store is not None:
-            from piloci.curator.weekly_digest_worker import run_weekly_digest_worker
-
-            bg_tasks.append(
-                asyncio.create_task(
-                    run_weekly_digest_worker(settings, store, instincts_store, stop_event)
-                )
-            )
-            logger.info("Weekly digest worker started")
-
-        # Team wiki daily generator — heavy LLM work routes to external
-        # providers (GLM etc.); local Gemma is only the fallback. Cycle is
-        # hourly heartbeat with a 24h build watermark per team.
-        from piloci.curator.team_wiki_worker import run_team_wiki_worker
-
-        bg_tasks.append(asyncio.create_task(run_team_wiki_worker(settings, store, stop_event)))
-        logger.info("Team wiki worker started")
+        bg_tasks.append(
+            asyncio.create_task(run_periodic_curator(settings, store, instincts_store, stop_event))
+        )
+        logger.info("Periodic curator started")
 
     # Two-way Telegram bot — opt-in (v0.3.39). Independent of curator gates
     # since it answers status queries even when distillation is paused.

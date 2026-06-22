@@ -294,12 +294,13 @@ def test_create_app_registers_routes_and_middleware(monkeypatch, with_static: bo
 
 @pytest.mark.asyncio
 async def test_startup_initializes_db_and_background_workers(monkeypatch) -> None:
-    """Startup wires maintenance + lazy distillation + profile workers.
+    """Startup wires maintenance + the single periodic curator orchestrator.
 
-    The eager curator and analyze workers were retired in favor of a single
-    lazy distillation_worker that drains pending RawSession rows. Health
-    monitor stays opt-in (defaults to False) so a fresh test settings
-    instance only spins up three tasks.
+    The autonomous worker army (distillation + profile + weekly-digest +
+    team-wiki independent loops, plus the idle-window furnace) was replaced by
+    one staggered orchestrator (curator/periodic.py). Health monitor stays
+    opt-in (defaults to False) so a fresh test settings instance only spins up
+    two tasks.
     """
     settings = _settings(curator_enabled=True, distillation_enabled=True)
     init_db_mock = AsyncMock()
@@ -310,30 +311,10 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     async def maintenance_worker(received_settings: object, stop_event: asyncio.Event):
         await stop_event.wait()
 
-    async def distillation_worker(
+    async def periodic_curator(
         received_settings: object,
         received_store: object,
         received_instincts: object,
-        stop_event: asyncio.Event,
-    ):
-        await stop_event.wait()
-
-    async def profile_worker(
-        received_settings: object, received_store: object, stop_event: asyncio.Event
-    ):
-        await stop_event.wait()
-
-    async def weekly_digest_worker(
-        received_settings: object,
-        received_store: object,
-        received_instincts: object,
-        stop_event: asyncio.Event,
-    ):
-        await stop_event.wait()
-
-    async def team_wiki_worker(
-        received_settings: object,
-        received_store: object,
         stop_event: asyncio.Event,
     ):
         await stop_event.wait()
@@ -346,14 +327,8 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
 
     maintenance_module = types.ModuleType("piloci.ops.maintenance")
     maintenance_module.run_maintenance_worker = maintenance_worker
-    profile_module = types.ModuleType("piloci.curator.profile")
-    profile_module.run_profile_worker = profile_worker
-    distillation_module = types.ModuleType("piloci.curator.distillation_worker")
-    distillation_module.run_distillation_worker = distillation_worker
-    weekly_module = types.ModuleType("piloci.curator.weekly_digest_worker")
-    weekly_module.run_weekly_digest_worker = weekly_digest_worker
-    team_wiki_module = types.ModuleType("piloci.curator.team_wiki_worker")
-    team_wiki_module.run_team_wiki_worker = team_wiki_worker
+    periodic_module = types.ModuleType("piloci.curator.periodic")
+    periodic_module.run_periodic_curator = periodic_curator
 
     monkeypatch.setattr("piloci.main.get_settings", lambda: settings)
     monkeypatch.setattr("piloci.main.init_db", init_db_mock)
@@ -361,10 +336,7 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
 
     with pytest.MonkeyPatch.context() as patch_ctx:
         patch_ctx.setitem(sys.modules, "piloci.ops.maintenance", maintenance_module)
-        patch_ctx.setitem(sys.modules, "piloci.curator.profile", profile_module)
-        patch_ctx.setitem(sys.modules, "piloci.curator.distillation_worker", distillation_module)
-        patch_ctx.setitem(sys.modules, "piloci.curator.weekly_digest_worker", weekly_module)
-        patch_ctx.setitem(sys.modules, "piloci.curator.team_wiki_worker", team_wiki_module)
+        patch_ctx.setitem(sys.modules, "piloci.curator.periodic", periodic_module)
 
         stop_event = asyncio.Event()
         bg_tasks: list[object] = []
@@ -374,10 +346,9 @@ async def test_startup_initializes_db_and_background_workers(monkeypatch) -> Non
     init_db_mock.assert_awaited_once()
     store.ensure_collection.assert_awaited_once()
     instincts_store.ensure_collection.assert_awaited_once()
-    # maintenance + distillation + profile + weekly_digest + team_wiki = 5 tasks
-    # (health monitor off by default)
-    assert created_task_count == 5
-    assert bg_tasks == ["task-1", "task-2", "task-3", "task-4", "task-5"]
+    # maintenance + periodic curator = 2 tasks (health monitor off by default)
+    assert created_task_count == 2
+    assert bg_tasks == ["task-1", "task-2"]
 
 
 @pytest.mark.asyncio
