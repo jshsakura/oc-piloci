@@ -17,6 +17,15 @@
 
 ## 현재 상태
 
+### 피봇: push형 자율 증류 → pull형 "시키는 비서" (진행중, v0.3.124~)
+
+push형(스케줄러가 idle엔 로컬 Gemma 풀스로틀로 백로그 증류 → 상시 발열)에서, **시킬 때만 도는 요청구동 비서**로 전환 중.
+
+- [x] 운영 냉각: `.env`에 `CURATOR_ENABLED=false`(워커 군단 정지) + swappiness 회귀 수정 (env-only, 임시)
+- [x] `ask` 비서 MVP: `assistant.run_task()` 코어 + `tools/task_tools.py` + MCP `ask` 툴 + REST `POST /api/v1/task` (로컬 Gemma 1회, use_memory로 프로젝트 기억 grounding). 테스트 1470 pass / E2E 한국어 산문 확인 / idle=0코어 확인
+- [ ] 릴리스 v0.3.124 (코드 영구 반영) — 운영 `.env` CURATOR_ENABLED=false 유지
+- [ ] 후속: 자율 워커 코드 삭제 vs on-demand 강등 결정, llama on-demand 로드로 RAM 회수, 웹 작업 UI
+
 - [x] 프로젝트 폴더 생성
 - [x] PLAN.md 작성
 - [x] pyproject.toml 스캐폴드

@@ -272,6 +272,40 @@ async def route_v1_recall(request: Request) -> Response:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/v1/task — pull-form on-demand assistant (`ask`)
+# ---------------------------------------------------------------------------
+
+
+async def route_v1_task(request: Request) -> Response:
+    user = _require_user(request)
+    if user is None:
+        return _json({"error": "Unauthorized"}, 401)
+
+    project_id = _require_project_id(user)
+    if not project_id:
+        return _json({"error": "project-scoped token required"}, 403)
+
+    user_id = _uid(user)
+
+    try:
+        raw = orjson.loads(await request.body())
+    except Exception:
+        return _json({"error": "invalid JSON"}, 400)
+
+    from piloci.tools.task_tools import AskInput, handle_ask
+
+    try:
+        args = AskInput.model_validate(raw)
+    except ValidationError as exc:
+        return _json({"error": "validation error", "details": exc.errors()}, 422)
+
+    store = request.app.state.store
+    settings = get_settings()
+    result = await handle_ask(args, user_id, project_id, store, _embed_fn, settings)
+    return _json(result)
+
+
+# ---------------------------------------------------------------------------
 # GET /api/v1/projects
 # ---------------------------------------------------------------------------
 

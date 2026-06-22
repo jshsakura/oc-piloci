@@ -23,7 +23,7 @@ def test_make_tool_returns_valid_tool():
 
 
 def test_tool_definitions_count():
-    assert len(TOOL_DEFINITIONS) == 8
+    assert len(TOOL_DEFINITIONS) == 9
 
 
 def test_tool_definitions_names():
@@ -37,6 +37,7 @@ def test_tool_definitions_names():
         "init",
         "recommend",
         "contradict",
+        "ask",
     }
 
 

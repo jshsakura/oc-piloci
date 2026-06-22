@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""piloci v0.3 MCP server — 6 tools + 3 resources + 1 prompt.
+"""piloci v0.3 MCP server — 9 tools + 3 resources + 1 prompt.
 
 Core mechanism (copied from supermemory-mcp v4.0):
 1. Aggressive tool descriptions push the LLM to call memory/recall.
@@ -48,6 +48,7 @@ from piloci.tools.memory_tools import (
     handle_recall,
     handle_whoami,
 )
+from piloci.tools.task_tools import ASK_DESC, AskInput, handle_ask
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ TOOL_DEFINITIONS = [
     _make_tool("init", INIT_DESC, InitInput),
     _make_tool("recommend", RECOMMEND_DESC, RecommendInput),
     _make_tool("contradict", CONTRADICT_DESC, ContradictInput),
+    _make_tool("ask", ASK_DESC, AskInput),
 ]
 
 
@@ -296,6 +298,9 @@ def create_mcp_server(
                     project_id,
                     auth_payload.get("project_slug"),
                 )
+        elif name == "ask":
+            args = AskInput.model_validate(arguments)
+            result = await handle_ask(args, user_id, project_id, store, _embed, settings)
         else:
             raise ValueError(f"Unknown tool: {name}")
 
