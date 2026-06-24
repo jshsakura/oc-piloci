@@ -34,6 +34,37 @@ import type { Plugin } from "@opencode-ai/plugin"
 import { readFileSync, readdirSync, statSync, mkdirSync, writeFileSync } from "fs"
 import { join } from "path"
 import { homedir } from "os"
+import { execFileSync } from "child_process"
+
+// Collapse a working dir to its git project root so a repo doesn't fragment
+// into one piLoci project per subdirectory, and subagent worktrees fold back
+// into the real repo. Mirror of piloci.tools.memory_tools.resolve_project_root.
+function projectRoot(cwd: string): string {
+  const git = (args: string[]): string | null => {
+    try {
+      const out = execFileSync("git", ["-C", cwd, "rev-parse", ...args], {
+        encoding: "utf-8",
+        timeout: 3000,
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim()
+      return out || null
+    } catch {
+      return null
+    }
+  }
+  const common = git(["--path-format=absolute", "--git-common-dir"])
+  if (common) {
+    const norm = common.replace(/\\\\/g, "/").replace(/\\/+$/, "")
+    if (norm.endsWith("/.git")) return norm.slice(0, -"/.git".length)
+  }
+  const top = git(["--show-toplevel"])
+  if (top) return top
+  const marker = "/.claude/worktrees/"
+  const norm = cwd.replace(/\\\\/g, "/")
+  const idx = norm.indexOf(marker)
+  if (idx !== -1) return norm.slice(0, idx)
+  return cwd
+}
 
 const HOME = homedir()
 const CONFIG_PATH = join(HOME, ".config", "piloci", "config.json")
@@ -173,7 +204,7 @@ async function pushSession(sessionID: string, force = false): Promise<boolean> {
         Authorization: "Bearer " + cfg.token,
       },
       body: JSON.stringify({
-        cwd: info.directory ?? info.cwd ?? HOME,
+        cwd: projectRoot(info.directory ?? info.cwd ?? HOME),
         sessions: [{ session_id: sessionID, transcript, source: "opencode" }],
       }),
     })

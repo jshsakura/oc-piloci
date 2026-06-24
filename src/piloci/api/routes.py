@@ -678,6 +678,16 @@ async def _resolve_or_create_project(user_id: str, cwd: str) -> str | None:
     if _is_home_or_root(cwd):
         return None
 
+    # Defense-in-depth (string-only — the server can't see the client's git
+    # repo): even from a client that hasn't been updated to resolve git roots,
+    # never let a Claude Code subagent worktree spawn its own ``agent-*``
+    # project. Clients additionally collapse subdirs to the repo root.
+    _wt = "/.claude/worktrees/"
+    _norm = cwd.replace("\\", "/")
+    _idx = _norm.find(_wt)
+    if _idx != -1:
+        cwd = _norm[:_idx]
+
     slug = cwd_to_slug(cwd)
 
     async with async_session() as db:

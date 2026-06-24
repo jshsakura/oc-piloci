@@ -75,7 +75,8 @@ def route(cwd: str | None) -> str | None:
         return XYERGB_ROOT
     if n.startswith(SORIN_ROOT + "/temp"):
         return XYERGB_ROOT
-    if n.startswith(SORIN_ROOT + "/workspace"):
+    # Any other sorin subdir (workspace, docs, …) folds into the sorin project.
+    if n.startswith(SORIN_ROOT + "/"):
         return SORIN_ROOT
     return None
 

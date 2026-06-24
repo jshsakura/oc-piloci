@@ -330,6 +330,7 @@ crash never blocks the user's next turn.
 """
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -337,6 +338,40 @@ from pathlib import Path
 
 _CONFIG = Path.home() / ".config" / "piloci" / "config.json"
 _MIN_ROLE_LINES = 4
+
+
+def _project_root(cwd):
+    """Collapse cwd to its git project root before reporting it to the server.
+
+    Keeps a repo from fragmenting into one project per subdirectory and folds
+    Claude Code subagent worktrees (.../.claude/worktrees/agent-XXXX) back into
+    the real repo. Mirror of piloci.tools.memory_tools.resolve_project_root.
+    """
+    def _git(*args):
+        try:
+            r = subprocess.run(
+                ["git", "-C", cwd, "rev-parse", *args],
+                capture_output=True, text=True, timeout=3,
+            )
+        except Exception:
+            return None
+        out = r.stdout.strip()
+        return out if r.returncode == 0 and out else None
+
+    common = _git("--path-format=absolute", "--git-common-dir")
+    if common:
+        norm = common.replace("\\\\", "/").rstrip("/")
+        if norm.endswith("/.git"):
+            return norm[: -len("/.git")]
+    top = _git("--show-toplevel")
+    if top:
+        return top
+    marker = "/.claude/worktrees/"
+    norm = cwd.replace("\\\\", "/")
+    idx = norm.find(marker)
+    if idx != -1:
+        return norm[:idx]
+    return cwd
 
 
 def _read_stdin_payload():
@@ -380,7 +415,7 @@ def main():
     if transcript.count(\'"role"\') < _MIN_ROLE_LINES:
         return
 
-    cwd = payload.get("cwd") or os.getcwd()
+    cwd = _project_root(payload.get("cwd") or os.getcwd())
     body = {"transcript": transcript, "cwd": cwd}
 
     req = urllib.request.Request(
@@ -412,6 +447,7 @@ Reads token + URL from ~/.config/piloci/config.json at runtime.
 Receives Codex stop payload via stdin; extracts transcript_path and POSTs to piLoci.
 """
 import json
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -419,6 +455,35 @@ from pathlib import Path
 
 _CONFIG = Path.home() / ".config" / "piloci" / "config.json"
 _MIN_ROLE_LINES = 4
+
+
+def _project_root(cwd):
+    """Collapse cwd to its git project root (mirror of resolve_project_root)."""
+    def _git(*args):
+        try:
+            r = subprocess.run(
+                ["git", "-C", cwd, "rev-parse", *args],
+                capture_output=True, text=True, timeout=3,
+            )
+        except Exception:
+            return None
+        out = r.stdout.strip()
+        return out if r.returncode == 0 and out else None
+
+    common = _git("--path-format=absolute", "--git-common-dir")
+    if common:
+        norm = common.replace("\\\\", "/").rstrip("/")
+        if norm.endswith("/.git"):
+            return norm[: -len("/.git")]
+    top = _git("--show-toplevel")
+    if top:
+        return top
+    marker = "/.claude/worktrees/"
+    norm = cwd.replace("\\\\", "/")
+    idx = norm.find(marker)
+    if idx != -1:
+        return norm[:idx]
+    return cwd
 
 
 def main():
@@ -440,6 +505,8 @@ def main():
 
     transcript_path_str = payload.get("transcript_path")
     cwd = payload.get("cwd", "")
+    if cwd:
+        cwd = _project_root(cwd)
     if not transcript_path_str:
         return
 
