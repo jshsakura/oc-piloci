@@ -109,34 +109,48 @@ class InstallReport:
     notes: list[str] = field(default_factory=list)
 
 
+def _has_nonempty_dir(path: Path) -> bool:
+    """True only if ``path`` is a directory with at least one entry.
+
+    A bare *empty* config dir — e.g. ``~/.cursor`` left behind after the app
+    was uninstalled — is not a real install signal and must not trip
+    auto-detection. The CLI-binary checks below stay as the reliable signal.
+    """
+    try:
+        return path.is_dir() and any(path.iterdir())
+    except OSError:
+        return False
+
+
 def detect_clients(home: Path | None = None) -> tuple[bool, bool]:
     """Return (has_claude, has_opencode) for the given HOME (defaults to real)."""
     h = home or Path.home()
-    has_claude = (h / CLAUDE_DIR_NAME).is_dir()
-    has_opencode = (h / OPENCODE_DIR_NAME).is_dir() or shutil.which("opencode") is not None
+    has_claude = _has_nonempty_dir(h / CLAUDE_DIR_NAME)
+    has_opencode = _has_nonempty_dir(h / OPENCODE_DIR_NAME) or shutil.which("opencode") is not None
     return has_claude, has_opencode
 
 
 def detect_all_targets(home: Path | None = None) -> dict[str, bool]:
     """Return ``{kind: detected}`` for every client piloci can install into.
 
-    Detection is best-effort — presence of the config dir or the CLI binary
-    counts as "detected". The /device approve page uses this to preselect
-    checkboxes; ``run_install`` falls back to it when no explicit ``targets``
-    list is supplied.
+    Detection is best-effort — a *non-empty* config dir or the CLI binary
+    counts as "detected" (an empty leftover dir does not). The /device approve
+    page uses this to preselect checkboxes; ``run_install`` falls back to it
+    when no explicit ``targets`` list is supplied.
     """
     h = home or Path.home()
     has_claude, has_opencode = detect_clients(home=h)
     return {
         "claude": has_claude,
         "opencode": has_opencode,
-        "cursor": (h / CURSOR_DIR_NAME).is_dir() or shutil.which("cursor") is not None,
-        "gemini": (h / GEMINI_DIR_NAME).is_dir() or shutil.which("gemini") is not None,
-        "windsurf": (h / WINDSURF_DIR_NAME).is_dir() or shutil.which("windsurf") is not None,
-        "antigravity": (h / ANTIGRAVITY_DIR_NAME).is_dir()
+        "cursor": _has_nonempty_dir(h / CURSOR_DIR_NAME) or shutil.which("cursor") is not None,
+        "gemini": _has_nonempty_dir(h / GEMINI_DIR_NAME) or shutil.which("gemini") is not None,
+        "windsurf": _has_nonempty_dir(h / WINDSURF_DIR_NAME)
+        or shutil.which("windsurf") is not None,
+        "antigravity": _has_nonempty_dir(h / ANTIGRAVITY_DIR_NAME)
         or shutil.which("antigravity") is not None,
-        "zed": (h / ZED_DIR_NAME).is_dir() or shutil.which("zed") is not None,
-        "codex": (h / CODEX_DIR_NAME).is_dir() or shutil.which("codex") is not None,
+        "zed": _has_nonempty_dir(h / ZED_DIR_NAME) or shutil.which("zed") is not None,
+        "codex": _has_nonempty_dir(h / CODEX_DIR_NAME) or shutil.which("codex") is not None,
     }
 
 

@@ -18,17 +18,41 @@ def test_detect_clients_neither(tmp_path: Path) -> None:
 
 
 def test_detect_clients_claude(tmp_path: Path) -> None:
-    (tmp_path / installer.CLAUDE_DIR_NAME).mkdir(parents=True)
+    d = tmp_path / installer.CLAUDE_DIR_NAME
+    d.mkdir(parents=True)
+    (d / "settings.json").write_text("{}")  # non-empty = real install signal
     has_claude, _ = installer.detect_clients(home=tmp_path)
     assert has_claude is True
 
 
 def test_detect_clients_opencode_dir(tmp_path: Path) -> None:
-    (tmp_path / installer.OPENCODE_DIR_NAME).mkdir(parents=True)
+    d = tmp_path / installer.OPENCODE_DIR_NAME
+    d.mkdir(parents=True)
+    (d / "config.json").write_text("{}")
     # Force ``opencode`` CLI absence to isolate the dir-based detection.
     with patch("piloci.installer.shutil.which", return_value=None):
         _, has_opencode = installer.detect_clients(home=tmp_path)
     assert has_opencode is True
+
+
+def test_detect_ignores_empty_leftover_dir(tmp_path: Path) -> None:
+    # An empty ~/.cursor (left behind after uninstall) must NOT be detected.
+    (tmp_path / installer.CURSOR_DIR_NAME).mkdir(parents=True)
+    (tmp_path / installer.CLAUDE_DIR_NAME).mkdir(parents=True)
+    with patch("piloci.installer.shutil.which", return_value=None):
+        targets = installer.detect_all_targets(home=tmp_path)
+        has_claude, _ = installer.detect_clients(home=tmp_path)
+    assert targets["cursor"] is False
+    assert has_claude is False
+
+
+def test_detect_nonempty_cursor_dir(tmp_path: Path) -> None:
+    d = tmp_path / installer.CURSOR_DIR_NAME
+    d.mkdir(parents=True)
+    (d / "mcp.json").write_text("{}")
+    with patch("piloci.installer.shutil.which", return_value=None):
+        targets = installer.detect_all_targets(home=tmp_path)
+    assert targets["cursor"] is True
 
 
 def test_write_config_json_writes_token_and_endpoints(tmp_path: Path) -> None:
@@ -162,7 +186,9 @@ def test_run_install_raises_when_no_clients(tmp_path: Path) -> None:
 
 
 def test_run_install_claude_only_injects_hooks(tmp_path: Path) -> None:
-    (tmp_path / installer.CLAUDE_DIR_NAME).mkdir(parents=True)
+    cdir = tmp_path / installer.CLAUDE_DIR_NAME
+    cdir.mkdir(parents=True)
+    (cdir / "settings.json").write_text("{}")  # non-empty so detection fires
     fake_hook = b"#!/usr/bin/env python3\nprint('hook')\n"
     fake_stop = b"#!/usr/bin/env python3\nexit(0)\n"
 
@@ -198,7 +224,9 @@ def test_run_install_claude_only_injects_hooks(tmp_path: Path) -> None:
 
 
 def test_run_install_opencode_only_drops_plugin_file(tmp_path: Path) -> None:
-    (tmp_path / installer.OPENCODE_DIR_NAME).mkdir(parents=True)
+    odir = tmp_path / installer.OPENCODE_DIR_NAME
+    odir.mkdir(parents=True)
+    (odir / "config.json").write_text("{}")  # non-empty so detection fires
     plugin_src = b"// piLoci OpenCode plugin\nexport default async () => ({})\n"
 
     def fake_dl(url: str, *, token: str | None = None, timeout: int = 30) -> bytes:
@@ -642,8 +670,12 @@ def test_strip_legacy_codex_piloci_no_op_on_clean_file() -> None:
 
 
 def test_detect_all_targets_reports_per_kind(tmp_path: Path) -> None:
-    (tmp_path / installer.CURSOR_DIR_NAME).mkdir(parents=True)
-    (tmp_path / installer.ZED_DIR_NAME).mkdir(parents=True)
+    cur = tmp_path / installer.CURSOR_DIR_NAME
+    cur.mkdir(parents=True)
+    (cur / "mcp.json").write_text("{}")  # non-empty = real install signal
+    zed = tmp_path / installer.ZED_DIR_NAME
+    zed.mkdir(parents=True)
+    (zed / "settings.json").write_text("{}")
     with patch("piloci.installer.shutil.which", return_value=None):
         targets = installer.detect_all_targets(home=tmp_path)
     assert targets["cursor"] is True
