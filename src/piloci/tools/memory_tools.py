@@ -211,6 +211,60 @@ def cwd_to_slug(cwd: str) -> str:
     return _slugify(_dir_name(cwd))
 
 
+def resolve_project_root(cwd: str) -> str:
+    """Collapse a working directory to its logical project root.
+
+    A single repo gets shattered into one piLoci project per directory the
+    user happens to ``cd`` into (``backend``, ``frontend/src``, ``locales`` …),
+    and every Claude Code subagent worktree (``…/.claude/worktrees/agent-XXXX``)
+    becomes its own throwaway ``agent-*`` project. Both are noise.
+
+    This walks ``cwd`` back to the project root using git:
+    - ``--git-common-dir`` points at the *main* repo's ``.git`` even from a
+      linked worktree, so subagent worktrees fold into the real repo.
+    - ``--show-toplevel`` handles plain subdirectories of a normal checkout.
+
+    Falls back to stripping a ``.../.claude/worktrees/agent-*`` suffix by path
+    shape (covers worktrees whose git metadata is unreadable), then to ``cwd``
+    unchanged. Best-effort and never raises — used client-side in the hook,
+    where filesystem + git access exist. Kept importable so it can be unit
+    tested; the hook embeds a mirror of this logic (it runs standalone).
+    """
+    import subprocess
+
+    def _git(*args: str) -> str | None:
+        try:
+            r = subprocess.run(
+                ["git", "-C", cwd, "rev-parse", *args],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+        except Exception:
+            return None
+        out = r.stdout.strip()
+        return out if r.returncode == 0 and out else None
+
+    common = _git("--path-format=absolute", "--git-common-dir")
+    if common:
+        norm = common.replace("\\", "/").rstrip("/")
+        # Main worktree: common dir is "<root>/.git". Linked worktrees also
+        # report the main repo's .git here, so dirname is the shared root.
+        if norm.endswith("/.git"):
+            return norm[: -len("/.git")]
+    top = _git("--show-toplevel")
+    if top:
+        return top
+
+    # Non-git or unreadable: strip a Claude Code worktree suffix by shape.
+    marker = "/.claude/worktrees/"
+    norm = cwd.replace("\\", "/")
+    idx = norm.find(marker)
+    if idx != -1:
+        return norm[:idx]
+    return cwd
+
+
 _HOOK_SCRIPT_PATH = "~/.config/piloci/hook.py"
 
 
@@ -244,6 +298,7 @@ scanning ~/.claude/projects/ on disk.
 """
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
@@ -312,6 +367,41 @@ def _post(url, token, payload_bytes):
     urllib.request.urlopen(req, timeout=60)
 
 
+def _project_root(cwd):
+    """Collapse cwd to its git project root before reporting it to the server.
+
+    Keeps a repo from fragmenting into one project per subdirectory and folds
+    Claude Code subagent worktrees (.../.claude/worktrees/agent-XXXX) back into
+    the real repo. Mirror of piloci.tools.memory_tools.resolve_project_root —
+    the hook runs standalone so it can't import piloci. Never raises.
+    """
+    def _git(*args):
+        try:
+            r = subprocess.run(
+                ["git", "-C", cwd, "rev-parse", *args],
+                capture_output=True, text=True, timeout=3,
+            )
+        except Exception:
+            return None
+        out = r.stdout.strip()
+        return out if r.returncode == 0 and out else None
+
+    common = _git("--path-format=absolute", "--git-common-dir")
+    if common:
+        norm = common.replace("\\\\", "/").rstrip("/")
+        if norm.endswith("/.git"):
+            return norm[: -len("/.git")]
+    top = _git("--show-toplevel")
+    if top:
+        return top
+    marker = "/.claude/worktrees/"
+    norm = cwd.replace("\\\\", "/")
+    idx = norm.find(marker)
+    if idx != -1:
+        return norm[:idx]
+    return cwd
+
+
 def main():
     cfg = _read(_CONFIG)
     token = cfg.get("token")
@@ -327,6 +417,10 @@ def main():
     stdin = _read_stdin()
     transcript_path_str = stdin.get("transcript_path")
     cwd = stdin.get("cwd") or os.getcwd()
+    # Server keys the project off this path; collapse to the repo root so
+    # subdirs/worktrees don't each spawn a project. Transcript discovery below
+    # still uses the raw cwd (Claude Code names its project dir after it).
+    proj_cwd = _project_root(cwd)
 
     if transcript_path_str:
         path = Path(transcript_path_str)
@@ -347,7 +441,7 @@ def main():
             transcript = path.read_bytes().decode("utf-8", "ignore")
         except OSError:
             return
-        payload = json.dumps({"cwd": cwd, "sessions": [{"session_id": sid, "transcript": transcript}]}).encode()
+        payload = json.dumps({"cwd": proj_cwd, "sessions": [{"session_id": sid, "transcript": transcript}]}).encode()
         try:
             _post(url, token, payload)
             sent[sid] = fp
@@ -398,7 +492,7 @@ def main():
     if not sessions:
         return
 
-    payload = json.dumps({"cwd": cwd, "sessions": sessions}).encode()
+    payload = json.dumps({"cwd": proj_cwd, "sessions": sessions}).encode()
     try:
         _post(url, token, payload)
     except urllib.error.HTTPError as e:

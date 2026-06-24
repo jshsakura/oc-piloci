@@ -300,6 +300,68 @@ def test_cwd_to_slug_windows_paths():
 
 
 # ---------------------------------------------------------------------------
+# resolve_project_root — collapse subdirs/worktrees to the repo root so a
+# single repo doesn't shatter into one project per cwd the user lands in.
+# ---------------------------------------------------------------------------
+
+
+def _git(cwd, *args):
+    import subprocess
+
+    subprocess.run(["git", "-C", str(cwd), *args], check=True, capture_output=True)
+
+
+def _init_repo(path):
+    path.mkdir(parents=True, exist_ok=True)
+    _git(path, "init", "-q")
+    _git(path, "config", "user.email", "t@t.t")
+    _git(path, "config", "user.name", "t")
+    (path / "f.txt").write_text("x")
+    _git(path, "add", ".")
+    _git(path, "commit", "-q", "-m", "init")
+
+
+def test_resolve_project_root_subdir(tmp_path):
+    from piloci.tools.memory_tools import resolve_project_root
+
+    repo = tmp_path / "myrepo"
+    _init_repo(repo)
+    sub = repo / "frontend" / "src" / "locales"
+    sub.mkdir(parents=True)
+    # A deep subdir resolves back to the repo root, not its own basename.
+    assert resolve_project_root(str(sub)) == str(repo)
+    assert resolve_project_root(str(repo)) == str(repo)
+
+
+def test_resolve_project_root_claude_worktree(tmp_path):
+    from piloci.tools.memory_tools import resolve_project_root
+
+    repo = tmp_path / "myrepo"
+    _init_repo(repo)
+    wt = repo / ".claude" / "worktrees" / "agent-deadbeef123"
+    _git(repo, "worktree", "add", "-q", str(wt))
+    # A subagent worktree folds back into the real repo, not an agent-* project.
+    assert resolve_project_root(str(wt)) == str(repo)
+
+
+def test_resolve_project_root_non_git_worktree_shape(tmp_path):
+    from piloci.tools.memory_tools import resolve_project_root
+
+    # No git metadata: fall back to stripping the worktree suffix by path shape.
+    p = "/home/pi/app/piloci/.claude/worktrees/agent-abc123"
+    assert resolve_project_root(p) == "/home/pi/app/piloci"
+
+
+def test_resolve_project_root_plain_dir_unchanged(tmp_path):
+    from piloci.tools.memory_tools import resolve_project_root
+
+    # Not a repo, no worktree marker: returned unchanged (best-effort).
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    assert resolve_project_root(str(plain)) == str(plain)
+
+
+# ---------------------------------------------------------------------------
 # whoAmI
 # ---------------------------------------------------------------------------
 
