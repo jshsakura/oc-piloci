@@ -215,3 +215,72 @@ async def test_cleanup_retention_respects_custom_days(session: AsyncSession, eng
     result = await maintenance.cleanup_retention(settings)
 
     assert result == {"raw_sessions": 0, "audit_logs": 0}
+
+
+@pytest.mark.asyncio
+async def test_cleanup_retention_reclaims_aged_archived_sessions(session: AsyncSession, engine):
+    """Archived (backlog-overflow) rows never get processed_at, so retention must
+    age them out via archived_at — otherwise they leak forever. Pending rows and
+    recently-archived rows must be preserved."""
+    _eng, settings_obj = engine
+    user, project = await _seed_user_project(session)
+    old_time = _now() - timedelta(days=30)
+    recent_time = _now() - timedelta(days=2)
+    settings = _settings(
+        database_url=settings_obj.database_url,
+        raw_session_retention_days=14,
+        audit_log_retention_days=14,
+    )
+
+    session.add_all(
+        [
+            # Overflow-dropped long ago → should be reclaimed.
+            RawSession(
+                ingest_id="archived-old",
+                user_id=user.id,
+                project_id=project.id,
+                client="claude",
+                session_id="a1",
+                transcript_json="[]",
+                created_at=old_time,
+                processed_at=None,
+                distillation_state="archived",
+                archived_at=old_time,
+                filter_reason="backlog_overflow",
+            ),
+            # Archived but recent → still within retention window, keep.
+            RawSession(
+                ingest_id="archived-recent",
+                user_id=user.id,
+                project_id=project.id,
+                client="claude",
+                session_id="a2",
+                transcript_json="[]",
+                created_at=recent_time,
+                processed_at=None,
+                distillation_state="archived",
+                archived_at=recent_time,
+                filter_reason="backlog_overflow",
+            ),
+            # Still owed distillation → keep regardless of age.
+            RawSession(
+                ingest_id="pending-old",
+                user_id=user.id,
+                project_id=project.id,
+                client="claude",
+                session_id="a3",
+                transcript_json="[]",
+                created_at=old_time,
+                processed_at=None,
+                distillation_state="pending",
+            ),
+        ]
+    )
+    await session.commit()
+
+    result = await maintenance.cleanup_retention(settings)
+
+    assert result == {"raw_sessions": 1, "audit_logs": 0}
+
+    remaining_raw = set((await session.execute(select(RawSession.ingest_id))).scalars().all())
+    assert remaining_raw == {"archived-recent", "pending-old"}
