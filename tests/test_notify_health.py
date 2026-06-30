@@ -26,6 +26,7 @@ from piloci.notify.health import (
     _is_in_active_window,
     _read_swap_used_ratio,
     _tracker,
+    prime_heartbeat_baseline,
     reset_heartbeat,
     reset_pending_queue,
     reset_trackers,
@@ -722,6 +723,40 @@ async def test_heartbeat_sends_and_updates_last_sent(monkeypatch) -> None:
     sent.assert_awaited_once()
     assert sent.await_args.args[0] == "hb-text"
     assert health_mod._heartbeat.last_sent_at == now
+
+
+def test_prime_heartbeat_baseline_seeds_when_unset() -> None:
+    assert health_mod._heartbeat.last_sent_at is None
+    now = _now()
+    prime_heartbeat_baseline(now)
+    assert health_mod._heartbeat.last_sent_at == now
+
+
+def test_prime_heartbeat_baseline_does_not_overwrite_warm_cadence() -> None:
+    earlier = _now() - timedelta(hours=3)
+    health_mod._heartbeat.last_sent_at = earlier
+    prime_heartbeat_baseline(_now())
+    assert health_mod._heartbeat.last_sent_at == earlier
+
+
+async def test_heartbeat_suppressed_immediately_after_startup_prime(monkeypatch) -> None:
+    """Regression: a (re)start must not emit a periodic report. Priming the
+    baseline at startup makes the first poll wait a full interval, so a burst
+    of restarts no longer produces one ping each."""
+    sent = AsyncMock(return_value=True)
+    monkeypatch.setattr(health_mod, "send_admin_notification", sent)
+    monkeypatch.setattr(health_mod, "_build_heartbeat_message", AsyncMock(return_value="x"))
+    now = _now()
+    prime_heartbeat_baseline(now)
+    await health_mod._maybe_send_heartbeat(
+        _settings(
+            health_periodic_report_enabled=True,
+            health_periodic_report_interval_min=180,
+            health_periodic_report_active_window=None,
+        ),
+        now,
+    )
+    sent.assert_not_called()
 
 
 async def test_heartbeat_failure_is_swallowed(monkeypatch) -> None:

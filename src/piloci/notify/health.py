@@ -364,6 +364,22 @@ def reset_heartbeat() -> None:
     _heartbeat.last_distilled_count = None
 
 
+def prime_heartbeat_baseline(now: datetime) -> None:
+    """Anchor the heartbeat cadence at worker startup.
+
+    ``last_sent_at`` lives in module memory, so a process (re)start resets it to
+    None — and ``_maybe_send_heartbeat`` treats None as "never sent" and fires
+    unconditionally on the very first poll. That means a burst of restarts emits
+    one periodic report per restart (the notification storm this guards against).
+
+    Seeding ``last_sent_at`` to startup time makes the first heartbeat wait a
+    full interval instead. Only seeds when unset, so a still-warm cadence is
+    left untouched.
+    """
+    if _heartbeat.last_sent_at is None:
+        _heartbeat.last_sent_at = now
+
+
 async def _build_heartbeat_message(settings: Settings, now: datetime) -> str:
     """Compose a one-shot status snapshot.
 
@@ -484,6 +500,9 @@ async def run_health_monitor(settings: Settings, stop_event: object) -> None:
         raise TypeError("run_health_monitor expects an asyncio.Event")
 
     logger.info("health monitor started (enabled=%s)", settings.health_monitor_enabled)
+    # Don't let a (re)start immediately emit a periodic report — anchor the
+    # cadence to startup so the first heartbeat waits a full interval.
+    prime_heartbeat_baseline(datetime.now(timezone.utc))
     while not stop_event.is_set():
         if settings.health_monitor_enabled and settings.telegram_bot_token:
             try:
